@@ -1,0 +1,63 @@
+# Environment files
+.env*
+env.production
+
+# Local databases
+prisma/*.db
+
+# Node
+node_modules/
+.next/
+out/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+**/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+!.env.production.example.txt
+
+# Database (dev and binary db/journal only, keep migrations!)
+*.db
+*.db-journal
+prisma/dev.db
+
+# OS/Editor cache and log files
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# VSCode settings
+.vscode/
+
+# Test coverage
+coverage/
+
+# Windows/Mac executables, & deployment bin folder
+*.exe
+*.dll
+deploy/
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Allow checked-in sample DB for dev/example only:
+!prisma/sample-data.db

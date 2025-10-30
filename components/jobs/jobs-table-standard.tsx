@@ -1,0 +1,410 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useSession } from 'next-auth/react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Folder, Calculator, ArrowUpCircle, FileText, CheckSquare, Square } from 'lucide-react'
+import { format } from 'date-fns'
+import { toast } from 'react-hot-toast'
+import { SubmitECOModal } from './submit-eco-modal'
+import { StandardTable } from '@/components/common/standard-table'
+
+interface Job {
+  id: string
+  jobNumber: string
+  title: string
+  description: string | null
+  type: string
+  status: string
+  priority: string
+  startDate: Date | null
+  endDate: Date | null
+  estimatedHours: number | null
+  actualHours: number | null
+  assignedToId: string | null
+  createdById: string
+  customerId: string | null
+  workCode: string | null
+  estimatedCost: number | null
+  dueTodayPercent: number | null
+  inQuickBooks: boolean
+  inLDrive: boolean
+  fileLink: string | null
+  relatedQuoteId: string | null
+  convertedAt: Date | null
+  createdAt: Date
+  updatedAt: Date
+  assignedTo: {
+    name: string | null
+  } | null
+  quotedLabor?: Array<{
+    id: string
+    laborCodeId: string
+    laborCode: {
+      id: string
+      code: string
+      description: string
+      rate: number
+    }
+    estimatedHours: number
+    estimatedCost: number
+  }>
+  laborCodes?: Array<{
+    id: string
+    code: string
+    description: string
+    rate: number
+  }>
+  timeEntries?: Array<{
+    id: string
+    laborCodeId: string
+    laborCode: {
+      id: string
+      code: string
+      description: string
+      rate: number
+    }
+    regularHours: number
+    overtimeHours: number
+    totalHours: number
+  }>
+  createdBy: {
+    name: string | null
+  }
+  customer: {
+    id: string
+    name: string
+    email: string | null
+  } | null
+  _count: {
+    timeEntries: number
+  }
+}
+
+interface JobsTableProps {
+  jobs: Job[]
+  showCreateButton?: boolean
+}
+
+export function JobsTableStandard({ jobs, showCreateButton = true }: JobsTableProps) {
+  const router = useRouter()
+  const { data: session } = useSession()
+  const [isLoading, setIsLoading] = useState(false)
+  const [submitECOModalOpen, setSubmitECOModalOpen] = useState(false)
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'ACTIVE':
+        return 'bg-green-100 text-green-800'
+      case 'COMPLETED':
+        return 'bg-blue-100 text-blue-800'
+      case 'QUOTE':
+        return 'bg-yellow-100 text-yellow-800'
+      case 'Open':
+        return 'bg-gray-100 text-gray-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'LOW':
+        return 'bg-gray-100 text-gray-800'
+      case 'MEDIUM':
+        return 'bg-blue-100 text-blue-800'
+      case 'HIGH':
+        return 'bg-orange-100 text-orange-800'
+      case 'URGENT':
+        return 'bg-red-100 text-red-800'
+      default:
+        return 'bg-gray-100 text-gray-800'
+    }
+  }
+
+  const openInFileExplorer = async (filePath: string | null): Promise<void> => {
+    if (!filePath) {
+      toast.error('No file path available')
+      return
+    }
+    
+    try {
+      const response = await fetch('/api/open-folder', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ filePath }),
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        toast.success('Opening folder in File Explorer...')
+      } else {
+        console.error('Failed to open folder:', data.error)
+        
+        try {
+          await navigator.clipboard.writeText(filePath)
+          toast.success(`Path copied to clipboard: ${filePath}`)
+        } catch (clipboardError) {
+          toast.error(`Failed to open folder. Path: ${filePath}`)
+        }
+      }
+    } catch (error) {
+      console.error('Error opening folder:', error)
+      toast.error('Failed to open folder')
+    }
+  }
+
+  const deleteJob = async (job: Job) => {
+    if (!confirm('Are you sure you want to delete this job? This action cannot be undone.')) {
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/jobs/${job.id}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        toast.success('Job deleted successfully')
+        router.refresh()
+      } else {
+        const errorData = await response.json()
+        toast.error(`Failed to delete job: ${errorData.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error deleting job:', error)
+      toast.error('An error occurred while deleting the job')
+    }
+  }
+
+  const convertQuoteToJob = async (job: Job) => {
+    if (!confirm('Convert this quote to an active job? This will create a new job record while keeping the original quote.')) {
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const response = await fetch(`/api/jobs/${job.id}/convert`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        toast.success('Quote converted to job successfully')
+        router.refresh()
+      } else {
+        const errorData = await response.json()
+        toast.error(`Failed to convert quote: ${errorData.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error converting quote:', error)
+      toast.error('An error occurred while converting the quote')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const columns = [
+    {
+      key: 'type',
+      label: 'Type',
+      width: 'w-8',
+      render: (value: string, job: Job) => (
+        <Badge className={`text-xs ${job.type === 'QUOTE' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+          {job.type === 'QUOTE' ? 'Q' : 'J'}
+        </Badge>
+      )
+    },
+    {
+      key: 'jobNumber',
+      label: 'Job #',
+      sortable: true,
+      width: 'w-12',
+      className: 'font-medium text-xs'
+    },
+    {
+      key: 'title',
+      label: 'Title',
+      sortable: true,
+      className: 'min-w-[120px]',
+      render: (value: string, job: Job) => (
+        <div className="truncate text-xs" title={job.title}>{job.title}</div>
+      )
+    },
+    {
+      key: 'customer',
+      label: 'Customer',
+      sortable: true,
+      className: 'min-w-[100px]',
+      render: (value: any, job: Job) => (
+        <div className="text-xs">
+          {job.customer ? (
+            <div className="truncate" title={job.customer.name}>
+              <div className="font-medium">{job.customer.name}</div>
+              <div className="text-gray-500 text-xs truncate">{job.customer.email || 'No email'}</div>
+            </div>
+          ) : (
+            <div className="text-gray-500">No Customer</div>
+          )}
+        </div>
+      )
+    },
+    {
+      key: 'assignedTo',
+      label: 'Contact',
+      sortable: true,
+      width: 'w-16',
+      render: (value: any, job: Job) => (
+        <div className="text-xs truncate" title={job.assignedTo?.name || 'Unassigned'}>
+          {job.assignedTo ? job.assignedTo.name : 'Unassigned'}
+        </div>
+      )
+    },
+    {
+      key: 'status',
+      label: 'Status',
+      sortable: true,
+      width: 'w-12',
+      render: (value: string, job: Job) => (
+        <Badge className={`text-xs ${getStatusColor(job.status)}`}>
+          {job.status}
+        </Badge>
+      )
+    },
+    {
+      key: 'estimatedCost',
+      label: 'Amount',
+      sortable: true,
+      width: 'w-16',
+      render: (value: number | null, job: Job) => (
+        <div className="text-xs font-medium">
+          ${job.estimatedCost ? job.estimatedCost.toLocaleString() : '0'}
+        </div>
+      )
+    },
+    {
+      key: 'tracking',
+      label: 'QB/L',
+      width: 'w-12',
+      className: 'text-center',
+      render: (value: any, job: Job) => (
+        <div className="flex items-center justify-center space-x-0.5">
+          <span className={`px-0.5 py-0.5 text-xs border rounded ${
+            job.inQuickBooks 
+              ? 'bg-green-100 border-green-300 text-green-700' 
+              : 'bg-gray-100 border-gray-300 text-gray-500'
+          }`}>
+            QB
+          </span>
+          <span className={`px-0.5 py-0.5 text-xs border rounded ${
+            job.inLDrive 
+              ? 'bg-blue-100 border-blue-300 text-blue-700' 
+              : 'bg-gray-100 border-gray-300 text-gray-500'
+          }`}>
+            L
+          </span>
+        </div>
+      )
+    },
+    {
+      key: 'dueTodayPercent',
+      label: 'Inv%',
+      width: 'w-8',
+      render: (value: number | null, job: Job) => (
+        <div className="text-xs text-center">
+          {job.dueTodayPercent ? `${job.dueTodayPercent}%` : '-'}
+        </div>
+      )
+    },
+    {
+      key: 'startDate',
+      label: 'Start',
+      sortable: true,
+      width: 'w-12',
+      render: (value: Date | null, job: Job) => (
+        <div className="text-xs">
+          {job.startDate ? format(new Date(job.startDate), 'MM/dd') : '-'}
+        </div>
+      )
+    },
+    {
+      key: 'timeEntries',
+      label: 'Tasks',
+      width: 'w-8',
+      render: (value: any, job: Job) => (
+        <div className="text-xs text-center">
+          {job._count.timeEntries || 0}
+        </div>
+      )
+    },
+    {
+      key: 'fileLink',
+      label: 'File',
+      width: 'w-8',
+      render: (value: string | null, job: Job) => (
+        job.fileLink ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 w-6 p-0 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+            onClick={(e) => {
+              e.stopPropagation()
+              openInFileExplorer(job.fileLink)
+            }}
+            title="Open Folder"
+          >
+            <Folder className="h-3 w-3" />
+          </Button>
+        ) : (
+          <span className="text-gray-400 text-xs">-</span>
+        )
+      )
+    }
+  ]
+
+  const createButton = showCreateButton ? (
+    <Button
+      onClick={() => router.push('/dashboard/jobs/new')}
+      className="bg-blue-600 hover:bg-blue-700"
+    >
+      <FileText className="h-4 w-4 mr-2" />
+      Create Job
+    </Button>
+  ) : null
+
+  return (
+    <>
+      <StandardTable
+        title="Jobs"
+        data={jobs}
+        columns={columns}
+        searchFields={['jobNumber', 'title', 'customer.name', 'assignedTo.name']}
+        onDelete={deleteJob}
+        detailRoute="/dashboard/jobs"
+        createButton={createButton}
+        emptyMessage="No jobs found"
+        className="w-full"
+        showEditButton={false}
+      />
+
+      {submitECOModalOpen && selectedJob && (
+        <SubmitECOModal
+          job={selectedJob}
+          isOpen={submitECOModalOpen}
+          onClose={() => {
+            setSubmitECOModalOpen(false)
+            setSelectedJob(null)
+          }}
+        />
+      )}
+    </>
+  )
+}

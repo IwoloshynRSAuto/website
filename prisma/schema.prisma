@@ -1,0 +1,233 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String                   @id @default(cuid())
+  email                String                   @unique
+  name                 String?
+  role                 String                   @default("USER")
+  isActive             Boolean                  @default(true)
+  position             String?
+  wage                 Decimal?
+  phone                String?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+  ecoOrders            EngineeringChangeOrder[]
+  createdJobs          Job[]                    @relation("JobCreator")
+  assignedJobs         Job[]                    @relation("JobAssignee")
+  timeEntries          TimeEntry[]
+  rejectedTimesheets   TimesheetSubmission[]    @relation("TimesheetRejections")
+  approvedTimesheets   TimesheetSubmission[]    @relation("TimesheetApprovals")
+  timesheetSubmissions TimesheetSubmission[]
+
+  @@map("users")
+}
+
+model Job {
+  id              String                   @id @default(cuid())
+  jobNumber       String                   @unique
+  title           String
+  description     String?
+  type            String                   @default("JOB")
+  status          String                   @default("ACTIVE")
+  priority        String                   @default("MEDIUM")
+  startDate       DateTime?
+  endDate         DateTime?
+  estimatedHours  Float?
+  actualHours     Float?
+  assignedToId    String?
+  createdById     String
+  customerId      String?
+  workCode        String?
+  estimatedCost   Float?
+  dueTodayPercent Float?
+  inQuickBooks    Boolean                  @default(false)
+  inLDrive        Boolean                  @default(false)
+  fileLink        String?
+  quoteId         String?                  @unique
+  relatedQuoteId  String?
+  convertedAt     DateTime?
+  lockedHours     Float?
+  currentRevision String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+  ecoOrders       EngineeringChangeOrder[]
+  quotedLabor     JobLaborEstimate[]
+  quote           Quote?                   @relation(fields: [quoteId], references: [id])
+  customer        Customer?                @relation(fields: [customerId], references: [id])
+  createdBy       User                     @relation("JobCreator", fields: [createdById], references: [id])
+  assignedTo      User?                    @relation("JobAssignee", fields: [assignedToId], references: [id])
+  timeEntries     TimeEntry[]
+
+  @@map("jobs")
+}
+
+model Customer {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  email     String?
+  phone     String?
+  address   String?
+  isActive  Boolean  @default(true)
+  fileLink  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  jobs      Job[]
+  quotes    Quote[]
+
+  @@map("customers")
+}
+
+model TimeEntry {
+  id            String               @id @default(cuid())
+  date          DateTime
+  regularHours  Float                @default(0)
+  overtimeHours Float                @default(0)
+  notes         String?
+  billable      Boolean              @default(true)
+  rate          Decimal?
+  userId        String?
+  jobId         String
+  laborCodeId   String?
+  submissionId  String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  submission    TimesheetSubmission? @relation(fields: [submissionId], references: [id])
+  laborCode     LaborCode?           @relation(fields: [laborCodeId], references: [id])
+  job           Job                  @relation(fields: [jobId], references: [id])
+  user          User?                @relation(fields: [userId], references: [id])
+
+  @@map("time_entries")
+}
+
+model TimesheetSubmission {
+  id              String      @id @default(cuid())
+  userId          String
+  weekStart       DateTime
+  weekEnd         DateTime
+  status          String      @default("DRAFT")
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  approvedById    String?
+  rejectedAt      DateTime?
+  rejectedById    String?
+  rejectionReason String?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  timeEntries     TimeEntry[]
+  rejectedBy      User?       @relation("TimesheetRejections", fields: [rejectedById], references: [id])
+  approvedBy      User?       @relation("TimesheetApprovals", fields: [approvedById], references: [id])
+  user            User        @relation(fields: [userId], references: [id])
+
+  @@unique([userId, weekStart])
+  @@map("timesheet_submissions")
+}
+
+model LaborCode {
+  id           String             @id @default(cuid())
+  code         String             @unique
+  name         String
+  description  String?
+  category     String
+  hourlyRate   Decimal            @default(0)
+  isActive     Boolean            @default(true)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  jobEstimates JobLaborEstimate[]
+  timeEntries  TimeEntry[]
+
+  @@map("labor_codes")
+}
+
+model Quote {
+  id                   String    @id @default(cuid())
+  quoteNumber          String    @unique
+  title                String
+  description          String?
+  customerId           String
+  amount               Float     @default(0)
+  validUntil           DateTime?
+  status               String    @default("DRAFT")
+  paymentTerms         String?
+  estimatedHours       Float?
+  hourlyRate           Float?
+  laborCost            Float?
+  materialCost         Float?
+  overheadCost         Float?
+  profitMargin         Float?
+  customerContactName  String?
+  customerContactEmail String?
+  customerContactPhone String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  job                  Job?
+  customer             Customer  @relation(fields: [customerId], references: [id])
+
+  @@map("quotes")
+}
+
+model JobLaborEstimate {
+  id             String    @id @default(cuid())
+  jobId          String
+  laborCodeId    String
+  estimatedHours Float     @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  laborCode      LaborCode @relation(fields: [laborCodeId], references: [id])
+  job            Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, laborCodeId])
+  @@map("job_labor_estimates")
+}
+
+model PartsService {
+  id           String    @id @default(cuid())
+  jobNumber    String    @unique
+  createdBy    String?
+  customerName String?
+  custContact  String?
+  description  String?
+  vendor       String?
+  startDate    DateTime?
+  dueDate      DateTime?
+  jobStatus    String?
+  inQuickBooks Boolean   @default(false)
+  inLDrive     Boolean   @default(false)
+  quoteNumber  String?
+  invoiced     String?
+  dateInvoiced DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@map("parts_services")
+}
+
+model EngineeringChangeOrder {
+  id              String    @id @default(cuid())
+  ecoNumber       String    @unique
+  jobId           String
+  oldHours        Float
+  newHours        Float
+  oldCost         Float?
+  newCost         Float?
+  reasonForChange String?
+  laborChanges    String?
+  submittedById   String
+  submittedAt     DateTime  @default(now())
+  appliedAt       DateTime?
+  status          String    @default("PENDING")
+  revision        String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  submittedBy     User      @relation(fields: [submittedById], references: [id])
+  job             Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@map("engineering_change_orders")
+}
