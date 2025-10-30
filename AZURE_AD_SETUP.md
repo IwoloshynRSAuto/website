@@ -3,7 +3,7 @@
 ## Current Configuration
 - **App Registration ID**: 3781380c-6541-4bef-a666-81d1949c4146
 - **Tenant ID**: db7f9555-af42-4e86-938b-707838df8551
-- **Internal Domain**: https://192.168.10.95:3000
+- **Internal Domain**: https://192.168.10.70:3000
 
 ## Required Azure AD App Registration Updates
 
@@ -11,8 +11,8 @@
 Navigate to your Azure AD App Registration and add the following redirect URIs:
 
 **Authentication > Redirect URIs:**
-- `https://192.168.10.95:3000/api/auth/callback/azure-ad`
-- `https://192.168.10.95:3000` (for post-login redirect)
+- `https://192.168.10.70:3000/api/auth/callback/azure-ad`
+- `https://192.168.10.70:3000` (for post-login redirect)
 
 **Keep existing localhost URIs for development:**
 - `http://localhost:3000/api/auth/callback/azure-ad`
@@ -20,11 +20,11 @@ Navigate to your Azure AD App Registration and add the following redirect URIs:
 
 ### 2. Update Logout URLs (Optional)
 **Authentication > Logout URLs:**
-- `https://192.168.10.95:3000/auth/signin`
+- `https://192.168.10.70:3000/auth/signin`
 
 ### 3. Update Front-channel Logout URL (Optional)
 **Authentication > Front-channel logout URL:**
-- `https://192.168.10.95:3000/api/auth/signout`
+- `https://192.168.10.70:3000/api/auth/signout`
 
 ### 4. API Permissions
 Ensure the following Microsoft Graph permissions are granted:
@@ -44,21 +44,21 @@ Ensure the following Microsoft Graph permissions are granted:
 
 ## Certificate Requirements
 
-### SSL Certificate for 192.168.10.95
+### SSL Certificate for 192.168.10.70
 You need to create or obtain an SSL certificate for your internal IP address:
 
 1. **Self-signed certificate** (for internal use):
    ```bash
    # Generate private key
-   openssl genrsa -out 192.168.10.95-key.pem 2048
+   openssl genrsa -out 192.168.10.70-key.pem 2048
    
    # Generate certificate
-   openssl req -new -x509 -key 192.168.10.95-key.pem -out 192.168.10.95.pem -days 365 -subj "/CN=192.168.10.95"
+   openssl req -new -x509 -key 192.168.10.70-key.pem -out 192.168.10.70.pem -days 365 -subj "/CN=192.168.10.70"
    ```
 
 2. **Place certificates in the `certs/` directory:**
-   - `certs/192.168.10.95-key.pem`
-   - `certs/192.168.10.95.pem`
+- `certs/192.168.10.70-key.pem`
+- `certs/192.168.10.70.pem`
 
 ## Testing the Configuration
 
@@ -68,7 +68,7 @@ npm run dev:https
 ```
 
 ### 2. Test authentication flow:
-1. Navigate to `https://192.168.10.95:3000`
+1. Navigate to `https://192.168.10.70:3000`
 2. Click sign in
 3. Verify redirect to Microsoft login
 4. After authentication, verify redirect back to `https://192.168.10.95:3000`
