@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exec } from 'child_process'
 import { promisify } from 'util'
-import { existsSync } from 'fs'
+import { existsSync, statSync } from 'fs'
 
 const execAsync = promisify(exec)
 
@@ -34,8 +34,18 @@ export async function POST(request: NextRequest) {
     }
     
     // Use Windows explorer command to open the folder
-    // Use a simpler approach that handles special characters better
-    const command = `explorer /select,"${cleanPath}"`
+    // For folders, just open them; for files, select them in their parent folder
+    const stats = statSync(cleanPath)
+    const isDirectory = stats.isDirectory()
+    
+    let command: string
+    if (isDirectory) {
+      // For directories, just open them (this prevents opening parent + child)
+      command = `explorer "${cleanPath}"`
+    } else {
+      // For files, select them in their parent folder
+      command = `explorer /select,"${cleanPath}"`
+    }
     
     try {
       await execAsync(command)
@@ -46,26 +56,11 @@ export async function POST(request: NextRequest) {
       })
     } catch (error) {
       console.error('Failed to open File Explorer:', error)
-      
-      // Try alternative method using start command
-      try {
-        const altCommand = `start "" "${cleanPath}"`
-        await execAsync(altCommand)
-        return NextResponse.json({ 
-          success: true, 
-          message: 'File Explorer opened successfully (alternative method)',
-          path: cleanPath 
-        })
-      } catch (altError) {
-        console.error('Alternative method also failed:', altError)
-        return NextResponse.json({ 
-          error: 'Failed to open File Explorer', 
-          details: 'Both explorer and start commands failed. The path may not exist or be accessible.',
-          path: cleanPath,
-          originalError: error instanceof Error ? error.message : 'Unknown error',
-          alternativeError: altError instanceof Error ? altError.message : 'Unknown error'
-        }, { status: 500 })
-      }
+      return NextResponse.json({ 
+        error: 'Failed to open File Explorer', 
+        details: error instanceof Error ? error.message : 'Unknown error',
+        path: cleanPath
+      }, { status: 500 })
     }
   } catch (error) {
     console.error('Error in open-folder API:', error)

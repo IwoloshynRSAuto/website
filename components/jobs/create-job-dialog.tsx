@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+
+const FORM_STORAGE_KEY = 'create-job-dialog-form'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -39,38 +41,138 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
   const [customers, setCustomers] = useState<Customer[]>([])
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [recordType, setRecordType] = useState<'QUOTE' | 'JOB'>('QUOTE')
-  const [formData, setFormData] = useState({
-    jobNumber: '',
-    title: '',
-    description: '',
-    customerId: '',
-    quoteId: '',
-    status: 'PLANNING',
-    priority: 'MEDIUM',
-    startDate: new Date().toISOString().split('T')[0], // Default to today
-    endDate: '',
-    quotedAmount: '',
-    assignedTo: '',
-    fileLink: ''
-  })
+  
+  // Load initial form data from localStorage
+  const loadFormData = () => {
+    if (typeof window === 'undefined') {
+      return {
+        jobNumber: '',
+        title: '',
+        description: '',
+        customerId: '',
+        quoteId: '',
+        status: 'PLANNING',
+        priority: 'MEDIUM',
+        startDate: new Date().toISOString().split('T')[0],
+        endDate: '',
+        quotedAmount: '',
+        assignedTo: '',
+        fileLink: ''
+      }
+    }
+    
+    try {
+      const stored = localStorage.getItem(FORM_STORAGE_KEY)
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        return {
+          jobNumber: parsed.jobNumber || '',
+          title: parsed.title || '',
+          description: parsed.description || '',
+          customerId: parsed.customerId || '',
+          quoteId: parsed.quoteId || '',
+          status: parsed.status || 'PLANNING',
+          priority: parsed.priority || 'MEDIUM',
+          startDate: parsed.startDate || new Date().toISOString().split('T')[0],
+          endDate: parsed.endDate || '',
+          quotedAmount: parsed.quotedAmount || '',
+          assignedTo: parsed.assignedTo || '',
+          fileLink: parsed.fileLink || ''
+        }
+      }
+    } catch (e) {
+      console.error('[CreateJobDialog] Error loading form data:', e)
+    }
+    
+    return {
+      jobNumber: '',
+      title: '',
+      description: '',
+      customerId: '',
+      quoteId: '',
+      status: 'PLANNING',
+      priority: 'MEDIUM',
+      startDate: new Date().toISOString().split('T')[0],
+      endDate: '',
+      quotedAmount: '',
+      assignedTo: '',
+      fileLink: ''
+    }
+  }
+  
+  const initialData = loadFormData()
+  const [formData, setFormData] = useState(initialData)
+  const isInitialMount = useRef(true)
+  const skipNextSave = useRef(false)
 
-  // Fetch customers and quotes when dialog opens
+  // Load form data from localStorage when dialog opens
   useEffect(() => {
-    if (isOpen) {
-      fetchCustomers()
-      fetchQuotes()
-      generateJobNumber(recordType)
-      if (selectedQuote) {
-        setFormData(prev => ({
-          ...prev,
-          title: selectedQuote.title,
-          customerId: '', // Will be set when we find the customer
-          quoteId: selectedQuote.id,
-          quotedAmount: selectedQuote.amount.toString()
-        }))
+    if (isOpen && typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(FORM_STORAGE_KEY)
+        if (stored) {
+          const parsed = JSON.parse(stored)
+          setFormData({
+            jobNumber: parsed.jobNumber || '',
+            title: parsed.title || '',
+            description: parsed.description || '',
+            customerId: parsed.customerId || '',
+            quoteId: parsed.quoteId || '',
+            status: parsed.status || 'PLANNING',
+            priority: parsed.priority || 'MEDIUM',
+            startDate: parsed.startDate || new Date().toISOString().split('T')[0],
+            endDate: parsed.endDate || '',
+            quotedAmount: parsed.quotedAmount || '',
+            assignedTo: parsed.assignedTo || '',
+            fileLink: parsed.fileLink || ''
+          })
+          setRecordType(parsed.recordType || 'QUOTE')
+          skipNextSave.current = true
+          console.log('[CreateJobDialog] ✅ Restored form data from localStorage')
+        }
+        fetchCustomers()
+        fetchQuotes()
+        generateJobNumber(recordType)
+        if (selectedQuote) {
+          setFormData(prev => ({
+            ...prev,
+            title: selectedQuote.title,
+            customerId: '', // Will be set when we find the customer
+            quoteId: selectedQuote.id,
+            quotedAmount: selectedQuote.amount.toString()
+          }))
+        }
+      } catch (e) {
+        console.error('[CreateJobDialog] ❌ Error loading form data:', e)
       }
     }
   }, [isOpen, selectedQuote])
+
+  // Save form data to localStorage whenever it changes
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false
+      return
+    }
+    
+    if (skipNextSave.current) {
+      skipNextSave.current = false
+      return
+    }
+    
+    if (isOpen && typeof window !== 'undefined') {
+      try {
+        const dataToSave = {
+          ...formData,
+          recordType,
+        }
+        localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(dataToSave))
+        console.log('[CreateJobDialog] 💾 Auto-saved form data to localStorage')
+      } catch (e) {
+        console.error('[CreateJobDialog] Error saving form data:', e)
+      }
+    }
+  }, [formData, recordType, isOpen])
 
   // Auto-generate job number when type changes
   useEffect(() => {
@@ -138,6 +240,11 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData(prev => ({ ...prev, [name]: value }))
+    
+    // Auto-generate job number if the field is cleared
+    if (name === 'jobNumber' && !value.trim()) {
+      generateJobNumber(recordType)
+    }
   }
 
   const handleSelectChange = (name: string, value: string) => {
@@ -172,7 +279,7 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
         },
         body: JSON.stringify({
           type: recordType,
-          jobNumber: formData.jobNumber,
+          jobNumber: formData.jobNumber.trim() || null,
           title: formData.title,
           description: formData.description || null,
           customerId: formData.customerId,
@@ -189,9 +296,18 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
 
       if (response.ok) {
         toast.success(`${recordType === 'QUOTE' ? 'Quote' : 'Job'} created successfully`)
-        onClose()
-        router.refresh()
-        // Reset form
+        
+        // Clear localStorage after successful creation
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.removeItem(FORM_STORAGE_KEY)
+            console.log('[CreateJobDialog] ✅ Cleared form data after successful job/quote creation')
+          } catch (e) {
+            console.error('[CreateJobDialog] Error clearing form data:', e)
+          }
+        }
+        
+        // Reset form state
         setFormData({
           jobNumber: '',
           title: '',
@@ -200,13 +316,16 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
           quoteId: '',
           status: 'PLANNING',
           priority: 'MEDIUM',
-          startDate: '',
+          startDate: new Date().toISOString().split('T')[0],
           endDate: '',
           quotedAmount: '',
           assignedTo: '',
           fileLink: ''
         })
         setRecordType('QUOTE')
+        
+        onClose()
+        router.refresh()
       } else {
         const errorData = await response.json()
         toast.error(`Failed to create ${recordType.toLowerCase()}: ${errorData.error || 'Unknown error'}`)
@@ -278,14 +397,13 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="jobNumber">Job Number *</Label>
+              <Label htmlFor="jobNumber">Job Number</Label>
               <Input
                 id="jobNumber"
                 name="jobNumber"
                 value={formData.jobNumber}
                 onChange={handleInputChange}
-                required
-                placeholder="e.g., J001"
+                placeholder="Auto-generated if left empty"
               />
             </div>
             <div>

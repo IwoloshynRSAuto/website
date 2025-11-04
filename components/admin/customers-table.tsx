@@ -6,8 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Building2, Mail, Phone, MapPin, Folder, Plus } from 'lucide-react'
 import { toast } from 'react-hot-toast'
-import { EditCustomerDialog } from './edit-customer-dialog'
-import { CreateCustomerDialog } from './create-customer-dialog'
 import { StandardTable } from '@/components/common/standard-table'
 
 interface Customer {
@@ -28,11 +26,11 @@ interface Customer {
 interface CustomersTableProps {
   customers: Customer[]
   isAdmin?: boolean
+  headerButtons?: React.ReactNode
 }
 
-export function CustomersTable({ customers, isAdmin = false }: CustomersTableProps) {
+export function CustomersTable({ customers, isAdmin = false, headerButtons }: CustomersTableProps) {
   const router = useRouter()
-  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null)
 
   const openInFileExplorer = async (filePath: string | null): Promise<void> => {
     if (!filePath) {
@@ -172,10 +170,6 @@ export function CustomersTable({ customers, isAdmin = false }: CustomersTablePro
     }
   ]
 
-  const createButton = isAdmin ? (
-    <CreateCustomerDialog />
-  ) : null
-
   return (
     <>
       <StandardTable
@@ -183,20 +177,13 @@ export function CustomersTable({ customers, isAdmin = false }: CustomersTablePro
         data={customers}
         columns={columns}
         searchFields={['name', 'email', 'phone']}
-        onEdit={isAdmin ? (customer) => setEditingCustomer(customer) : undefined}
         onDelete={isAdmin ? handleDelete : undefined}
-        createButton={createButton}
+        createButton={headerButtons}
         emptyMessage="No customers found"
         showEditButton={false}
+        showDeleteButton={isAdmin}
+        detailRoute="/dashboard/customers"
       />
-
-      {editingCustomer && (
-        <EditCustomerDialog
-          customer={editingCustomer}
-          isOpen={!!editingCustomer}
-          onClose={() => setEditingCustomer(null)}
-        />
-      )}
     </>
   )
 }

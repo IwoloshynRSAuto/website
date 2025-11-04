@@ -1,16 +1,18 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Plus, Edit, Trash2, Clock, DollarSign, Calculator, RefreshCw } from 'lucide-react'
+import { Plus, Edit, Trash2, Clock, DollarSign, Calculator, RefreshCw, Save } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { LaborCodeBreakdownModal } from '@/components/jobs/labor-code-breakdown-modal'
 import { SubmitECOModal } from '@/components/jobs/submit-eco-modal'
+import { BOMPartsTable } from '@/components/parts/bom-parts-table'
 
 interface Milestone {
   id: string
@@ -66,6 +68,35 @@ interface QuotedLabor {
   estimatedHours: number
 }
 
+interface BOMPart {
+  id: string
+  bomId: string
+  partId: string | null
+  partNumber: string
+  quantity: number
+  purchasePrice: number
+  markupPercent: number
+  customerPrice: number
+  manufacturer: string
+  description: string | null
+  source: string | null
+  notes: string | null
+  estimatedDelivery: string | null
+  status: string
+  originalPart?: {
+    id: string
+    partNumber: string
+    manufacturer: string
+    description: string | null
+  } | null
+}
+
+interface BOM {
+  id: string
+  name: string
+  parts: BOMPart[]
+}
+
 interface JobDetailsClientProps {
   jobId: string
   jobNumber: string
@@ -74,9 +105,10 @@ interface JobDetailsClientProps {
   quotedLabor: QuotedLabor[]
   jobType: string
   relatedQuoteId?: string | null
+  bom?: BOM | null
 }
 
-export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, quotedLabor, jobType, relatedQuoteId }: JobDetailsClientProps) {
+export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, quotedLabor, jobType, relatedQuoteId, bom }: JobDetailsClientProps) {
   const [mounted, setMounted] = useState(false)
   const [selectedLaborCodeId, setSelectedLaborCodeId] = useState<string | null>(null)
   const [isBreakdownModalOpen, setIsBreakdownModalOpen] = useState(false)
@@ -465,13 +497,17 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
   const actualAmount = laborCodeData.reduce((sum, lc) => sum + lc.actualCost, 0)
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 w-full">
       {/* Deliverables Section */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>Deliverables</CardTitle>
-            <Button size="sm" onClick={() => setShowAddDeliverable(true)}>
+            <Button 
+              size="sm" 
+              onClick={() => setShowAddDeliverable(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
               <Plus className="h-4 w-4 mr-2" />
               Add Deliverable
             </Button>
@@ -533,8 +569,20 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                 </div>
               </div>
               <div className="flex space-x-2 mt-3">
-                <Button size="sm" onClick={addDeliverable}>Add Deliverable</Button>
-                <Button size="sm" variant="outline" onClick={() => setShowAddDeliverable(false)}>Cancel</Button>
+                <Button 
+                  size="sm" 
+                  onClick={addDeliverable}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Add Deliverable
+                </Button>
+                <Button 
+                  size="sm" 
+                  variant="outline" 
+                  onClick={() => setShowAddDeliverable(false)}
+                >
+                  Cancel
+                </Button>
               </div>
             </div>
           )}
@@ -1038,8 +1086,83 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
             </div>
           )}
         </Card>
+
         
       </div>
+      
+      {/* Bill of Materials - Full Width - Using BOMPartsTable component like BOM editor */}
+        {bom && bom.parts.length > 0 && (
+        <div className="mt-8">
+          <Card>
+            <CardHeader>
+              <div className="flex items-baseline justify-between mb-4">
+                <CardTitle className="text-purple-700">Bill of Materials</CardTitle>
+                <div className="flex items-baseline space-x-4">
+                  <div className="text-2xl font-bold text-purple-600">
+                    {bom.parts.length} Parts
+                  </div>
+                  <div className="text-2xl font-bold text-green-600">
+                    ${bom.parts.reduce((sum, p) => sum + p.customerPrice, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xs text-gray-500 mb-4 italic">
+                Note: Changes to BOM pricing do not affect the Parts Database, and Parts Database changes do not affect BOM pricing.
+              </div>
+              <BOMPartsTable 
+                bomId={bom.id} 
+                parts={bom.parts.map(part => ({
+                  id: part.id,
+                  bomId: bom.id,
+                  partId: part.originalPart?.id || null,
+                  partNumber: part.partNumber,
+                  quantity: part.quantity,
+                  purchasePrice: part.purchasePrice,
+                  markupPercent: part.markupPercent,
+                  customerPrice: part.customerPrice,
+                  manufacturer: part.manufacturer,
+                  description: part.description,
+                  source: part.source || null,
+                  notes: part.notes || null,
+                  estimatedDelivery: part.estimatedDelivery || null,
+                  status: part.status as 'HOLD' | 'ORDER' | 'PLACED' | 'HERE' | 'STOCK' | 'CUSTOMER_SUPPLIED',
+                  originalPart: part.originalPart || undefined,
+                }))}
+                onPartUpdated={() => {
+                  // Refresh the page to get updated BOM data
+                  window.location.reload()
+                }}
+              />
+              
+              {/* Summary Card */}
+              <Card className="mt-6">
+                <CardContent className="p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Total Parts</p>
+                      <p className="text-2xl font-bold text-gray-900">{bom.parts.length}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Total Cost</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        ${bom.parts.reduce((sum, p) => sum + (p.purchasePrice * p.quantity), 0).toFixed(2)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 mb-1">Total Customer Price</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        ${bom.parts.reduce((sum, p) => sum + p.customerPrice, 0).toFixed(2)}
+                      </p>
+                    </div>
+              </div>
+            </CardContent>
+          </Card>
+            </CardContent>
+          </Card>
+        </div>
+        )}
       
       {/* Labor Code Breakdown Modal */}
       {selectedLaborCodeId && (
@@ -1054,5 +1177,171 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
         />
       )}
     </div>
+  )
+}
+
+// BOM Row Component with inline editing
+function BOMRow({ part, bomId }: { part: BOMPart; bomId: string }) {
+  const [purchasePrice, setPurchasePrice] = useState<string>(part.purchasePrice.toString())
+  const [markupPercent, setMarkupPercent] = useState<string>(part.markupPercent.toString())
+  const [source, setSource] = useState(part.source || '')
+  const [status, setStatus] = useState(part.status)
+  const [estimatedDelivery, setEstimatedDelivery] = useState(part.estimatedDelivery ? part.estimatedDelivery.split('T')[0] : '')
+  const [isSaving, setIsSaving] = useState(false)
+  const router = useRouter()
+  
+  // Calculate customer price from string inputs
+  const purchasePriceNum = parseFloat(purchasePrice) || 0
+  const markupPercentNum = parseFloat(markupPercent) || 0
+  const customerPrice = purchasePriceNum * part.quantity * (1 + markupPercentNum / 100)
+
+  const handleSave = async () => {
+    setIsSaving(true)
+    try {
+      const response = await fetch(`/api/boms/${bomId}/parts/${part.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          purchasePrice: purchasePriceNum,
+          markupPercent: markupPercentNum,
+          source: source || null,
+          status,
+          estimatedDelivery: estimatedDelivery || null,
+        }),
+      })
+
+      if (response.ok) {
+        toast.success('BOM part updated')
+        // Use router.refresh() instead of window.location.reload() to avoid full page reload
+        router.refresh()
+      } else {
+        const error = await response.json()
+        toast.error(error.error || 'Failed to update BOM part')
+      }
+    } catch (error) {
+      console.error('Error updating BOM part:', error)
+      toast.error('An error occurred while updating the BOM part')
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const hasChanges = 
+    purchasePriceNum !== part.purchasePrice ||
+    markupPercentNum !== part.markupPercent ||
+    source !== (part.source || '') ||
+    status !== part.status ||
+    estimatedDelivery !== (part.estimatedDelivery ? part.estimatedDelivery.split('T')[0] : '')
+
+  const statusColors: Record<string, string> = {
+    HOLD: 'bg-yellow-100 text-yellow-800',
+    ORDER: 'bg-blue-100 text-blue-800',
+    PLACED: 'bg-purple-100 text-purple-800',
+    HERE: 'bg-green-100 text-green-800',
+    STOCK: 'bg-gray-100 text-gray-800',
+    CUSTOMER_SUPPLIED: 'bg-orange-100 text-orange-800',
+  }
+
+  return (
+    <tr className="border-b border-gray-200 hover:bg-gray-50 transition-all duration-150">
+      <td className="py-1 px-2 font-medium font-mono text-[10px] min-w-[100px] truncate" title={part.partNumber}>{part.partNumber}</td>
+      <td className="py-1 px-2 text-[10px] text-gray-600 truncate min-w-[150px]" title={part.description || ''}>{part.description || '-'}</td>
+      <td className="py-1 px-2 text-center text-[10px] min-w-[50px]">{part.quantity}</td>
+      <td className="py-1 px-2 text-[10px] text-gray-600 truncate min-w-[120px]" title={part.manufacturer}>{part.manufacturer}</td>
+      <td className="py-1 px-2 min-w-[100px]">
+        <Input
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          className="w-full text-[9px] h-5 px-1"
+          placeholder="Source"
+        />
+      </td>
+      <td className="py-1 px-2 min-w-[90px]">
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={purchasePrice}
+          onChange={(e) => {
+            const val = e.target.value
+            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+              setPurchasePrice(val)
+            }
+          }}
+          onBlur={(e) => {
+            const num = parseFloat(e.target.value)
+            if (!isNaN(num) && num >= 0) {
+              setPurchasePrice(num.toFixed(2))
+            } else if (e.target.value === '') {
+              setPurchasePrice('0.00')
+            }
+          }}
+          className="w-full text-[9px] h-5 px-1 text-right"
+          placeholder="0.00"
+        />
+      </td>
+      <td className="py-1 px-2 min-w-[80px]">
+        <Input
+          type="text"
+          inputMode="decimal"
+          value={markupPercent}
+          onChange={(e) => {
+            const val = e.target.value
+            if (val === '' || /^\d*\.?\d*$/.test(val)) {
+              setMarkupPercent(val)
+            }
+          }}
+          onBlur={(e) => {
+            const num = parseFloat(e.target.value)
+            if (!isNaN(num) && num >= 0) {
+              setMarkupPercent(num.toString())
+            } else if (e.target.value === '') {
+              setMarkupPercent('0')
+            }
+          }}
+          className="w-full text-[9px] h-5 px-1 text-right"
+          placeholder="0"
+        />
+      </td>
+      <td className="py-1 px-2 text-right font-medium text-green-600 text-[10px] min-w-[100px]">
+        ${customerPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+      </td>
+      <td className="py-1 px-2 min-w-[100px]">
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger className="w-full text-[9px] h-5">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="HOLD">Hold</SelectItem>
+            <SelectItem value="ORDER">Order</SelectItem>
+            <SelectItem value="PLACED">Placed</SelectItem>
+            <SelectItem value="HERE">Here</SelectItem>
+            <SelectItem value="STOCK">Stock</SelectItem>
+            <SelectItem value="CUSTOMER_SUPPLIED">Customer Supplied</SelectItem>
+          </SelectContent>
+        </Select>
+      </td>
+      <td className="py-1 px-2 min-w-[120px]">
+        <Input
+          type="date"
+          value={estimatedDelivery}
+          onChange={(e) => setEstimatedDelivery(e.target.value)}
+          className="w-full text-[9px] h-5 px-1"
+        />
+      </td>
+      <td className="py-1 px-2 min-w-[50px] text-center">
+        {hasChanges && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="h-5 w-5 p-0"
+            title="Save changes"
+          >
+            <Save className="h-3 w-3" />
+          </Button>
+        )}
+      </td>
+    </tr>
   )
 }

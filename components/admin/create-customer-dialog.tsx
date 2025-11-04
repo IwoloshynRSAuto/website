@@ -14,15 +14,29 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import { Building2 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 
-export function CreateCustomerDialog() {
+interface CreateCustomerDialogProps {
+  isOpen?: boolean
+  onClose?: () => void
+}
+
+export function CreateCustomerDialog({ isOpen: controlledIsOpen, onClose }: CreateCustomerDialogProps = {}) {
   const router = useRouter()
-  const [isOpen, setIsOpen] = useState(false)
+  const [internalIsOpen, setInternalIsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  
+  // Use controlled state if provided, otherwise use internal state
+  const isOpen = controlledIsOpen !== undefined ? controlledIsOpen : internalIsOpen
+  const setIsOpen = (open: boolean) => {
+    if (controlledIsOpen === undefined) {
+      setInternalIsOpen(open)
+    } else if (!open && onClose) {
+      onClose()
+    }
+  }
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -84,12 +98,6 @@ export function CreateCustomerDialog() {
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
-        <Button>
-          <Building2 className="h-4 w-4 mr-2" />
-          Add Customer
-        </Button>
-      </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Add New Customer</DialogTitle>

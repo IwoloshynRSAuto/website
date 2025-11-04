@@ -116,39 +116,43 @@ export function DataManagement() {
   }
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Database className="h-5 w-5" />
-            Data Management
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Export Section */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Export Data</h3>
+    <Card className="hover:shadow-lg transition-shadow">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Database className="h-5 w-5 text-purple-600" />
+          Data Management
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Export Section */}
+        <div className="space-y-3">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900 mb-1">Export Data</h3>
             <p className="text-sm text-gray-600">
               Download a complete backup of all database records as a JSON file.
             </p>
-            <Button 
-              onClick={handleExport} 
-              disabled={isLoading}
-              className="w-full sm:w-auto"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export Database
-            </Button>
           </div>
+          <Button 
+            onClick={handleExport} 
+            disabled={isLoading}
+            className="w-full sm:w-auto"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Export Database
+          </Button>
+        </div>
 
-          {/* Import Section */}
-          <div className="space-y-4">
-            <h3 className="text-lg font-semibold">Import Data</h3>
+        {/* Import Section */}
+        <div className="space-y-3 border-t pt-6">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900 mb-1">Import Data</h3>
             <p className="text-sm text-gray-600">
               Import data from a previously exported JSON file or SQLite database (.db) file. This will replace all existing data.
             </p>
+          </div>
+          <div className="space-y-3">
             <div className="space-y-2">
-              <Label htmlFor="import-file">Select file (JSON or .db)</Label>
+              <Label htmlFor="import-file" className="text-sm font-medium">Select file (JSON or .db)</Label>
               <Input
                 id="import-file"
                 type="file"
@@ -166,25 +170,27 @@ export function DataManagement() {
               Import Data
             </Button>
           </div>
+        </div>
 
-          {/* Clear Database Section */}
-          <div className="space-y-4 border-t pt-6">
-            <h3 className="text-lg font-semibold text-red-600">Danger Zone</h3>
+        {/* Clear Database Section */}
+        <div className="space-y-3 border-t pt-6">
+          <div>
+            <h3 className="text-base font-semibold text-red-600 mb-1">Danger Zone</h3>
             <p className="text-sm text-gray-600">
               Permanently delete all data from the database. This action cannot be undone.
             </p>
-            <Button 
-              onClick={handleClearDatabase} 
-              disabled={isLoading}
-              variant="destructive"
-              className="w-full sm:w-auto"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Clear Database
-            </Button>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+          <Button 
+            onClick={handleClearDatabase} 
+            disabled={isLoading}
+            variant="destructive"
+            className="w-full sm:w-auto"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Clear Database
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }

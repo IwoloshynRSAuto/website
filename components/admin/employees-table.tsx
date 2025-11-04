@@ -158,6 +158,11 @@ export function EmployeesTable({ employees: initialEmployees }: EmployeesTablePr
 
 
   const filteredEmployees = employees.filter(employee => {
+    // Exclude deleted users
+    const isDeleted = employee.email.startsWith('deleted_') || 
+                     (employee.name && employee.name.includes('[DELETED]'))
+    if (isDeleted) return false
+    
     const matchesSearch = employee.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (employee.name && employee.name.toLowerCase().includes(searchTerm.toLowerCase()))
     const matchesRole = roleFilter === 'ALL' || employee.role === roleFilter

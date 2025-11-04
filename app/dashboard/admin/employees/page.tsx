@@ -20,7 +20,16 @@ export default async function EmployeesPage() {
     redirect('/dashboard')
   }
   const employees = await prisma.user.findMany({
-    orderBy: { name: 'asc' }
+    orderBy: { name: 'asc' },
+    where: {
+      // Filter out deleted users (emails starting with "deleted_" or names containing "[DELETED]")
+      NOT: {
+        OR: [
+          { email: { startsWith: 'deleted_' } },
+          { name: { contains: '[DELETED]' } }
+        ]
+      }
+    }
   })
 
   // Convert Decimal fields to numbers for client compatibility

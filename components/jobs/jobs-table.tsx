@@ -486,14 +486,13 @@ export function JobsTable({ jobs }: JobsTableProps) {
               <TableHead className="py-1 px-1 text-xs w-12">Start</TableHead>
               <TableHead className="py-1 px-1 text-xs w-8">Tasks</TableHead>
               <TableHead className="py-1 px-1 text-xs w-8">File</TableHead>
-              <TableHead className="py-1 px-1 text-xs w-16">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredJobs.map((job, index) => (
               <TableRow 
                 key={job.id} 
-                className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50/20 cursor-pointer transition-colors`}
+                className={`${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-blue-50 cursor-pointer transition-colors duration-150`}
                 onClick={() => router.push(`/dashboard/jobs/${job.id}`)}
               >
                 <TableCell className="py-1 px-1">

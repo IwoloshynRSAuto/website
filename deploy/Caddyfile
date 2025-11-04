@@ -1,0 +1,21 @@
+{
+  # Optional: write logs to a file
+  # admin off
+}
+
+# Production Environment
+# Replace with your actual production domain
+your-domain.com {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:3000
+}
+
+# Sandbox Environment (optional - for development/testing)
+# Uncomment and configure if you want a separate sandbox subdomain
+# sandbox.your-domain.com {
+#   encode zstd gzip
+#   reverse_proxy 127.0.0.1:3001
+# }
+
+
+

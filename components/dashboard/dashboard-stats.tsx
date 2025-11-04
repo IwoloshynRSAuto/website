@@ -40,18 +40,18 @@ export function DashboardStats({
       title: 'Employees',
       value: totalEmployees,
       icon: Users,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-50',
-      borderColor: 'border-purple-200',
+      color: 'text-gray-600',
+      bgColor: 'bg-gray-50',
+      borderColor: 'border-gray-200',
       description: 'Team members'
     },
     {
       title: 'Active Customers',
       value: totalCustomers,
       icon: TrendingUp,
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
-      borderColor: 'border-orange-200',
+      color: 'text-teal-600',
+      bgColor: 'bg-teal-50',
+      borderColor: 'border-teal-200',
       description: 'Client accounts'
     }
   ]

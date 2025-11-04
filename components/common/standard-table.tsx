@@ -40,6 +40,7 @@ interface StandardTableProps {
   className?: string
   showEditButton?: boolean
   showDeleteButton?: boolean
+  filterBar?: React.ReactNode
 }
 
 export function StandardTable({
@@ -55,7 +56,8 @@ export function StandardTable({
   emptyMessage = "No items found",
   className = "",
   showEditButton = true,
-  showDeleteButton = true
+  showDeleteButton = true,
+  filterBar
 }: StandardTableProps) {
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState('')
@@ -94,10 +96,10 @@ export function StandardTable({
   })
 
   const handleRowClick = (item: any) => {
-    if (onEdit) {
-      onEdit(item)
-    } else if (detailRoute) {
+    if (detailRoute) {
       router.push(`${detailRoute}/${item.id}`)
+    } else if (onEdit) {
+      onEdit(item)
     } else if (onView) {
       onView(item)
     }
@@ -115,20 +117,25 @@ export function StandardTable({
           <CardTitle className="flex items-center">
             {title}
           </CardTitle>
-          <div className="flex items-center space-x-2">
-            {createButton}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+            {createButton && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                {createButton}
+              </div>
+            )}
             <div className="relative">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 placeholder="Search..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 w-64"
+                className="pl-8 w-full sm:w-64"
               />
             </div>
           </div>
         </div>
       </CardHeader>
+      {filterBar}
       <CardContent>
         <div className="rounded-md border">
           <Table>

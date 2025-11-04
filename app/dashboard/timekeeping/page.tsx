@@ -5,7 +5,6 @@ import { CreateTimeEntryButton } from '@/components/timekeeping/create-time-entr
 import { TimekeepingStats } from '@/components/timekeeping/timekeeping-stats'
 import { EnhancedTimesheetView } from '@/components/timekeeping/enhanced-timesheet-view'
 import { TimesheetSOPModal } from '@/components/timekeeping/timesheet-sop-modal'
-import { DashboardPageContainer, DashboardHeader, DashboardContent } from '@/components/layout/dashboard-page'
 
 export default async function TimekeepingPage() {
   const session = await getServerSession(authOptions)
@@ -65,33 +64,40 @@ export default async function TimekeepingPage() {
   const uniqueUsers = users.length
 
   return (
-    <DashboardPageContainer>
-      <DashboardHeader 
-        title="Timekeeping"
-        subtitle="Track time entries, labor codes, and billable hours"
-      >
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4">
-          <TimesheetSOPModal />
-          <CreateTimeEntryButton />
+    <div className="p-3 sm:p-4 lg:p-6">
+      <div className="mb-4 sm:mb-6 lg:mb-8">
+        <div>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Timekeeping</h1>
+          <p className="text-sm sm:text-base text-gray-600">Track time entries, labor codes, and billable hours</p>
         </div>
-      </DashboardHeader>
+      </div>
 
-      <DashboardContent>
+      {/* Stats */}
+      <div className="mb-4 sm:mb-6 lg:mb-8">
         <TimekeepingStats
           totalHours={totalHours}
           billableHours={billableHours}
           totalValue={totalValue}
           uniqueUsers={uniqueUsers}
         />
+      </div>
 
+      {/* Timesheet View */}
+      <div className="mt-8">
         <EnhancedTimesheetView 
           users={users}
           jobs={jobs}
           laborCodes={laborCodesResponse}
           currentUserId={session?.user?.id}
           isAdmin={session?.user?.role === 'ADMIN'}
+          headerButtons={
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <TimesheetSOPModal />
+              <CreateTimeEntryButton />
+            </div>
+          }
         />
-      </DashboardContent>
-    </DashboardPageContainer>
+      </div>
+    </div>
   )
 }

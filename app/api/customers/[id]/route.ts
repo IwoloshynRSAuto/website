@@ -5,27 +5,33 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 
 const updateCustomerSchema = z.object({
-  name: z.string().min(1, 'Customer name is required').optional(),
-  email: z.string().email().optional().or(z.literal('')),
-  phone: z.string().optional().or(z.literal('')),
-  address: z.string().optional().or(z.literal('')),
+  name: z.string().min(1, 'Customer name is required'),
+  email: z.union([
+    z.string().email('Invalid email format'),
+    z.literal(''),
+    z.null()
+  ]).optional(),
+  phone: z.union([z.string(), z.literal(''), z.null()]).optional(),
+  address: z.union([z.string(), z.literal(''), z.null()]).optional(),
   isActive: z.boolean().optional(),
-  fileLink: z.string().optional().or(z.literal(''))
+  fileLink: z.union([z.string(), z.literal(''), z.null()]).optional(),
 })
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    // Bypass authentication for testing
-    // const session = await getServerSession(authOptions)
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
+    const session = await getServerSession(authOptions)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id: customerId } = resolvedParams
 
     const customer = await prisma.customer.findUnique({
-      where: { id: params.id },
+      where: { id: customerId },
       include: {
         jobs: {
           select: {
@@ -61,21 +67,23 @@ export async function GET(
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    // Bypass authentication for testing
-    // const session = await getServerSession(authOptions)
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
+    const session = await getServerSession(authOptions)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id: customerId } = resolvedParams
 
     const body = await request.json()
     const validatedData = updateCustomerSchema.parse(body)
 
     // Check if customer exists
     const existingCustomer = await prisma.customer.findUnique({
-      where: { id: params.id }
+      where: { id: customerId }
     })
 
     if (!existingCustomer) {
@@ -99,15 +107,29 @@ export async function PUT(
       }
     }
 
+    // Prepare update data - handle empty strings and nulls
+    const updateData: any = {
+      name: validatedData.name,
+      isActive: validatedData.isActive ?? true,
+    }
+    
+    // Handle optional fields - convert empty strings to null
+    if (validatedData.email !== undefined) {
+      updateData.email = validatedData.email === '' || validatedData.email === null ? null : validatedData.email
+    }
+    if (validatedData.phone !== undefined) {
+      updateData.phone = validatedData.phone === '' || validatedData.phone === null ? null : validatedData.phone
+    }
+    if (validatedData.address !== undefined) {
+      updateData.address = validatedData.address === '' || validatedData.address === null ? null : validatedData.address
+    }
+    if (validatedData.fileLink !== undefined) {
+      updateData.fileLink = validatedData.fileLink === '' || validatedData.fileLink === null ? null : validatedData.fileLink
+    }
+
     const updatedCustomer = await prisma.customer.update({
-      where: { id: params.id },
-      data: {
-        ...validatedData,
-        email: validatedData.email === '' ? null : validatedData.email,
-        phone: validatedData.phone === '' ? null : validatedData.phone,
-        address: validatedData.address === '' ? null : validatedData.address,
-        fileLink: validatedData.fileLink === '' ? null : validatedData.fileLink
-      }
+      where: { id: customerId },
+      data: updateData
     })
 
     return NextResponse.json(updatedCustomer)
@@ -128,18 +150,20 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    // Bypass authentication for testing
-    // const session = await getServerSession(authOptions)
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
+    const session = await getServerSession(authOptions)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id: customerId } = resolvedParams
 
     // Check if customer exists
     const existingCustomer = await prisma.customer.findUnique({
-      where: { id: params.id },
+      where: { id: customerId },
       include: {
         _count: {
           select: { jobs: true }
@@ -163,7 +187,7 @@ export async function DELETE(
     }
 
     await prisma.customer.delete({
-      where: { id: params.id }
+      where: { id: customerId }
     })
 
     return NextResponse.json({ message: 'Customer deleted successfully' })

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -86,9 +86,10 @@ interface EnhancedTimesheetViewProps {
   laborCodes: LaborCode[]
   currentUserId?: string
   isAdmin?: boolean
+  headerButtons?: React.ReactNode
 }
 
-export function EnhancedTimesheetView({ users, jobs, laborCodes, currentUserId, isAdmin = false }: EnhancedTimesheetViewProps) {
+export function EnhancedTimesheetView({ users, jobs, laborCodes, currentUserId, isAdmin = false, headerButtons }: EnhancedTimesheetViewProps) {
   // Core state
   const [currentWeek, setCurrentWeek] = useState(new Date())
   const [selectedUser, setSelectedUser] = useState<string>(currentUserId || '')
@@ -884,6 +885,16 @@ export function EnhancedTimesheetView({ users, jobs, laborCodes, currentUserId, 
         <>
           {/* Timesheet Grid */}
           <Card>
+            {headerButtons && (
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Timesheet</CardTitle>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+                    {headerButtons}
+                  </div>
+                </div>
+              </CardHeader>
+            )}
             <CardContent className="p-0">
               <div className="overflow-x-auto" data-testid="timesheet-grid">
                 <table className="w-full">

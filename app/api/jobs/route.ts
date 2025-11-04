@@ -6,7 +6,7 @@ import { z } from 'zod'
 
 const createJobSchema = z.object({
   type: z.enum(['QUOTE', 'JOB']).default('JOB'),
-  jobNumber: z.string().min(1, 'Job number is required'),
+  jobNumber: z.string().optional().nullable(),
   title: z.string().min(1, 'Title is required'),
   description: z.string().optional().nullable(),
   status: z.string().optional(),
@@ -56,9 +56,37 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const validatedData = createJobSchema.parse(body)
 
+    // Auto-generate job number if not provided
+    let jobNumber = validatedData.jobNumber?.trim() || ''
+    
+    if (!jobNumber) {
+      const prefix = validatedData.type === 'QUOTE' ? 'Q' : 'E'
+      
+      // Find all jobs with the same prefix
+      const allJobs = await prisma.job.findMany({
+        where: {
+          jobNumber: {
+            startsWith: prefix
+          }
+        },
+        select: {
+          jobNumber: true
+        }
+      })
+
+      // Extract numbers and find the highest
+      const numbers = allJobs.map(job => {
+        const num = parseInt(job.jobNumber.substring(1))
+        return isNaN(num) ? 0 : num
+      })
+
+      const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 1000
+      jobNumber = `${prefix}${maxNumber + 1}`
+    }
+
     // Check if job number already exists
     const existingJob = await prisma.job.findUnique({
-      where: { jobNumber: validatedData.jobNumber }
+      where: { jobNumber }
     })
 
     if (existingJob) {
@@ -71,7 +99,7 @@ export async function POST(request: NextRequest) {
     // Create the job
     const job = await prisma.job.create({
       data: {
-        jobNumber: validatedData.jobNumber,
+        jobNumber: jobNumber,
         title: validatedData.title,
         description: validatedData.description || null,
         type: validatedData.type,

@@ -12,8 +12,7 @@ export function DashboardPageContainer({ children, className }: DashboardPagePro
   return (
     <div className={cn(
       "min-h-screen bg-gray-50",
-      "p-3 sm:p-4 lg:p-6", // Responsive padding
-      "max-w-7xl mx-auto", // Consistent max width
+      "px-6 py-4", // Standardized padding per spec
       className
     )}>
       {children}
@@ -31,26 +30,26 @@ interface DashboardHeaderProps {
 export function DashboardHeader({ title, subtitle, children, className }: DashboardHeaderProps) {
   return (
     <div className={cn(
-      "mb-4 sm:mb-6 lg:mb-8",
+      "mb-6",
       "flex flex-col sm:flex-row sm:items-center sm:justify-between",
-      "gap-3 sm:gap-4",
+      "gap-4",
       className
     )}>
       <div className="min-w-0 flex-1">
         <h1 className={cn(
-          "text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900",
-          "truncate" // Prevent text overflow on mobile
+          "text-2xl font-semibold text-gray-900",
+          "truncate"
         )}>
           {title}
         </h1>
         {subtitle && (
-          <p className="text-sm sm:text-base text-gray-600 mt-1">
+          <p className="text-sm text-gray-600 mt-1 leading-relaxed">
             {subtitle}
           </p>
         )}
       </div>
       {children && (
-        <div className="flex-shrink-0">
+        <div className="flex-shrink-0 flex items-center gap-2">
           {children}
         </div>
       )}
@@ -66,7 +65,7 @@ interface DashboardContentProps {
 export function DashboardContent({ children, className }: DashboardContentProps) {
   return (
     <div className={cn(
-      "space-y-4 sm:space-y-6 lg:space-y-8",
+      "space-y-4", // Standardized gap per spec
       className
     )}>
       {children}
@@ -99,9 +98,9 @@ interface DashboardCardProps {
 export function DashboardCard({ children, className }: DashboardCardProps) {
   return (
     <div className={cn(
-      "bg-white rounded-lg shadow-sm border border-gray-200",
-      "p-4 sm:p-6",
-      "hover:shadow-md transition-shadow duration-200",
+      "bg-white rounded-2xl shadow-md border border-gray-200",
+      "p-6",
+      "hover:shadow-lg transition-shadow duration-200",
       className
     )}>
       {children}

@@ -3,10 +3,12 @@ import { prisma } from '@/lib/prisma'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const { id } = params
+    // Handle params - could be a Promise in Next.js 15+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id } = resolvedParams
 
     const job = await prisma.job.findUnique({
       where: { id },
@@ -53,10 +55,12 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const { id } = params
+    // Handle params - could be a Promise in Next.js 15+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id } = resolvedParams
     const body = await request.json()
     const { 
       status, 
@@ -75,15 +79,16 @@ export async function PATCH(
       dueTodayPercent,
       inQuickBooks,
       inLDrive,
-      fileLink
+      fileLink,
+      lastFollowUp
     } = body
 
     // Validate status if provided
     if (status) {
-      const allowedStatuses = ['QUOTE', 'ACTIVE', 'COMPLETED']
+      const allowedStatuses = ['QUOTE', 'ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED', 'PLANNING', 'PENDING', 'APPROVED', 'REJECTED', 'DRAFT']
       if (!allowedStatuses.includes(status)) {
         return NextResponse.json(
-          { error: 'Invalid status. Must be one of: QUOTE, ACTIVE, COMPLETED' },
+          { error: `Invalid status. Must be one of: ${allowedStatuses.join(', ')}` },
           { status: 400 }
         )
       }
@@ -107,7 +112,8 @@ export async function PATCH(
     if (dueTodayPercent !== undefined) updateData.dueTodayPercent = dueTodayPercent
     if (inQuickBooks !== undefined) updateData.inQuickBooks = inQuickBooks
     if (inLDrive !== undefined) updateData.inLDrive = inLDrive
-    if (fileLink !== undefined) updateData.fileLink = fileLink
+    if (fileLink !== undefined) updateData.fileLink = fileLink === '' || fileLink === null ? null : fileLink
+    if (lastFollowUp !== undefined) updateData.lastFollowUp = lastFollowUp ? new Date(lastFollowUp) : null
 
     // Update the job
     const updatedJob = await prisma.job.update({
@@ -125,11 +131,30 @@ export async function PATCH(
       }
     })
 
-    return NextResponse.json(updatedJob)
+    // Convert Decimal fields to numbers
+    const jobResponse = {
+      ...updatedJob,
+      estimatedHours: updatedJob.estimatedHours ? Number(updatedJob.estimatedHours) : null,
+      actualHours: updatedJob.actualHours ? Number(updatedJob.actualHours) : null,
+      estimatedCost: updatedJob.estimatedCost ? Number(updatedJob.estimatedCost) : null,
+      dueTodayPercent: updatedJob.dueTodayPercent ? Number(updatedJob.dueTodayPercent) : null,
+    }
+
+    return NextResponse.json(jobResponse)
   } catch (error: any) {
     console.error('Error updating job:', error)
+    console.error('Error details:', {
+      message: error?.message,
+      code: error?.code,
+      meta: error?.meta,
+      stack: error?.stack
+    })
     return NextResponse.json(
-      { error: 'Failed to update job' },
+      { 
+        error: 'Failed to update job',
+        details: error?.message || 'Unknown error',
+        code: error?.code
+      },
       { status: 500 }
     )
   }
@@ -137,10 +162,12 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    const { id } = params
+    // Handle params - could be a Promise in Next.js 15+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id } = resolvedParams
 
     // Check if job exists
     const job = await prisma.job.findUnique({

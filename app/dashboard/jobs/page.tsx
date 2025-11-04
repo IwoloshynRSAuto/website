@@ -42,14 +42,10 @@ export default async function JobsPage() {
 
   return (
     <div className="p-3 sm:p-4 lg:p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 sm:mb-6 lg:mb-8 gap-3 sm:gap-4">
+      <div className="mb-4 sm:mb-6 lg:mb-8">
         <div>
           <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Jobs</h1>
           <p className="text-sm sm:text-base text-gray-600">Manage active projects, timelines, and job progress</p>
-        </div>
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-          <MultiSOPButton sops={[SOPS.CREATE_QUOTE, SOPS.CONVERT_QUOTE]} />
-          <CreateJobButton />
         </div>
       </div>
 
@@ -113,7 +109,19 @@ export default async function JobsPage() {
       </div>
 
       <div className="mt-8">
-        <JobsTableStandard jobs={jobsResponse} />
+        <JobsTableStandard 
+          jobs={jobsResponse}
+          headerButtons={
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <MultiSOPButton 
+                sops={[SOPS.CREATE_QUOTE, SOPS.CONVERT_QUOTE]}
+                variant="outline"
+                className="border-gray-300 hover:bg-gray-50"
+              />
+              <CreateJobButton />
+            </div>
+          }
+        />
       </div>
     </div>
   )

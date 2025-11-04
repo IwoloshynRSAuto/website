@@ -10,6 +10,7 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { DeleteJobButton } from '@/components/jobs/delete-job-button'
+import { QuoteFileViewerForJob } from '@/components/crm/quote-file-viewer-for-job'
 import { ArrowLeft, Calendar, User, Building, DollarSign, FileText, Clock, Plus, Save, X } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
@@ -36,6 +37,7 @@ interface Job {
   inQuickBooks: boolean
   inLDrive: boolean
   fileLink: string | null
+  quoteId: string | null
   createdAt: Date
   updatedAt: Date
   assignedTo: {
@@ -52,6 +54,11 @@ interface Job {
     phone: string | null
     address: string | null
     isActive: boolean
+  } | null
+  quote: {
+    id: string
+    quoteNumber: string
+    quoteFile: string | null
   } | null
   _count: {
     timeEntries: number
@@ -220,11 +227,11 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
           </div>
         </div>
         <div className="flex space-x-2">
-          <Button onClick={handleSave} disabled={isLoading}>
+          <Button onClick={handleSave} disabled={isLoading} className="bg-blue-600 hover:bg-blue-700 text-white">
             <Save className="h-4 w-4 mr-2" />
             {isLoading ? 'Saving...' : 'Save Changes'}
           </Button>
-          <Button variant="outline" onClick={handleCancel}>
+          <Button variant="outline" onClick={handleCancel} disabled={isLoading}>
             <X className="h-4 w-4 mr-2" />
             Cancel
           </Button>
@@ -457,26 +464,6 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
                 className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
               />
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Notes</label>
-              {isEditing ? (
-                <Textarea
-                  placeholder="Add job notes here..."
-                  value={formData.notes}
-                  onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-                  rows={3}
-                  className="mt-1"
-                />
-              ) : (
-                <textarea
-                  value={formData.notes}
-                  readOnly
-                  rows={3}
-                  placeholder="No notes added"
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                />
-              )}
-            </div>
             
             {/* QuickBooks and L Drive Status */}
             <div className="space-y-3 pt-4 border-t">
@@ -537,6 +524,29 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
               <p className="text-xs text-gray-500">
                 Enter the shared drive path (e.g., L:\Customer\Job1234)
               </p>
+              
+              {/* Quote File Section - Show for quote-type jobs, integrated into Tracking section */}
+              {job.type === 'QUOTE' && (
+                <div className="pt-3 border-t">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                      <label className="text-sm font-medium text-gray-700 mb-1 block">Quote File</label>
+                      <p className="text-xs text-gray-500">Upload PDF or Word documents for this quote</p>
+                    </div>
+                    <div className="flex-shrink-0">
+                      <QuoteFileViewerForJob
+                        jobId={job.id}
+                        jobNumber={job.jobNumber}
+                        existingQuote={job.quote ? {
+                          id: job.quote.id,
+                          quoteNumber: job.quote.quoteNumber,
+                          quoteFile: job.quote.quoteFile,
+                        } : null}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -1,6 +1,4 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
 /* Outlook-like email styling */
 .outlook-email-header {
@@ -171,7 +169,6 @@
 
 @layer base {
   * {
-    @apply border;
     border-color: hsl(var(--border));
   }
   body {

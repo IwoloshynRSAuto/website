@@ -22,9 +22,9 @@ interface Customer {
   name: string
   email: string | null
   phone: string | null
-  address: string | null
+  address?: string | null
   isActive: boolean
-  fileLink: string | null
+  fileLink?: string | null
 }
 
 interface EditCustomerDialogProps {
@@ -40,6 +40,7 @@ export function EditCustomerDialog({ customer, isOpen, onClose }: EditCustomerDi
     name: '',
     email: '',
     phone: '',
+    address: '',
     isActive: true,
     fileLink: ''
   })
@@ -50,6 +51,7 @@ export function EditCustomerDialog({ customer, isOpen, onClose }: EditCustomerDi
         name: customer.name,
         email: customer.email || '',
         phone: customer.phone || '',
+        address: customer.address || '',
         isActive: customer.isActive,
         fileLink: customer.fileLink || ''
       })
@@ -71,7 +73,7 @@ export function EditCustomerDialog({ customer, isOpen, onClose }: EditCustomerDi
 
     try {
       const response = await fetch(`/api/customers/${customer.id}`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
@@ -79,6 +81,7 @@ export function EditCustomerDialog({ customer, isOpen, onClose }: EditCustomerDi
               name: formData.name,
               email: formData.email || null,
               phone: formData.phone || null,
+              address: formData.address || null,
               isActive: formData.isActive,
               fileLink: formData.fileLink || null
             }),
@@ -142,6 +145,17 @@ export function EditCustomerDialog({ customer, isOpen, onClose }: EditCustomerDi
                 value={formData.phone}
                 onChange={handleInputChange}
                 placeholder="(555) 123-4567"
+              />
+            </div>
+            <div>
+              <Label htmlFor="address">Address</Label>
+              <Textarea
+                id="address"
+                name="address"
+                value={formData.address}
+                onChange={handleInputChange}
+                placeholder="123 Main St, City, State ZIP"
+                rows={2}
               />
             </div>
             <div>

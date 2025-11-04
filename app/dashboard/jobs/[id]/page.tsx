@@ -13,18 +13,45 @@ import { JobDetailsEditable } from './job-details-editable'
 import { ECOHistory } from '@/components/jobs/eco-history'
 
 interface JobDetailsPageProps {
-  params: {
+  params: Promise<{
+    id: string
+  }> | {
     id: string
   }
 }
 
 export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
+  // Handle params - could be a Promise in Next.js 15+
+  const resolvedParams = params instanceof Promise ? await params : params
+  const jobId = resolvedParams.id
+  
   const job = await prisma.job.findUnique({
-    where: { id: params.id },
+    where: { id: jobId },
     include: {
       assignedTo: true,
       createdBy: true,
       customer: true,
+      quote: {
+        include: {
+          linkedBOMs: {
+            include: {
+              parts: {
+                include: {
+                  originalPart: {
+                    select: {
+                      id: true,
+                      partNumber: true,
+                      manufacturer: true,
+                      description: true,
+                    },
+                  },
+                },
+                orderBy: { createdAt: 'asc' },
+              },
+            },
+          },
+        },
+      },
       quotedLabor: {
         include: {
           laborCode: true
@@ -49,8 +76,14 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
   }
 
   // Convert Decimal values to numbers in timeEntries
+  // Filter quote to only include the fields we need (to avoid serialization issues)
   const jobWithConvertedTimeEntries = {
     ...job,
+    quote: job.quote ? {
+      id: job.quote.id,
+      quoteNumber: job.quote.quoteNumber,
+      quoteFile: job.quote.quoteFile,
+    } : null,
     timeEntries: job.timeEntries.map(entry => ({
       ...entry,
       laborCode: entry.laborCode ? {
@@ -117,6 +150,16 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
           quotedLabor={quotedLabor}
           jobType={job.type}
           relatedQuoteId={job.relatedQuoteId}
+          bom={job.quote?.linkedBOMs && job.quote.linkedBOMs.length > 0 ? {
+            ...job.quote.linkedBOMs[0],
+            parts: job.quote.linkedBOMs[0].parts.map(part => ({
+              ...part,
+              purchasePrice: Number(part.purchasePrice),
+              markupPercent: Number(part.markupPercent),
+              customerPrice: Number(part.customerPrice),
+              estimatedDelivery: part.estimatedDelivery?.toISOString() || null,
+            })),
+          } : null}
         />
         
         {/* ECO History - Show for all jobs */}

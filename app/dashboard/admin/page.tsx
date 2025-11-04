@@ -78,7 +78,9 @@ export default async function AdminPage() {
         </DashboardGrid>
 
         {/* Data Management Section */}
-        <DataManagement />
+        <div className="mt-6">
+          <DataManagement />
+        </div>
       </DashboardContent>
     </DashboardPageContainer>
   )

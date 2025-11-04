@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { Bell, User, LogOut, Menu, X } from 'lucide-react'
+import { Bell, User, LogOut, Menu, X, ArrowLeft } from 'lucide-react'
 import { Sidebar } from './sidebar'
 
 interface HeaderProps {
@@ -17,11 +18,12 @@ interface HeaderProps {
 
 export function Header({ user }: HeaderProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const router = useRouter()
 
   return (
     <>
-      <header className="bg-white shadow-sm border-b sticky top-0 z-40">
-        <div className="flex items-center justify-between h-14 sm:h-16 px-3 sm:px-4 lg:px-6">
+      <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40 h-16">
+        <div className="flex items-center justify-between h-16 px-6">
           {/* Mobile menu button */}
           <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 flex-1">
             <Button
@@ -45,11 +47,15 @@ export function Header({ user }: HeaderProps) {
           </div>
           
           <div className="flex items-center space-x-1 sm:space-x-2 lg:space-x-4 flex-shrink-0">
-            <Link href="/dashboard">
-              <Button variant="outline" size="sm" className="hidden sm:flex text-xs sm:text-sm">
-                Dashboard
-              </Button>
-            </Link>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="hidden sm:flex text-xs sm:text-sm"
+              onClick={() => router.back()}
+            >
+              <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+              Back
+            </Button>
             <Button variant="ghost" size="icon" className="hidden sm:flex">
               <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>

@@ -51,13 +51,12 @@ export function DeleteJobButton({ jobId, jobNumber }: DeleteJobButtonProps) {
   return (
     <Button
       variant="destructive"
-      size="sm"
       onClick={handleDelete}
       disabled={isDeleting}
       className="flex items-center"
     >
       <Trash2 className="h-4 w-4 mr-2" />
-      {isDeleting ? 'Deleting...' : 'Delete Job'}
+      {isDeleting ? 'Deleting...' : 'Delete'}
     </Button>
   )
 }

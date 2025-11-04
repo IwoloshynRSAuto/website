@@ -1,15 +1,18 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Folder, Calculator, ArrowUpCircle, FileText, CheckSquare, Square } from 'lucide-react'
+import { Folder, Calculator, ArrowUpCircle, FileText, CheckSquare, Square, Filter, ArrowUpDown } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'react-hot-toast'
 import { SubmitECOModal } from './submit-eco-modal'
 import { StandardTable } from '@/components/common/standard-table'
+import { CreateJobDialog } from './create-job-dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Label } from '@/components/ui/label'
 
 interface Job {
   id: string
@@ -86,14 +89,64 @@ interface Job {
 interface JobsTableProps {
   jobs: Job[]
   showCreateButton?: boolean
+  headerButtons?: React.ReactNode
 }
 
-export function JobsTableStandard({ jobs, showCreateButton = true }: JobsTableProps) {
+export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons }: JobsTableProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [submitECOModalOpen, setSubmitECOModalOpen] = useState(false)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
+  const [openingPath, setOpeningPath] = useState<string | null>(null)
+  
+  // Filter and sort state
+  const [statusFilter, setStatusFilter] = useState<string>('ALL')
+  const [typeFilter, setTypeFilter] = useState<string>('ALL')
+  const [sortBy, setSortBy] = useState<string>('createdAt')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  
+  // Clear form data from localStorage when navigating away from jobs page
+  const isOnJobsPage = useRef(pathname === '/dashboard/jobs')
+  
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    
+    const currentPath = pathname
+    const wasOnJobsPage = isOnJobsPage.current
+    const isNowOnJobsPage = currentPath === '/dashboard/jobs'
+    
+    // If pathname changed AND we're leaving the jobs page, clear immediately
+    if (wasOnJobsPage && !isNowOnJobsPage) {
+      try {
+        localStorage.removeItem('create-job-dialog-form')
+        console.log('[JobsTableStandard] ✅ Cleared form data - navigated away from jobs page')
+      } catch (e) {
+        console.error('[JobsTableStandard] ❌ Error clearing form data:', e)
+      }
+    }
+    
+    isOnJobsPage.current = isNowOnJobsPage
+  }, [pathname])
+  
+  // Also clear on component unmount
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined') {
+        const currentUrl = window.location.pathname
+        const leavingJobsPage = currentUrl !== '/dashboard/jobs'
+        
+        if (leavingJobsPage) {
+          try {
+            localStorage.removeItem('create-job-dialog-form')
+          } catch (e) {
+            console.error('[JobsTableStandard] ❌ Error clearing form data on unmount:', e)
+          }
+        }
+      }
+    }
+  }, [])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -131,6 +184,13 @@ export function JobsTableStandard({ jobs, showCreateButton = true }: JobsTablePr
       return
     }
     
+    // Prevent double-clicks / multiple simultaneous opens
+    if (openingPath === filePath) {
+      return // Already opening this path
+    }
+    
+    setOpeningPath(filePath)
+    
     try {
       const response = await fetch('/api/open-folder', {
         method: 'POST',
@@ -157,6 +217,9 @@ export function JobsTableStandard({ jobs, showCreateButton = true }: JobsTablePr
     } catch (error) {
       console.error('Error opening folder:', error)
       toast.error('Failed to open folder')
+    } finally {
+      // Reset after a short delay to allow for the file explorer to open
+      setTimeout(() => setOpeningPath(null), 1000)
     }
   }
 
@@ -354,14 +417,16 @@ export function JobsTableStandard({ jobs, showCreateButton = true }: JobsTablePr
           <Button
             variant="outline"
             size="sm"
-            className="h-6 w-6 p-0 bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+            className="h-7 w-7 p-0 bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-sm"
             onClick={(e) => {
               e.stopPropagation()
+              e.preventDefault()
               openInFileExplorer(job.fileLink)
             }}
+            disabled={openingPath === job.fileLink}
             title="Open Folder"
           >
-            <Folder className="h-3 w-3" />
+            <Folder className="h-3.5 w-3.5" />
           </Button>
         ) : (
           <span className="text-gray-400 text-xs">-</span>
@@ -370,21 +435,89 @@ export function JobsTableStandard({ jobs, showCreateButton = true }: JobsTablePr
     }
   ]
 
-  const createButton = showCreateButton ? (
+  const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+
+  // Use headerButtons if provided, otherwise use default Create Job button
+  const createButton = headerButtons || (showCreateButton ? (
     <Button
-      onClick={() => router.push('/dashboard/jobs/new')}
+      onClick={() => setIsCreateDialogOpen(true)}
       className="bg-blue-600 hover:bg-blue-700"
     >
       <FileText className="h-4 w-4 mr-2" />
       Create Job
     </Button>
-  ) : null
+  ) : null)
+
+  // Define available statuses
+  const availableStatuses = ['QUOTE', 'ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED']
+
+  // Filter jobs
+  const filteredJobs = jobs.filter(job => {
+    // When filtering by QUOTE, also include PLANNING status (they're the same)
+    let matchesStatus = false
+    if (statusFilter === 'ALL') {
+      matchesStatus = true
+    } else if (statusFilter === 'QUOTE') {
+      matchesStatus = job.status === 'QUOTE' || job.status === 'PLANNING'
+    } else {
+      matchesStatus = job.status === statusFilter
+    }
+    
+    const matchesType = typeFilter === 'ALL' || job.type === typeFilter
+    return matchesStatus && matchesType
+  })
+
+  // Sort jobs
+  const sortedJobs = [...filteredJobs].sort((a, b) => {
+    let aValue: any
+    let bValue: any
+
+    switch (sortBy) {
+      case 'createdAt':
+        aValue = new Date(a.createdAt).getTime()
+        bValue = new Date(b.createdAt).getTime()
+        break
+      case 'startDate':
+        aValue = a.startDate ? new Date(a.startDate).getTime() : 0
+        bValue = b.startDate ? new Date(b.startDate).getTime() : 0
+        break
+      case 'endDate':
+        aValue = a.endDate ? new Date(a.endDate).getTime() : 0
+        bValue = b.endDate ? new Date(b.endDate).getTime() : 0
+        break
+      case 'status':
+        aValue = a.status || ''
+        bValue = b.status || ''
+        break
+      case 'jobNumber':
+        aValue = a.jobNumber || ''
+        bValue = b.jobNumber || ''
+        break
+      case 'title':
+        aValue = a.title || ''
+        bValue = b.title || ''
+        break
+      case 'customer':
+        aValue = a.customer?.name || ''
+        bValue = b.customer?.name || ''
+        break
+      default:
+        return 0
+    }
+
+    if (typeof aValue === 'number' && typeof bValue === 'number') {
+      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
+    } else {
+      const comparison = String(aValue).localeCompare(String(bValue))
+      return sortOrder === 'asc' ? comparison : -comparison
+    }
+  })
 
   return (
     <>
       <StandardTable
         title="Jobs"
-        data={jobs}
+        data={sortedJobs}
         columns={columns}
         searchFields={['jobNumber', 'title', 'customer.name', 'assignedTo.name']}
         onDelete={deleteJob}
@@ -393,6 +526,73 @@ export function JobsTableStandard({ jobs, showCreateButton = true }: JobsTablePr
         emptyMessage="No jobs found"
         className="w-full"
         showEditButton={false}
+        filterBar={
+          <div className="p-4 bg-white border-b border-gray-200">
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-gray-500" />
+                <Label htmlFor="status-filter" className="text-sm font-medium text-gray-700">Status:</Label>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger id="status-filter" className="h-9 w-[150px]">
+                    <SelectValue placeholder="All Statuses" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All</SelectItem>
+                    <SelectItem value="QUOTE">Quote</SelectItem>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="ON_HOLD">On Hold</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
+                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Label htmlFor="type-filter" className="text-sm font-medium text-gray-700">Type:</Label>
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger id="type-filter" className="h-9 w-[120px]">
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All Types</SelectItem>
+                    <SelectItem value="JOB">Job</SelectItem>
+                    <SelectItem value="QUOTE">Quote</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <ArrowUpDown className="h-4 w-4 text-gray-500" />
+                <Label htmlFor="sort-by" className="text-sm font-medium text-gray-700">Sort By:</Label>
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger id="sort-by" className="h-9 w-[160px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="createdAt">Recently Created</SelectItem>
+                    <SelectItem value="startDate">Start Date</SelectItem>
+                    <SelectItem value="endDate">Due Date</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
+                    <SelectItem value="jobNumber">Job Number</SelectItem>
+                    <SelectItem value="title">Title</SelectItem>
+                    <SelectItem value="customer">Customer</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                  className="h-9 px-4 bg-white hover:bg-gray-50 border-gray-300 text-gray-700 shadow-sm font-medium"
+                >
+                  {sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        }
       />
 
       {submitECOModalOpen && selectedJob && (
@@ -405,6 +605,11 @@ export function JobsTableStandard({ jobs, showCreateButton = true }: JobsTablePr
           }}
         />
       )}
+
+      <CreateJobDialog
+        isOpen={isCreateDialogOpen}
+        onClose={() => setIsCreateDialogOpen(false)}
+      />
     </>
   )
 }

@@ -13,14 +13,16 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog'
 import { toast } from 'react-hot-toast'
-import { Plus } from 'lucide-react'
 
-export function CreatePartsServiceDialog() {
+interface CreatePartsServiceDialogProps {
+  isOpen: boolean
+  onClose: () => void
+}
+
+export function CreatePartsServiceDialog({ isOpen, onClose }: CreatePartsServiceDialogProps) {
   const router = useRouter()
-  const [isOpen, setIsOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
     jobNumber: '',
@@ -83,7 +85,6 @@ export function CreatePartsServiceDialog() {
 
       if (response.ok) {
         toast.success('Parts/Service created successfully')
-        setIsOpen(false)
         // Reset form
         setFormData({
           jobNumber: '',
@@ -102,6 +103,7 @@ export function CreatePartsServiceDialog() {
           dateInvoiced: '',
           notes: '',
         })
+        onClose()
         router.refresh()
       } else {
         const errorData = await response.json()
@@ -116,13 +118,7 @@ export function CreatePartsServiceDialog() {
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
-        <Button className="bg-blue-600 hover:bg-blue-700">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Part/Service
-        </Button>
-      </DialogTrigger>
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add New Part/Service</DialogTitle>
@@ -297,7 +293,7 @@ export function CreatePartsServiceDialog() {
           </div>
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setIsOpen(false)} disabled={saving}>
+            <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
               Cancel
             </Button>
             <Button type="submit" disabled={saving}>

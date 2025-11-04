@@ -41,7 +41,7 @@ export function RecentJobs({ jobs }: RecentJobsProps) {
       <CardContent>
         <div className="space-y-3">
           {jobs.map((job) => (
-            <div key={job.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border rounded-lg">
+            <div key={job.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3 border rounded-lg hover:bg-blue-50 transition-colors duration-150 cursor-pointer">
               <div className="flex-1 min-w-0">
                 <div className="flex flex-col sm:flex-row sm:items-center space-y-1 sm:space-y-0 sm:space-x-2">
                   <span className="font-medium text-sm truncate">{job.jobNumber}</span>

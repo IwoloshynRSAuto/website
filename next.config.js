@@ -4,12 +4,9 @@ const nextConfig = {
     // Temporarily ignore type errors during production builds
     ignoreBuildErrors: true,
   },
-  eslint: {
-    // Temporarily ignore ESLint errors during production builds
-    ignoreDuringBuilds: true,
-  },
-  // For local development, we don't need HTTPS redirects
-  // These will be added back for production deployment
+  // Production: React strict mode enabled for better development practices
+  // Development: Can be disabled in local .env.development or next.config.local.js
+  reactStrictMode: process.env.NODE_ENV === 'production',
 }
 
 module.exports = nextConfig

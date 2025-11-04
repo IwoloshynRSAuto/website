@@ -15,7 +15,7 @@ const updateUserSchema = z.object({
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -23,8 +23,12 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Handle params - could be a Promise in Next.js 15+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id } = resolvedParams
+
     const user = await prisma.user.findUnique({
-      where: { id: params.id },
+      where: { id },
       select: {
         id: true,
         email: true,
@@ -61,7 +65,7 @@ export async function GET(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -69,12 +73,16 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Handle params - could be a Promise in Next.js 15+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id } = resolvedParams
+
     const body = await request.json()
     const validatedData = updateUserSchema.parse(body)
 
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
-      where: { id: params.id }
+      where: { id }
     })
 
     if (!existingUser) {
@@ -97,7 +105,7 @@ export async function PATCH(
 
     // Update user
     const updatedUser = await prisma.user.update({
-      where: { id: params.id },
+      where: { id },
       data: validatedData,
       select: {
         id: true,
@@ -137,7 +145,7 @@ export async function PATCH(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
@@ -145,9 +153,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Handle params - could be a Promise in Next.js 15+
+    const resolvedParams = params instanceof Promise ? await params : params
+    const { id } = resolvedParams
+
     // Check if user exists
     const existingUser = await prisma.user.findUnique({
-      where: { id: params.id }
+      where: { id }
     })
 
     if (!existingUser) {
@@ -172,25 +184,25 @@ export async function DELETE(
     
     // Set assignedToId to NULL for all jobs assigned to this user
     await prisma.job.updateMany({
-      where: { assignedToId: params.id },
+      where: { assignedToId: id },
       data: { assignedToId: null }
     })
 
     // Set userId to NULL for all time entries (or keep them but mark as deleted user)
     // We'll keep the time entries but set userId to NULL to preserve historical data
     await prisma.timeEntry.updateMany({
-      where: { userId: params.id },
+      where: { userId: id },
       data: { userId: null }
     })
 
     // Set approvedById and rejectedById to NULL in timesheet submissions
     await prisma.timesheetSubmission.updateMany({
-      where: { approvedById: params.id },
+      where: { approvedById: id },
       data: { approvedById: null }
     })
 
     await prisma.timesheetSubmission.updateMany({
-      where: { rejectedById: params.id },
+      where: { rejectedById: id },
       data: { rejectedById: null }
     })
 
@@ -201,14 +213,14 @@ export async function DELETE(
 
     if (adminUser) {
       await prisma.job.updateMany({
-        where: { createdById: params.id },
+        where: { createdById: id },
         data: { createdById: adminUser.id }
       })
     }
 
     // Soft delete: Mark user as inactive instead of deleting
     await prisma.user.update({
-      where: { id: params.id },
+      where: { id },
       data: { 
         isActive: false,
         email: `deleted_${Date.now()}_${existingUser.email}`, // Make email unique for soft deletion

@@ -8,9 +8,9 @@ $ErrorActionPreference = "Stop"
 # Configure environment for 192.168.10.95 using existing PFX in certs folder
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = Split-Path -Parent $scriptDir
-$certPath = Join-Path $repoRoot "certs\192.168.10.95.pfx"
+$certPath = Join-Path $repoRoot "certs\192.168.10.70.pfx"
 
-$env:NEXTAUTH_URL = "https://192.168.10.95:$Port"
+$env:NEXTAUTH_URL = "https://192.168.10.70:$Port"
 $env:SSL_PFX_PATH = $certPath
 $env:SSL_PFX_PASS = "temp123"
 $env:PORT = "$Port"

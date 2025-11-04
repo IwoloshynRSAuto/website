@@ -18,8 +18,8 @@ export function TimesheetSOPModal() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="flex items-center gap-2">
-          <HelpCircle className="h-4 w-4" />
+        <Button variant="outline" className="border-gray-300 hover:bg-gray-50">
+          <HelpCircle className="h-4 w-4 mr-2" />
           How To
         </Button>
       </DialogTrigger>
@@ -108,14 +108,14 @@ export function TimesheetSOPModal() {
             
             <div className="space-y-3">
               <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                <span className="flex-shrink-0 w-6 h-6 bg-orange-600 text-white rounded-full flex items-center justify-center text-sm font-medium">1</span>
+                <span className="flex-shrink-0 w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-sm font-medium">1</span>
                 <div>
                   <p className="font-medium">Review your entered time records for accuracy.</p>
                 </div>
               </div>
               
               <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                <span className="flex-shrink-0 w-6 h-6 bg-orange-600 text-white rounded-full flex items-center justify-center text-sm font-medium">2</span>
+                <span className="flex-shrink-0 w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-sm font-medium">2</span>
                 <div className="flex items-center gap-2">
                   <p className="font-medium">Once reviewed, click</p>
                   <div className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded text-sm">
@@ -126,7 +126,7 @@ export function TimesheetSOPModal() {
               </div>
               
               <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
-                <span className="flex-shrink-0 w-6 h-6 bg-orange-600 text-white rounded-full flex items-center justify-center text-sm font-medium">3</span>
+                <span className="flex-shrink-0 w-6 h-6 bg-orange-500 text-white rounded-full flex items-center justify-center text-sm font-medium">3</span>
                 <div>
                   <p className="font-medium">
                     If you notice any mistakes after submitting, you can still 

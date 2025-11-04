@@ -17,7 +17,8 @@ export const authOptions: NextAuthOptions = {
     signIn: '/auth/signin',
   },
   session: {
-    strategy: 'jwt'
+    strategy: 'jwt',
+    maxAge: 30 * 24 * 60 * 60, // 30 days in seconds
   },
   callbacks: {
     async signIn({ user, account, profile }) {
@@ -31,7 +32,7 @@ export const authOptions: NextAuthOptions = {
       }
       return true
     },
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, account, trigger }) {
       // Initial sign in
       if (account && user) {
         // Check database for user role
@@ -63,14 +64,21 @@ export const authOptions: NextAuthOptions = {
         token.name = user.name
       }
       
-      // On subsequent requests, refresh role from database
-      if (token.email && !account) {
+      // On subsequent requests, only refresh role from database if explicitly triggered
+      // Don't refresh on every request to avoid unnecessary reloads
+      if (token.email && !account && trigger === 'update') {
         try {
           const dbUser = await prisma.user.findUnique({
-            where: { email: token.email as string }
+            where: { email: token.email as string },
+            select: { role: true }
           })
           if (dbUser) {
+            const oldRole = token.role
             token.role = dbUser.role
+            // Log if role changed
+            if (oldRole !== dbUser.role) {
+              console.log(`Role updated for ${token.email}: ${oldRole} → ${dbUser.role}`)
+            }
           }
         } catch (error) {
           console.error('Error refreshing user role:', error)

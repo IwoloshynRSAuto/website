@@ -14,13 +14,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Eye, Edit, Trash2, MoreHorizontal, Search, Calendar, CheckSquare, Square, Folder } from 'lucide-react'
+import { Eye, Edit, Trash2, Search, Calendar, CheckSquare, Square, Folder } from 'lucide-react'
 import { format } from 'date-fns'
 import { toast } from 'react-hot-toast'
 import { useSession } from 'next-auth/react'
@@ -49,9 +43,10 @@ interface PartsService {
 
 interface PartsServicesTableProps {
   partsServices: PartsService[]
+  headerButtons?: React.ReactNode
 }
 
-export function PartsServicesTable({ partsServices: initialPartsServices }: PartsServicesTableProps) {
+export function PartsServicesTable({ partsServices: initialPartsServices, headerButtons }: PartsServicesTableProps) {
   const router = useRouter()
   const { data: session } = useSession()
   const [partsServices, setPartsServices] = useState<PartsService[]>(initialPartsServices)
@@ -144,23 +139,30 @@ export function PartsServicesTable({ partsServices: initialPartsServices }: Part
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Parts & Services</CardTitle>
-          <div className="text-sm text-gray-500">
-            Showing {filteredPartsServices.length} of {partsServices.length} items
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+            {headerButtons && (
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                {headerButtons}
+              </div>
+            )}
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                type="text"
+                placeholder="Search..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-8 w-full sm:w-64"
+              />
+            </div>
           </div>
         </div>
+        <div className="text-sm text-gray-500 mt-2">
+          Showing {filteredPartsServices.length} of {partsServices.length} items
+        </div>
         
-        {/* Search and Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              type="text"
-              placeholder="Search job #, description, customer..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+        {/* Filters */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
           
           <select
             value={statusFilter}
@@ -212,13 +214,15 @@ export function PartsServicesTable({ partsServices: initialPartsServices }: Part
                 <TableHead className="w-20">Invoiced</TableHead>
                 <TableHead className="w-12 text-center">QB</TableHead>
                 <TableHead className="w-12 text-center">LD</TableHead>
-                <TableHead className="w-16 text-right">Actions</TableHead>
+                {isAdmin && (
+                  <TableHead className="w-[100px] text-right">Actions</TableHead>
+                )}
               </TableRow>
             </TableHeader>
             <TableBody>
               {filteredPartsServices.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={11} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={isAdmin ? 12 : 11} className="text-center py-8 text-gray-500">
                     No parts or services found
                   </TableCell>
                 </TableRow>
@@ -315,33 +319,30 @@ export function PartsServicesTable({ partsServices: initialPartsServices }: Part
                         <Folder className="h-4 w-4 text-gray-300 mx-auto" />
                       )}
                     </TableCell>
-                    <TableCell className="text-right py-2" onClick={(e) => e.stopPropagation()}>
-                      {isAdmin && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                              <MoreHorizontal className="h-3.5 w-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end">
-                            <DropdownMenuItem onClick={() => handleEdit(ps)}>
-                              <Edit className="mr-2 h-4 w-4" />
-                              Edit
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleDelete(ps.id, ps.jobNumber)
-                              }}
-                              className="text-red-600"
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Delete
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-                    </TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-right py-2" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleEdit(ps)}
+                            className="h-8 w-8 p-0"
+                            title="Edit"
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDelete(ps.id, ps.jobNumber)}
+                            className="h-8 w-8 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))
               )}

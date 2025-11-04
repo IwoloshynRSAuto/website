@@ -15,6 +15,7 @@ interface Job {
   endDate: Date | null
   status: string
   priority: string
+  updatedAt: Date
   assignedTo: {
     name: string | null
   } | null
@@ -180,10 +181,9 @@ export function UpcomingDueDates({ jobs }: UpcomingDueDatesProps) {
         
         <div className="mt-4 pt-4 border-t">
           <Button
-            variant="outline"
-            size="sm"
             onClick={() => router.push('/dashboard/jobs')}
-            className="w-full"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-150 ease-in-out"
+            size="sm"
           >
             View All Jobs
           </Button>

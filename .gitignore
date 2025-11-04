@@ -1,63 +1,202 @@
-# Environment files
-.env*
-env.production
-
-# Local databases
-prisma/*.db
-
-# Node
-node_modules/
-.next/
-out/
-
-# Logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-**/*.log
-
-# OS
-.DS_Store
-Thumbs.db
-# Dependencies
-node_modules/
-
-# Next.js build output
-.next/
-
-# Environment variables
+# ============================================
+# Environment Files & Secrets
+# ============================================
+# Ignore all environment files (except templates)
 .env
 .env.*
 !.env.example
-!.env.production.example.txt
+!.env.*.template
 
-# Database (dev and binary db/journal only, keep migrations!)
+# Production/sandbox environment files (NEVER commit these!)
+env.production
+env.sandbox
+.env.production
+.env.sandbox
+.env.docker
+
+# ============================================
+# Database Files
+# ============================================
+# Local SQLite databases (dev only)
 *.db
 *.db-journal
+prisma/*.db
 prisma/dev.db
 
-# OS/Editor cache and log files
-.DS_Store
-Thumbs.db
-*.log
+# Keep migrations and schema, but ignore dev databases
+!prisma/migrations/
+!prisma/schema.prisma
+
+# Sample database (if needed for examples)
+# !prisma/sample-data.db
+
+# ============================================
+# Node.js & Dependencies
+# ============================================
+node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
+.pnpm-store/
 
-# VSCode settings
+# ============================================
+# Next.js Build Output
+# ============================================
+.next/
+out/
+build/
+dist/
+
+# ============================================
+# TypeScript
+# ============================================
+*.tsbuildinfo
+next-env.d.ts
+
+# ============================================
+# Logs
+# ============================================
+*.log
+logs/
+*.log.*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ============================================
+# OS & Editor Files
+# ============================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ============================================
+# IDE & Editor
+# ============================================
+# VSCode / Cursor
 .vscode/
+.cursor/
+*.code-workspace
+.history/
 
-# Test coverage
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# ============================================
+# Process Management
+# ============================================
+# PM2
+.pm2/
+ecosystem.config.js
+pm2.config.js
+
+# ============================================
+# SSL Certificates & Keys
+# ============================================
+# Local certificates (NEVER commit these!)
+certs/*.pem
+certs/*.pfx
+certs/*.key
+certs/*.crt
+*.pem
+*.pfx
+*.key
+*.crt
+!certs/.gitkeep
+
+# ============================================
+# File Uploads & User Content
+# ============================================
+uploads/
+uploads-*/
+storage/uploads/
+storage/quotes/
+
+# ============================================
+# Test Coverage
+# ============================================
 coverage/
+.nyc_output/
+*.lcov
 
-# Windows/Mac executables, & deployment bin folder
+# ============================================
+# Temporary Files
+# ============================================
+*.tmp
+*.temp
+*.cache
+.cache/
+.temp/
+
+# ============================================
+# Windows Executables (from deploy folder)
+# ============================================
 *.exe
 *.dll
-deploy/
+deploy/*.exe
+deploy/cloudflared.exe
 
-# TypeScript build info
-*.tsbuildinfo
+# Keep deploy scripts but not executables
+!deploy/*.ps1
+!deploy/*.sh
+!deploy/Caddyfile
 
-# Allow checked-in sample DB for dev/example only:
-!prisma/sample-data.db
+# ============================================
+# Docker
+# ============================================
+docker-compose.override.yml
+.dockerignore
+
+# ============================================
+# Backup Files
+# ============================================
+*.bak
+*.backup
+*.old
+backup_*.sql
+*.sql.backup
+
+# ============================================
+# Misc
+# ============================================
+# Environment-specific files
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
