@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   postgres:
     image: postgres:15-alpine
@@ -12,11 +10,16 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - pg_data:/var/lib/postgresql/data
-    # Optional: Only expose to localhost for security
-    # Uncomment if you don't need external access
-    # ports:
-    #   - "127.0.0.1:5432:5432"
+      # PostgreSQL data directory on separate disk
+      - /mnt/pgdata/postgres:/var/lib/postgresql/data
+      # PostgreSQL WAL directory on separate disk
+      - /mnt/pgwal/postgres:/var/lib/postgresql/wal
+      # Custom postgresql.conf for WAL configuration
+      - ./postgresql.conf:/etc/postgresql/postgresql.conf
+    command: >
+      postgres
+      -c config_file=/etc/postgresql/postgresql.conf
+      -c data_directory=/var/lib/postgresql/data
 
   adminer:
     image: adminer:4
@@ -28,11 +31,3 @@ services:
       ADMINER_DEFAULT_SERVER: postgres
     depends_on:
       - postgres
-
-volumes:
-  pg_data:
-    driver: local
-
-
-
-

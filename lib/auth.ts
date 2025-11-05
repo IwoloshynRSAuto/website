@@ -4,6 +4,12 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+// Determine if we're using HTTPS (domain) or HTTP (IP address)
+const nextAuthUrl = process.env.NEXTAUTH_URL || ''
+const isHttps = nextAuthUrl.startsWith('https://')
+const isIpAddress = /^https?:\/\/(\d{1,3}\.){3}\d{1,3}/.test(nextAuthUrl)
+const useSecureCookies = isHttps && !isIpAddress // Use secure cookies only for HTTPS domains
+
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
@@ -15,6 +21,38 @@ export const authOptions: NextAuthOptions = {
   ],
   pages: {
     signIn: '/auth/signin',
+  },
+  useSecureCookies, // Conditional: true for HTTPS domains, false for IP addresses
+  cookies: {
+    sessionToken: {
+      name: useSecureCookies ? `__Secure-next-auth.session-token` : `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: useSecureCookies, // Only secure for HTTPS domains
+        domain: undefined, // Works with any domain
+      },
+    },
+    callbackUrl: {
+      name: useSecureCookies ? `__Secure-next-auth.callback-url` : `next-auth.callback-url`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: useSecureCookies, // Only secure for HTTPS domains
+        domain: undefined,
+      },
+    },
+    csrfToken: {
+      name: useSecureCookies ? `__Host-next-auth.csrf-token` : `next-auth.csrf-token`,
+      options: {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        secure: useSecureCookies, // Only secure for HTTPS domains
+      },
+    },
   },
   session: {
     strategy: 'jwt',
@@ -59,13 +97,13 @@ export const authOptions: NextAuthOptions = {
           token.role = 'USER' // Fallback to default role
         }
         
-        token.id = user.id || user.email
-        token.email = user.email
-        token.name = user.name
+        // Fixed TypeScript errors - ensure always string
+        token.id = (user.id || user.email || '') as string
+        token.email = (user.email || '') as string
+        token.name = (user.name || '') as string
       }
       
       // On subsequent requests, only refresh role from database if explicitly triggered
-      // Don't refresh on every request to avoid unnecessary reloads
       if (token.email && !account && trigger === 'update') {
         try {
           const dbUser = await prisma.user.findUnique({
@@ -98,5 +136,3 @@ export const authOptions: NextAuthOptions = {
     }
   }
 }
-
-
