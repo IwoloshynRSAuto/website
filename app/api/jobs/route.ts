@@ -164,6 +164,11 @@ export async function GET(request: NextRequest) {
     const where: any = {}
     if (status) where.status = status
     if (assignedToId) where.assignedToId = assignedToId
+    
+    // Exclude COMPLETED jobs/quotes by default
+    if (!status) {
+      where.status = { not: 'COMPLETED' }
+    }
 
     const jobs = await prisma.job.findMany({
       where,
@@ -176,7 +181,6 @@ export async function GET(request: NextRequest) {
             laborCode: true
           }
         },
-        laborCodes: true,
         timeEntries: {
           include: {
             laborCode: true

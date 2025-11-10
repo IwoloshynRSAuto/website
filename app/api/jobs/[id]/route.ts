@@ -1,210 +1,197 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { roundToNearest15Minutes } from '@/lib/utils/time-rounding'
+import { z } from 'zod'
 
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> | { id: string } }
-) {
-  try {
-    // Handle params - could be a Promise in Next.js 15+
-    const resolvedParams = params instanceof Promise ? await params : params
-    const { id } = resolvedParams
+// Simple in-memory rate limiting
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>()
+const RATE_LIMIT_WINDOW = 60000 // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 10
 
-    const job = await prisma.job.findUnique({
-      where: { id },
-      include: {
-        assignedTo: true,
-        createdBy: true,
-        customer: true,
-        timeEntries: {
-          include: {
-            user: true,
-            laborCode: true
-          }
-        },
-        _count: {
-          select: {
-            timeEntries: true
-          }
-        }
-      }
-    })
+function checkRateLimit(userId: string): boolean {
+  const now = Date.now()
+  const userLimit = rateLimitMap.get(userId)
 
-    if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
-    }
-
-    // Convert Decimal fields to numbers
-    const jobResponse = {
-      ...job,
-      estimatedHours: job.estimatedHours ? Number(job.estimatedHours) : null,
-      actualHours: job.actualHours ? Number(job.actualHours) : null,
-      estimatedCost: job.estimatedCost ? Number(job.estimatedCost) : null,
-      dueTodayPercent: job.dueTodayPercent ? Number(job.dueTodayPercent) : null,
-    }
-
-    return NextResponse.json(jobResponse)
-  } catch (error: any) {
-    console.error('Error fetching job:', error)
-    return NextResponse.json(
-      { error: 'Failed to fetch job' },
-      { status: 500 }
-    )
+  if (!userLimit || now > userLimit.resetTime) {
+    rateLimitMap.set(userId, { count: 1, resetTime: now + RATE_LIMIT_WINDOW })
+    return true
   }
+
+  if (userLimit.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return false
+  }
+
+  userLimit.count++
+  return true
 }
 
+const updateJobEntrySchema = z.object({
+  punchInTime: z.string().transform((val) => new Date(val)).optional(),
+  punchOutTime: z.string().transform((val) => new Date(val)).optional().nullable(),
+  notes: z.string().optional().nullable(),
+})
+
+// PATCH /api/jobs/:id - Update job entry
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    // Handle params - could be a Promise in Next.js 15+
-    const resolvedParams = params instanceof Promise ? await params : params
-    const { id } = resolvedParams
-    const body = await request.json()
-    const { 
-      status, 
-      title, 
-      description, 
-      priority, 
-      startDate, 
-      endDate, 
-      estimatedHours, 
-      actualHours, 
-      assignedToId,
-      // New fields
-      customerId,
-      workCode,
-      estimatedCost,
-      dueTodayPercent,
-      inQuickBooks,
-      inLDrive,
-      fileLink,
-      lastFollowUp
-    } = body
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
-    // Validate status if provided
-    if (status) {
-      const allowedStatuses = ['QUOTE', 'ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED', 'PLANNING', 'PENDING', 'APPROVED', 'REJECTED', 'DRAFT']
-      if (!allowedStatuses.includes(status)) {
+    // Handle Next.js 15 async params
+    const resolvedParams = await Promise.resolve(params)
+    const jobEntryId = resolvedParams.id
+
+    if (!jobEntryId) {
+      return NextResponse.json({ error: 'Job entry ID is required' }, { status: 400 })
+    }
+
+    const jobEntry = await prisma.jobEntry.findUnique({
+      where: { id: jobEntryId },
+      include: {
+        timesheet: true
+      }
+    })
+
+    if (!jobEntry) {
+      return NextResponse.json({ error: 'Job entry not found' }, { status: 404 })
+    }
+
+    // Only allow users to update jobs in their own timesheets (unless admin)
+    if (jobEntry.timesheet.userId !== session.user.id && session.user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Rate limiting
+    if (!checkRateLimit(session.user.id)) {
+      return NextResponse.json(
+        { error: 'Too many requests. Please wait a moment before trying again.' },
+        { status: 429 }
+      )
+    }
+
+    const body = await request.json()
+    const validatedData = updateJobEntrySchema.parse(body)
+
+    const updateData: any = {}
+
+    // Round times if provided
+    if (validatedData.punchInTime) {
+      updateData.punchInTime = roundToNearest15Minutes(validatedData.punchInTime)
+    }
+
+    if (validatedData.punchOutTime !== undefined) {
+      if (validatedData.punchOutTime) {
+        updateData.punchOutTime = roundToNearest15Minutes(validatedData.punchOutTime)
+      } else {
+        updateData.punchOutTime = null
+      }
+    }
+
+    if (validatedData.notes !== undefined) {
+      updateData.notes = validatedData.notes
+    }
+
+    // Validate punch out is after punch in
+    const finalPunchIn = updateData.punchInTime || jobEntry.punchInTime
+    const finalPunchOut = updateData.punchOutTime !== undefined ? updateData.punchOutTime : jobEntry.punchOutTime
+
+    if (finalPunchOut && finalPunchIn) {
+      if (finalPunchOut < finalPunchIn) {
         return NextResponse.json(
-          { error: `Invalid status. Must be one of: ${allowedStatuses.join(', ')}` },
+          { error: 'Punch out time must be after punch in time' },
           { status: 400 }
         )
       }
     }
 
-    // Build update data object
-    const updateData: any = {}
-    if (status) updateData.status = status
-    if (title) updateData.title = title
-    if (description !== undefined) updateData.description = description
-    if (priority) updateData.priority = priority
-    if (startDate !== undefined) updateData.startDate = startDate ? new Date(startDate) : null
-    if (endDate !== undefined) updateData.endDate = endDate ? new Date(endDate) : null
-    if (estimatedHours !== undefined) updateData.estimatedHours = estimatedHours
-    if (actualHours !== undefined) updateData.actualHours = actualHours
-    if (assignedToId !== undefined) updateData.assignedToId = assignedToId
-    // New fields
-    if (customerId !== undefined) updateData.customerId = customerId
-    if (workCode !== undefined) updateData.workCode = workCode
-    if (estimatedCost !== undefined) updateData.estimatedCost = estimatedCost
-    if (dueTodayPercent !== undefined) updateData.dueTodayPercent = dueTodayPercent
-    if (inQuickBooks !== undefined) updateData.inQuickBooks = inQuickBooks
-    if (inLDrive !== undefined) updateData.inLDrive = inLDrive
-    if (fileLink !== undefined) updateData.fileLink = fileLink === '' || fileLink === null ? null : fileLink
-    if (lastFollowUp !== undefined) updateData.lastFollowUp = lastFollowUp ? new Date(lastFollowUp) : null
+    // Validate punch in is before punch out (if both provided)
+    if (updateData.punchInTime && jobEntry.punchOutTime) {
+      if (updateData.punchInTime > jobEntry.punchOutTime) {
+        return NextResponse.json(
+          { error: 'Punch in time must be before punch out time' },
+          { status: 400 }
+        )
+      }
+    }
 
-    // Update the job
-    const updatedJob = await prisma.job.update({
-      where: { id },
+    const updated = await prisma.jobEntry.update({
+      where: { id: jobEntryId },
       data: updateData,
       include: {
-        assignedTo: true,
-        createdBy: true,
-        customer: true,
-        _count: {
-          select: {
-            timeEntries: true
+        timesheet: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              }
+            }
           }
         }
       }
     })
 
-    // Convert Decimal fields to numbers
-    const jobResponse = {
-      ...updatedJob,
-      estimatedHours: updatedJob.estimatedHours ? Number(updatedJob.estimatedHours) : null,
-      actualHours: updatedJob.actualHours ? Number(updatedJob.actualHours) : null,
-      estimatedCost: updatedJob.estimatedCost ? Number(updatedJob.estimatedCost) : null,
-      dueTodayPercent: updatedJob.dueTodayPercent ? Number(updatedJob.dueTodayPercent) : null,
+    return NextResponse.json(updated)
+  } catch (error) {
+    console.error('Error updating job entry:', error)
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid request data', details: error.errors }, { status: 400 })
     }
-
-    return NextResponse.json(jobResponse)
-  } catch (error: any) {
-    console.error('Error updating job:', error)
-    console.error('Error details:', {
-      message: error?.message,
-      code: error?.code,
-      meta: error?.meta,
-      stack: error?.stack
-    })
-    return NextResponse.json(
-      { 
-        error: 'Failed to update job',
-        details: error?.message || 'Unknown error',
-        code: error?.code
-      },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
+// DELETE /api/jobs/:id - Delete job entry
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    // Handle params - could be a Promise in Next.js 15+
-    const resolvedParams = params instanceof Promise ? await params : params
-    const { id } = resolvedParams
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
-    // Check if job exists
-    const job = await prisma.job.findUnique({
-      where: { id },
+    // Handle Next.js 15 async params
+    const resolvedParams = await Promise.resolve(params)
+    const jobEntryId = resolvedParams.id
+
+    if (!jobEntryId) {
+      return NextResponse.json({ error: 'Job entry ID is required' }, { status: 400 })
+    }
+
+    const jobEntry = await prisma.jobEntry.findUnique({
+      where: { id: jobEntryId },
       include: {
-        _count: {
-          select: {
-            timeEntries: true
-          }
-        }
+        timesheet: true
       }
     })
 
-    if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 })
+    if (!jobEntry) {
+      return NextResponse.json({ error: 'Job entry not found' }, { status: 404 })
     }
 
-    // Delete all related records first (cascade delete)
-    // Delete time entries associated with this job
-    await prisma.timeEntry.deleteMany({
-      where: { jobId: id }
+    // Only allow users to delete jobs in their own timesheets (unless admin)
+    if (jobEntry.timesheet.userId !== session.user.id && session.user.role !== 'ADMIN') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    // Delete the job entry
+    await prisma.jobEntry.delete({
+      where: { id: jobEntryId }
     })
 
-    // Delete the job
-    await prisma.job.delete({
-      where: { id }
-    })
-
-    return NextResponse.json({ 
-      message: 'Job deleted successfully',
-      deletedTimeEntries: job._count.timeEntries
-    })
-  } catch (error: any) {
-    console.error('Error deleting job:', error)
-    return NextResponse.json(
-      { error: 'Failed to delete job', details: error.message },
-      { status: 500 }
-    )
+    return NextResponse.json({ success: true, message: 'Job entry deleted successfully' })
+  } catch (error) {
+    console.error('Error deleting job entry:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

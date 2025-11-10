@@ -25,6 +25,7 @@ model User {
   rejectedTimesheets   TimesheetSubmission[]    @relation("TimesheetRejections")
   approvedTimesheets   TimesheetSubmission[]    @relation("TimesheetApprovals")
   timesheetSubmissions TimesheetSubmission[]
+  punchTimesheets      Timesheet[]
 
   @@map("users")
 }
@@ -362,4 +363,35 @@ enum BOMStatus {
   DRAFT
   ACTIVE
   ARCHIVED
+}
+
+model Timesheet {
+  id           String     @id @default(cuid())
+  userId       String
+  date         DateTime
+  clockInTime  DateTime
+  clockOutTime DateTime?
+  totalHours   Float?
+  status       String     @default("in-progress") // in-progress, completed, needs-review
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobEntries   JobEntry[]
+
+  @@map("timesheets")
+}
+
+model JobEntry {
+  id           String    @id @default(cuid())
+  timesheetId  String
+  jobNumber    String
+  laborCode    String
+  punchInTime  DateTime
+  punchOutTime DateTime?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  timesheet    Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+
+  @@map("job_entries")
 }

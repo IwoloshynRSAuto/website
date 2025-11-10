@@ -80,6 +80,8 @@ export const authOptions: NextAuthOptions = {
           })
           
           if (dbUser) {
+            // Use database user ID, not Azure AD ID
+            token.id = dbUser.id
             token.role = dbUser.role
           } else {
             // Create new user with default role
@@ -90,15 +92,29 @@ export const authOptions: NextAuthOptions = {
                 role: 'USER'
               }
             })
+            // Use database user ID
+            token.id = newUser.id
             token.role = newUser.role
           }
         } catch (error) {
           console.error('Error checking user role:', error)
           token.role = 'USER' // Fallback to default role
+          // Try to find user by email as fallback
+          try {
+            const dbUser = await prisma.user.findUnique({
+              where: { email: user.email as string }
+            })
+            if (dbUser) {
+              token.id = dbUser.id
+            } else {
+              token.id = (user.email || '') as string
+            }
+          } catch {
+            token.id = (user.email || '') as string
+          }
         }
         
-        // Fixed TypeScript errors - ensure always string
-        token.id = (user.id || user.email || '') as string
+        // Store email and name
         token.email = (user.email || '') as string
         token.name = (user.name || '') as string
       }

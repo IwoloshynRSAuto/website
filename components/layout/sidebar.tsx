@@ -20,7 +20,8 @@ import {
   Database,
   Box,
   Search,
-  FileText
+  FileText,
+  CheckCircle2
 } from 'lucide-react'
 
 import { MODULE_COLORS } from '@/lib/dashboard-styles'
@@ -39,7 +40,18 @@ const navigation = [
     ]
   },
   { name: 'Customers', href: '/dashboard/customers', icon: Building2 },
-  { name: 'Time Sheets', href: '/dashboard/timekeeping', icon: Clock, module: 'timesheets' },
+  { 
+    name: 'Time Sheets', 
+    href: '/dashboard/timekeeping', 
+    icon: Clock, 
+    module: 'timesheets',
+    children: [
+      { name: 'Attendance (Punch In / Punch Out)', href: '/dashboard/timekeeping', icon: Clock },
+      { name: 'Time (Job Time Tracking)', href: '/dashboard/timekeeping/time', icon: FileText },
+      { name: 'Attendance Approvals', href: '/dashboard/timekeeping/approvals/attendance', icon: CheckCircle2, adminOnly: true },
+      { name: 'Time Approvals', href: '/dashboard/timekeeping/approvals/time', icon: CheckCircle2, adminOnly: true },
+    ]
+  },
   { 
     name: 'Admin', 
     href: '/dashboard/admin', 
@@ -157,7 +169,16 @@ export function Sidebar() {
               
               {hasChildren && isActive && (
                 <div className="ml-6 mt-1 space-y-1">
-                  {item.children.map((child) => {
+                  {item.children.filter(child => {
+                    // Filter admin-only children
+                    if (child.adminOnly) {
+                      const userRole = session?.user?.role
+                      if (!session || !session.user || userRole !== 'ADMIN') {
+                        return false
+                      }
+                    }
+                    return true
+                  }).map((child) => {
                     const isChildActive = pathname === child.href
                     const childModuleClasses = getModuleClasses(child.href)
                     return (
