@@ -44,6 +44,14 @@ interface AttendanceSubmission {
     email: string
   }
   totalHours: number
+  timesheets?: Array<{
+    id: string
+    date: string
+    clockInTime: string
+    clockOutTime: string | null
+    totalHours: number | null
+    status: string
+  }>
 }
 
 export function AttendanceApprovals() {
@@ -53,6 +61,7 @@ export function AttendanceApprovals() {
   const [selectedSubmission, setSelectedSubmission] = useState<AttendanceSubmission | null>(null)
   const [isApprovalDialogOpen, setIsApprovalDialogOpen] = useState(false)
   const [isRejectionDialogOpen, setIsRejectionDialogOpen] = useState(false)
+  const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
 
@@ -63,14 +72,22 @@ export function AttendanceApprovals() {
   const loadSubmissions = async () => {
     setIsLoading(true)
     try {
-      // TODO: Create API endpoint for attendance submissions
-      // For now, using placeholder - will need to filter timesheet submissions by type
       const response = await fetch('/api/timesheet-submissions')
       if (response.ok) {
         const data = await response.json()
-        // Filter for attendance-only submissions (entries with no job entries)
-        // This is a placeholder - actual implementation will depend on backend structure
-        setSubmissions([])
+        // Filter for attendance-only submissions (submissions with timesheets but no timeEntries with jobs)
+        const attendanceSubmissions = data
+          .filter((sub: any) => {
+            // Attendance submissions have timesheets but no job-related timeEntries
+            const hasTimesheets = sub.timesheets && sub.timesheets.length > 0
+            const hasJobEntries = sub.timeEntries && sub.timeEntries.some((te: any) => te.jobId)
+            return hasTimesheets && !hasJobEntries
+          })
+          .map((sub: any) => ({
+            ...sub,
+            totalHours: sub.totalHours || 0
+          }))
+        setSubmissions(attendanceSubmissions)
       }
     } catch (error) {
       console.error('Error loading attendance submissions:', error)
@@ -248,7 +265,7 @@ export function AttendanceApprovals() {
                             size="sm"
                             onClick={() => {
                               setSelectedSubmission(submission)
-                              // TODO: Open details modal
+                              setIsViewDialogOpen(true)
                             }}
                           >
                             <Eye className="h-4 w-4 mr-1" />
@@ -323,6 +340,93 @@ export function AttendanceApprovals() {
         </DialogContent>
       </Dialog>
 
+      {/* View Details Dialog */}
+      <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Attendance Submission Details</DialogTitle>
+            <DialogDescription>
+              {selectedSubmission && (
+                <>
+                  {selectedSubmission.user.name || selectedSubmission.user.email} -{' '}
+                  {format(new Date(selectedSubmission.weekStart), 'MMM d')} -{' '}
+                  {format(new Date(selectedSubmission.weekEnd), 'MMM d, yyyy')}
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedSubmission && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label className="text-sm font-semibold">Total Hours</Label>
+                  <p className="text-lg font-bold">{selectedSubmission.totalHours.toFixed(2)}h</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-semibold">Status</Label>
+                  <div className="mt-1">{getStatusBadge(selectedSubmission.status)}</div>
+                </div>
+              </div>
+              
+              {selectedSubmission.timesheets && selectedSubmission.timesheets.length > 0 ? (
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold">Time Entries</Label>
+                  <div className="border rounded-lg overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Clock In</TableHead>
+                          <TableHead>Clock Out</TableHead>
+                          <TableHead>Hours</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedSubmission.timesheets.map((ts) => {
+                          const hours = ts.totalHours || 
+                            (ts.clockOutTime 
+                              ? (new Date(ts.clockOutTime).getTime() - new Date(ts.clockInTime).getTime()) / (1000 * 60 * 60)
+                              : 0)
+                          return (
+                            <TableRow key={ts.id}>
+                              <TableCell>{format(new Date(ts.date), 'MMM d, yyyy')}</TableCell>
+                              <TableCell>{format(new Date(ts.clockInTime), 'h:mm a')}</TableCell>
+                              <TableCell>{ts.clockOutTime ? format(new Date(ts.clockOutTime), 'h:mm a') : '—'}</TableCell>
+                              <TableCell>{hours.toFixed(2)}h</TableCell>
+                              <TableCell>
+                                <Badge className={ts.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
+                                  {ts.status}
+                                </Badge>
+                              </TableCell>
+                            </TableRow>
+                          )
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <p>No time entries found</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsViewDialogOpen(false)
+                setSelectedSubmission(null)
+              }}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Rejection Dialog */}
       <Dialog open={isRejectionDialogOpen} onOpenChange={setIsRejectionDialogOpen}>
         <DialogContent>
@@ -341,6 +445,7 @@ export function AttendanceApprovals() {
                 onChange={(e) => setRejectionReason(e.target.value)}
                 placeholder="Enter reason for rejection..."
                 rows={4}
+                className="min-h-[100px]"
               />
             </div>
           </div>
@@ -352,11 +457,16 @@ export function AttendanceApprovals() {
                 setSelectedSubmission(null)
                 setRejectionReason('')
               }}
+              disabled={isProcessing}
             >
               Cancel
             </Button>
             <Button
-              onClick={() => selectedSubmission && handleReject(selectedSubmission.id)}
+              onClick={() => {
+                if (selectedSubmission && rejectionReason.trim()) {
+                  handleReject(selectedSubmission.id)
+                }
+              }}
               disabled={isProcessing || !rejectionReason.trim()}
               className="bg-red-600 hover:bg-red-700 text-white"
             >

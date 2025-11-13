@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { Button } from '@/components/ui/button'
@@ -22,10 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'react-hot-toast'
-import { TimeInputWithCalculation } from './time-input-with-calculation'
 
 interface User {
   id: string
@@ -51,13 +49,14 @@ interface CreateTimeEntryDialogProps {
   onClose: () => void
 }
 
-export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialogProps) {
+function CreateTimeEntryDialogComponent({ isOpen, onClose }: CreateTimeEntryDialogProps) {
   const router = useRouter()
   const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
   const [users, setUsers] = useState<User[]>([])
   const [jobs, setJobs] = useState<Job[]>([])
   const [laborCodes, setLaborCodes] = useState<LaborCode[]>([])
+  const [isReady, setIsReady] = useState(false)
   const isAdmin = session?.user?.role === 'ADMIN'
   const currentUserId = session?.user?.id || ''
   
@@ -76,15 +75,33 @@ export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialog
   // Fetch users, jobs, and labor codes when dialog opens
   useEffect(() => {
     if (isOpen) {
-      fetchUsers()
-      fetchJobs()
-      fetchLaborCodes()
-      // Set user ID to current user if not admin
-      if (!isAdmin && currentUserId) {
-        setFormData(prev => ({ ...prev, userId: currentUserId }))
+      setIsReady(false)
+      const loadData = async () => {
+        try {
+          await Promise.all([
+            fetchUsers(),
+            fetchJobs(),
+            fetchLaborCodes()
+          ])
+          // Small delay to ensure everything is initialized
+          setTimeout(() => setIsReady(true), 100)
+        } catch (error) {
+          console.error('Error fetching data:', error)
+          setIsReady(true) // Still allow dialog to open even if fetch fails
+        }
       }
+      loadData()
+    } else {
+      setIsReady(false)
     }
-  }, [isOpen, currentUserId, isAdmin])
+  }, [isOpen])
+  
+  // Set user ID when currentUserId or isAdmin changes
+  useEffect(() => {
+    if (currentUserId) {
+      setFormData(prev => ({ ...prev, userId: currentUserId }))
+    }
+  }, [currentUserId, isAdmin])
 
   const fetchUsers = async () => {
     try {
@@ -143,6 +160,7 @@ export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialog
     setFormData(prev => ({ ...prev, billable: checked }))
   }
 
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -185,7 +203,12 @@ export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialog
       if (response.ok) {
         toast.success('Time entry created successfully')
         onClose()
-        router.refresh()
+        try {
+          router.refresh()
+        } catch (refreshError) {
+          console.error('Error refreshing router:', refreshError)
+          // Continue even if refresh fails
+        }
         // Reset form
         setFormData({
           date: new Date().toISOString().split('T')[0],
@@ -194,12 +217,19 @@ export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialog
           notes: '',
           billable: true,
           rate: '',
-          userId: '',
+          userId: currentUserId,
           jobId: '',
           laborCodeId: ''
         })
       } else {
-        const errorData = await response.json()
+        let errorData
+        try {
+          errorData = await response.json()
+        } catch (jsonError) {
+          console.error('Failed to parse error response:', jsonError)
+          toast.error(`Failed to create time entry: ${response.statusText || 'Unknown error'}`)
+          return
+        }
         console.error('Time entry creation failed:', errorData)
         
         // Show detailed validation errors if available
@@ -216,6 +246,11 @@ export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialog
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Don't render if not open to avoid any initialization issues
+  if (!isOpen) {
+    return null
   }
 
   return (
@@ -242,12 +277,28 @@ export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialog
                 />
               </div>
               <div className="col-span-2">
-                <TimeInputWithCalculation
-                  regularHours={formData.regularHours}
-                  overtimeHours={formData.overtimeHours}
-                  onRegularHoursChange={(hours) => handleInputChange({ target: { name: 'regularHours', value: hours.toString() } })}
-                  onOvertimeHoursChange={(hours) => handleInputChange({ target: { name: 'overtimeHours', value: hours.toString() } })}
-                />
+                <div className="space-y-2">
+                  <Label>Regular Hours</Label>
+                  <Input
+                    type="number"
+                    step="0.25"
+                    min="0"
+                    value={formData.regularHours}
+                    onChange={(e) => handleInputChange({ target: { name: 'regularHours', value: e.target.value } })}
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-2 mt-4">
+                  <Label>Overtime Hours</Label>
+                  <Input
+                    type="number"
+                    step="0.25"
+                    min="0"
+                    value={formData.overtimeHours}
+                    onChange={(e) => handleInputChange({ target: { name: 'overtimeHours', value: e.target.value } })}
+                    placeholder="0.00"
+                  />
+                </div>
               </div>
             </div>
 
@@ -272,19 +323,23 @@ export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialog
                 </Select>
               </div>
               <div>
-                <SearchableSelect
-                  label="Job"
-                  required
-                  options={jobs.map(job => ({
-                    value: job.id,
-                    label: `${job.jobNumber} - ${job.title}`,
-                    searchText: `${job.jobNumber} ${job.title} ${job.status || ''}`
-                  }))}
+                <Label htmlFor="jobId">Job *</Label>
+                <Select
                   value={formData.jobId}
                   onValueChange={(value) => handleSelectChange('jobId', value)}
-                  placeholder="Select a job"
-                  emptyMessage="No jobs found."
-                />
+                  required
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a job" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {jobs.map((job) => (
+                      <SelectItem key={job.id} value={job.id}>
+                        {job.jobNumber} - {job.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
@@ -360,4 +415,10 @@ export function CreateTimeEntryDialog({ isOpen, onClose }: CreateTimeEntryDialog
       </DialogContent>
     </Dialog>
   )
+}
+
+// Export with a different pattern to avoid initialization issues
+// Use a function export instead of const to avoid hoisting issues
+export function CreateTimeEntryDialog(props: CreateTimeEntryDialogProps) {
+  return <CreateTimeEntryDialogComponent {...props} />
 }

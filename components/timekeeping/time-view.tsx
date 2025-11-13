@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { FileText, Plus, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
+import { FileText, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2 } from 'lucide-react'
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, addDays, subDays, startOfDay, startOfMonth, endOfMonth, isSameMonth } from 'date-fns'
 import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
@@ -71,6 +71,7 @@ export function TimeView({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [isDayModalOpen, setIsDayModalOpen] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<TimesheetEntry | null>(null)
@@ -209,6 +210,171 @@ export function TimeView({
     setTimeout(() => {
       setIsModalOpen(true)
     }, 0)
+  }
+
+  const handleSubmitWeekForApproval = async () => {
+    // For non-admins, always use their own user ID
+    const userIdToSubmit = isAdmin ? selectedUserId : currentUserId
+    
+    if (!userIdToSubmit) {
+      toast({
+        title: 'Error',
+        description: 'Please select a user',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    // Show confirmation dialog - ALWAYS show for everyone (admins and non-admins)
+    const confirmed = window.confirm(
+      'Are you sure you want to submit this week for approval?\n\n' +
+      '⚠️ IMPORTANT: Once submitted, you will NOT be able to edit or delete entries for this week until it is approved or rejected.\n\n' +
+      'If rejected, you will be able to make changes and resubmit.\n\n' +
+      'Do you want to continue?'
+    )
+    
+    if (!confirmed) {
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      console.log('handleSubmitWeekForApproval - Starting submission:', {
+        isAdmin,
+        currentUserId,
+        selectedUserId,
+        userIdToSubmit
+      })
+      
+      const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+      const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
+      
+      // Get all time entries for the week (entries with job entries)
+      // Normalize dates to start of day for comparison
+      const weekStartNormalized = startOfDay(weekStart)
+      const weekEndNormalized = endOfDay(weekEnd)
+      
+      const weekTimesheets = timesheets.filter(ts => {
+        const tsDate = startOfDay(new Date(ts.date))
+        return ts.jobEntries.length > 0 && 
+               tsDate >= weekStartNormalized && 
+               tsDate <= weekEndNormalized
+      })
+
+      if (weekTimesheets.length === 0) {
+        toast({
+          title: 'No entries to submit',
+          description: 'Please add job time entries for this week before submitting',
+          variant: 'destructive'
+        })
+        setIsSubmitting(false)
+        return
+      }
+
+      // Transform timesheets into submission format
+      // For time entries, we need jobId and laborCodeId
+      const timeEntries: any[] = []
+      
+      for (const ts of weekTimesheets) {
+        for (const jobEntry of ts.jobEntries) {
+          // Find job by jobNumber
+          const job = jobs.find(j => j.jobNumber === jobEntry.jobNumber)
+          if (!job) {
+            toast({
+              title: 'Error',
+              description: `Job ${jobEntry.jobNumber} not found`,
+              variant: 'destructive'
+            })
+            setIsSubmitting(false)
+            return
+          }
+
+          // Find labor code by code
+          const laborCode = laborCodes.find(lc => lc.code === jobEntry.laborCode)
+          const laborCodeId = laborCode?.id || null
+
+          // Calculate hours
+          let regularHours = 0
+          if (jobEntry.punchOutTime) {
+            const inTime = new Date(jobEntry.punchInTime)
+            const outTime = new Date(jobEntry.punchOutTime)
+            regularHours = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60)
+          }
+
+          timeEntries.push({
+            date: new Date(ts.date).toISOString(),
+            regularHours: Math.max(0, regularHours),
+            overtimeHours: 0,
+            notes: jobEntry.notes || null,
+            billable: true,
+            jobId: job.id,
+            laborCodeId: laborCodeId
+          })
+        }
+      }
+
+      // Submit the entire week
+      const response = await fetch('/api/timesheet-submissions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userIdToSubmit,
+          weekStart: weekStart.toISOString(),
+          weekEnd: weekEnd.toISOString(),
+          timeEntries
+        }),
+      })
+
+      let responseData
+      try {
+        responseData = await response.json()
+      } catch (jsonError) {
+        console.error('Failed to parse response JSON:', jsonError)
+        toast({
+          title: 'Error',
+          description: `Server error: ${response.status} ${response.statusText}`,
+          variant: 'destructive'
+        })
+        return
+      }
+
+      if (response.ok) {
+        toast({
+          title: 'Success',
+          description: `Week of ${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')} submitted for approval. Your entries are now locked and cannot be edited until approved or rejected.`,
+          duration: 5000
+        })
+        // Reload timesheets to reflect the submission and locking
+        loadTimesheets()
+      } else {
+        console.error('Submission error:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseData
+        })
+        const errorMessage = responseData.error || 
+                             responseData.details?.[0]?.message || 
+                             responseData.message ||
+                             `Failed to submit timesheet (${response.status})`
+        toast({
+          title: 'Error',
+          description: errorMessage,
+          variant: 'destructive',
+          duration: 5000
+        })
+      }
+    } catch (error) {
+      console.error('Error submitting timesheet:', error)
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to submit timesheet',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const navigateDay = (direction: 'prev' | 'next') => {
@@ -358,8 +524,9 @@ export function TimeView({
           }`}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="text-xl font-bold text-gray-900">
-                {format(currentDate, 'EEEE, MMMM d, yyyy')}
+              <h3 className="text-base sm:text-xl font-bold text-gray-900">
+                <span className="sm:hidden">{format(currentDate, 'EEE, MMM d, yyyy')}</span>
+                <span className="hidden sm:inline">{format(currentDate, 'EEEE, MMMM d, yyyy')}</span>
               </h3>
               {isToday && (
                 <p className="text-sm text-green-600 font-medium mt-1">Today</p>
@@ -431,7 +598,7 @@ export function TimeView({
           <div className="text-center py-12 text-gray-500">
             <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
             <p className="text-lg font-medium mb-2">No entries for this day</p>
-            <p className="text-sm">Click "Add Entry" to create a new job time entry</p>
+            <p className="text-sm">Click "Add Time" to create a new job time entry</p>
           </div>
         )}
       </div>
@@ -572,7 +739,7 @@ export function TimeView({
                   size="sm"
                 >
                   <Plus className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Add Entry</span>
+                  <span className="hidden sm:inline">Add Time</span>
                   <span className="sm:hidden">Add</span>
                 </Button>
               </div>
@@ -639,13 +806,47 @@ export function TimeView({
                 </Button>
               </div>
 
-              <div className="text-base sm:text-lg font-bold text-gray-900 px-3 py-2 text-center sm:text-left w-full sm:w-auto bg-gray-50 rounded-lg border border-gray-200">
-                {viewMode === 'day'
-                  ? format(currentDate, 'EEEE, MMMM d, yyyy')
-                  : viewMode === 'week'
-                  ? `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')} - ${format(endOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
-                  : format(currentDate, 'MMMM yyyy')
-                }
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <div className="text-base sm:text-lg font-bold text-gray-900 px-3 py-2 text-center sm:text-left bg-gray-50 rounded-lg border border-gray-200">
+                  {viewMode === 'day'
+                    ? (
+                        <>
+                          <span className="sm:hidden">{format(currentDate, 'EEE, MMM d, yyyy')}</span>
+                          <span className="hidden sm:inline">{format(currentDate, 'EEEE, MMMM d, yyyy')}</span>
+                        </>
+                      )
+                    : viewMode === 'week'
+                    ? `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')} - ${format(endOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
+                    : (
+                        <>
+                          <span className="sm:hidden">{format(currentDate, 'MMM yyyy')}</span>
+                          <span className="hidden sm:inline">{format(currentDate, 'MMMM yyyy')}</span>
+                        </>
+                      )
+                  }
+                </div>
+                {/* Submit for Approval button - show in week view, next to date */}
+                {viewMode === 'week' && (
+                  <Button
+                    onClick={handleSubmitWeekForApproval}
+                    disabled={isSubmitting || !selectedUserId}
+                    className="bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm sm:text-base font-bold shadow-lg hover:shadow-xl active:shadow-inner transition-all duration-200 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    size="sm"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 animate-spin" />
+                        <span className="font-semibold">Submitting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                        <span className="hidden sm:inline font-semibold">Submit for Approval</span>
+                        <span className="sm:hidden font-semibold">Submit</span>
+                      </>
+                    )}
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -695,7 +896,7 @@ export function TimeView({
           jobs={jobs}
           laborCodes={laborCodes}
           isAdmin={isAdmin}
-          defaultTab="job"
+          mode="job"
           key={`time-entry-${modalDate.toISOString()}-${selectedEntry?.id || 'new'}`}
         />
       )}

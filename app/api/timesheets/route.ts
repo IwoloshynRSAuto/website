@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { roundToNearest15Minutes, getDateOnly, calculateHoursBetween } from '@/lib/utils/time-rounding'
+import { startOfWeek } from 'date-fns'
 import { z } from 'zod'
 
 // Simple in-memory rate limiting - more lenient for user actions
@@ -29,6 +30,7 @@ function checkRateLimit(userId: string): boolean {
 
 const createTimesheetSchema = z.object({
   clockInTime: z.string().transform((val) => new Date(val)),
+  clockOutTime: z.string().transform((val) => new Date(val)).optional().nullable(),
   date: z.string().optional().transform((val) => {
     if (!val) return new Date()
     // If it's already in YYYY-MM-DD format, parse it as local date
@@ -69,6 +71,12 @@ export async function POST(request: NextRequest) {
 
     // Round clock-in time to nearest 15 minutes
     const roundedClockIn = roundToNearest15Minutes(validatedData.clockInTime)
+    
+    // Round clock-out time if provided
+    let roundedClockOut: Date | null = null
+    if (validatedData.clockOutTime) {
+      roundedClockOut = roundToNearest15Minutes(validatedData.clockOutTime)
+    }
     
     // Get date-only (YYYY-MM-DD) - use local date components to avoid timezone issues
     const dateInput = validatedData.date || new Date()
@@ -112,12 +120,52 @@ export async function POST(request: NextRequest) {
     const [yearNum, monthNum, dayNum] = dateOnly.split('-').map(Number)
     const dateForDb = new Date(yearNum, monthNum - 1, dayNum, 12, 0, 0, 0) // Use noon to avoid timezone edge cases
     
+    // Check for overlapping entries on the same date
+    const startOfDay = new Date(yearNum, monthNum - 1, dayNum, 0, 0, 0, 0)
+    const endOfDay = new Date(yearNum, monthNum - 1, dayNum, 23, 59, 59, 999)
+    
+    const existingEntries = await prisma.timesheet.findMany({
+      where: {
+        userId: user.id,
+        date: {
+          gte: startOfDay,
+          lte: endOfDay
+        }
+      }
+    })
+    
+    // Check for overlaps
+    const newIn = roundedClockIn
+    const newOut = roundedClockOut || new Date(yearNum, monthNum - 1, dayNum, 23, 59, 59, 999)
+    
+    const hasOverlap = existingEntries.some(entry => {
+      const existingIn = new Date(entry.clockInTime)
+      const existingOut = entry.clockOutTime ? new Date(entry.clockOutTime) : new Date(yearNum, monthNum - 1, dayNum, 23, 59, 59, 999)
+      
+      // Overlap occurs if: newIn < existingOut && newOut > existingIn
+      return newIn < existingOut && newOut > existingIn
+    })
+    
+    if (hasOverlap) {
+      return NextResponse.json(
+        { 
+          error: 'This time entry overlaps with an existing entry. Please adjust the time range.',
+          details: 'Time entries cannot overlap on the same date.'
+        },
+        { status: 400 }
+      )
+    }
+    
+    // Determine status based on whether clock out time is provided
+    const status = roundedClockOut ? 'completed' : 'in-progress'
+    
     const timesheet = await prisma.timesheet.create({
       data: {
         userId: user.id, // Use the database user ID we just found
         date: dateForDb,
         clockInTime: roundedClockIn,
-        status: 'in-progress',
+        clockOutTime: roundedClockOut,
+        status: status,
       },
       include: {
         jobEntries: true,
@@ -225,7 +273,40 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    return NextResponse.json(timesheets)
+    // Check submission status for each timesheet's week
+    const timesheetsWithStatus = await Promise.all(
+      timesheets.map(async (timesheet) => {
+        const timesheetDate = new Date(timesheet.date)
+        const weekStart = startOfWeek(timesheetDate, { weekStartsOn: 0 })
+        
+        // Check if there's a submission for this week
+        const submission = await prisma.timesheetSubmission.findUnique({
+          where: {
+            userId_weekStart: {
+              userId: timesheet.userId,
+              weekStart: weekStart
+            }
+          },
+          select: {
+            id: true,
+            status: true,
+            rejectedAt: true,
+            rejectionReason: true
+          }
+        })
+
+        return {
+          ...timesheet,
+          submissionStatus: submission?.status || 'DRAFT',
+          submissionId: submission?.id || null,
+          isLocked: submission?.status === 'SUBMITTED' || submission?.status === 'APPROVED',
+          isRejected: submission?.status === 'REJECTED',
+          rejectionReason: submission?.rejectionReason || null
+        }
+      })
+    )
+
+    return NextResponse.json(timesheetsWithStatus)
   } catch (error) {
     console.error('Error fetching timesheets:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

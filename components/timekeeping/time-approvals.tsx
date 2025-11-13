@@ -80,13 +80,20 @@ export function TimeApprovals() {
       const response = await fetch('/api/timesheet-submissions')
       if (response.ok) {
         const data = await response.json()
-        // Filter for time submissions (entries with job entries)
-        // Calculate total hours from timeEntries
-        const timeSubmissions = data.map((sub: any) => {
-          const totalHours = sub.timeEntries?.reduce((sum: number, entry: any) => 
-            sum + (entry.regularHours || 0) + (entry.overtimeHours || 0), 0) || 0
-          return { ...sub, totalHours }
-        })
+        // Filter for time submissions (submissions with timeEntries that have jobId)
+        // Attendance submissions have timesheets but no job-related timeEntries
+        const timeSubmissions = data
+          .filter((sub: any) => {
+            // Time submissions have timeEntries with jobId
+            const hasJobEntries = sub.timeEntries && sub.timeEntries.some((te: any) => te.jobId)
+            return hasJobEntries
+          })
+          .map((sub: any) => {
+            // Calculate total hours from timeEntries
+            const totalHours = sub.timeEntries?.reduce((sum: number, entry: any) => 
+              sum + (entry.regularHours || 0) + (entry.overtimeHours || 0), 0) || 0
+            return { ...sub, totalHours }
+          })
         setSubmissions(timeSubmissions)
       }
     } catch (error) {

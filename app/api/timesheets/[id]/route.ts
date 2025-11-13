@@ -134,6 +134,50 @@ export async function PATCH(
       updateData.totalHours = null
     }
 
+    // Check for overlapping entries (excluding current entry)
+    if (validatedData.clockInTime || validatedData.clockOutTime !== undefined) {
+      const timesheetDate = new Date(timesheet.date)
+      const year = timesheetDate.getFullYear()
+      const month = timesheetDate.getMonth()
+      const day = timesheetDate.getDate()
+      const startOfDay = new Date(year, month, day, 0, 0, 0, 0)
+      const endOfDay = new Date(year, month, day, 23, 59, 59, 999)
+      
+      const existingEntries = await prisma.timesheet.findMany({
+        where: {
+          userId: timesheet.userId,
+          date: {
+            gte: startOfDay,
+            lte: endOfDay
+          },
+          id: {
+            not: timesheetId // Exclude current entry
+          }
+        }
+      })
+      
+      const newIn = clockIn
+      const newOut = clockOut || new Date(year, month, day, 23, 59, 59, 999)
+      
+      const hasOverlap = existingEntries.some(entry => {
+        const existingIn = new Date(entry.clockInTime)
+        const existingOut = entry.clockOutTime ? new Date(entry.clockOutTime) : new Date(year, month, day, 23, 59, 59, 999)
+        
+        // Overlap occurs if: newIn < existingOut && newOut > existingIn
+        return newIn < existingOut && newOut > existingIn
+      })
+      
+      if (hasOverlap) {
+        return NextResponse.json(
+          { 
+            error: 'This time entry overlaps with an existing entry. Please adjust the time range.',
+            details: 'Time entries cannot overlap on the same date.'
+          },
+          { status: 400 }
+        )
+      }
+    }
+
     // If clocking out, auto-close all open job entries
     if (validatedData.clockOutTime && !timesheet.clockOutTime) {
       const openJobs = timesheet.jobEntries.filter(job => !job.punchOutTime)

@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Calendar, Plus, ChevronLeft, ChevronRight, Clock } from 'lucide-react'
-import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, isSameMonth, addDays, subDays, startOfDay, startOfMonth, endOfMonth } from 'date-fns'
+import { Calendar, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2 } from 'lucide-react'
+import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, isSameMonth, addDays, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns'
 import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
 import { useToast } from '@/components/ui/use-toast'
@@ -25,6 +25,11 @@ interface TimesheetEntry {
   totalHours: number | null
   status: string
   jobEntries: any[]
+  submissionStatus?: string
+  submissionId?: string | null
+  isLocked?: boolean
+  isRejected?: boolean
+  rejectionReason?: string | null
 }
 
 interface AttendanceViewProps {
@@ -52,6 +57,9 @@ export function AttendanceView({
   const [isDayModalOpen, setIsDayModalOpen] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<TimesheetEntry | null>(null)
   const [selectedUserId, setSelectedUserId] = useState<string>(currentUserId)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [weekSubmissionStatus, setWeekSubmissionStatus] = useState<string | null>(null)
+  const [weekSubmissionId, setWeekSubmissionId] = useState<string | null>(null)
   // Store the date to use for the modal - set before opening
   const [modalDate, setModalDate] = useState<Date | null>(null)
   
@@ -93,6 +101,29 @@ export function AttendanceView({
         // Filter to only show clock in/out entries (entries with no job entries)
         const attendanceEntries = data.filter((ts: TimesheetEntry) => ts.jobEntries.length === 0)
         setTimesheets(attendanceEntries)
+        
+        // Check submission status for the current week (if in week view)
+        if (viewMode === 'week') {
+          const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+          // Find any entry from this week that has submission status
+          const weekEntry = attendanceEntries.find((ts: TimesheetEntry) => {
+            const tsDate = new Date(ts.date)
+            const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+            return tsWeekStart.getTime() === weekStart.getTime() && ts.submissionStatus && ts.submissionStatus !== 'DRAFT'
+          })
+          
+          if (weekEntry) {
+            setWeekSubmissionStatus(weekEntry.submissionStatus || null)
+            setWeekSubmissionId(weekEntry.submissionId || null)
+          } else {
+            // No submission found for this week
+            setWeekSubmissionStatus(null)
+            setWeekSubmissionId(null)
+          }
+        } else {
+          setWeekSubmissionStatus(null)
+          setWeekSubmissionId(null)
+        }
       }
     } catch (error) {
       console.error('Error loading timesheets:', error)
@@ -113,7 +144,12 @@ export function AttendanceView({
   }, [loadTimesheets])
 
   const handleDateClick = (date: Date) => {
-    setSelectedDate(date)
+    // Normalize date to avoid timezone issues - use local date components
+    const year = date.getFullYear()
+    const month = date.getMonth()
+    const day = date.getDate()
+    const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+    setSelectedDate(normalizedDate)
     setSelectedEntry(null)
     setIsModalOpen(false)
     setIsDayModalOpen(true)
@@ -132,9 +168,33 @@ export function AttendanceView({
 
   const handleEntryClick = (entry: TimesheetEntry, event: React.MouseEvent) => {
     event.stopPropagation()
-    setSelectedDate(startOfDay(new Date(entry.date)))
+    event.preventDefault()
+    
+    // Check if entry is locked
+    if (entry.isLocked) {
+      toast({
+        title: 'Entry Locked',
+        description: 'This entry has been submitted for approval and cannot be edited.',
+        variant: 'default'
+      })
+      return
+    }
+    
+    // Close day modal if open
+    setIsDayModalOpen(false)
+    // Normalize entry date
+    const entryDate = new Date(entry.date)
+    const year = entryDate.getFullYear()
+    const month = entryDate.getMonth()
+    const day = entryDate.getDate()
+    const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+    setSelectedDate(normalizedDate)
+    setModalDate(normalizedDate)
     setSelectedEntry(entry)
-    setIsModalOpen(true)
+    // Small delay to ensure day modal closes first
+    setTimeout(() => {
+      setIsModalOpen(true)
+    }, 100)
   }
 
   const handleModalClose = () => {
@@ -156,22 +216,243 @@ export function AttendanceView({
     loadTimesheets()
   }
 
+  const handleSubmitWeekForApproval = async () => {
+    // For non-admins, always use their own user ID
+    const userIdToSubmit = isAdmin ? selectedUserId : currentUserId
+    
+    if (!userIdToSubmit) {
+      toast({
+        title: 'Error',
+        description: 'Please select a user',
+        variant: 'destructive'
+      })
+      return
+    }
+
+    // Show confirmation dialog - ALWAYS show for everyone (admins and non-admins)
+    const confirmed = window.confirm(
+      'Are you sure you want to submit this week for approval?\n\n' +
+      '⚠️ IMPORTANT: Once submitted, you will NOT be able to edit or delete entries for this week until it is approved or rejected.\n\n' +
+      'If rejected, you will be able to make changes and resubmit.\n\n' +
+      'Do you want to continue?'
+    )
+    
+    if (!confirmed) {
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      console.log('handleSubmitWeekForApproval - Starting submission:', {
+        isAdmin,
+        currentUserId,
+        selectedUserId,
+        userIdToSubmit
+      })
+      
+      const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+      const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
+      
+      // Get all attendance entries for the week (entries with no job entries)
+      // Normalize dates to start of day for comparison
+      const weekStartNormalized = startOfDay(weekStart)
+      const weekEndNormalized = endOfDay(weekEnd)
+      
+      const weekTimesheets = timesheets.filter(ts => {
+        const tsDate = startOfDay(new Date(ts.date))
+        return ts.jobEntries.length === 0 && 
+               tsDate >= weekStartNormalized && 
+               tsDate <= weekEndNormalized
+      })
+      
+      console.log('Week timesheets found:', {
+        weekStart: weekStartNormalized.toISOString(),
+        weekEnd: weekEndNormalized.toISOString(),
+        count: weekTimesheets.length,
+        timesheets: weekTimesheets.map(ts => ({
+          id: ts.id,
+          date: ts.date,
+          clockInTime: ts.clockInTime
+        }))
+      })
+
+      if (weekTimesheets.length === 0) {
+        toast({
+          title: 'No entries to submit',
+          description: 'Please add attendance entries for this week before submitting',
+          variant: 'destructive'
+        })
+        setIsSubmitting(false)
+        return
+      }
+
+      // Transform timesheets into submission format
+      // For attendance entries, we send them without jobId (they're tracked via Timesheet records)
+      const timeEntries = weekTimesheets.map(ts => {
+        const clockIn = new Date(ts.clockInTime)
+        const clockOut = ts.clockOutTime ? new Date(ts.clockOutTime) : null
+        
+        // Calculate regular hours
+        let regularHours = 0
+        if (clockOut) {
+          regularHours = (clockOut.getTime() - clockIn.getTime()) / (1000 * 60 * 60)
+        } else if (ts.totalHours) {
+          regularHours = ts.totalHours
+        }
+
+        const entry: any = {
+          timesheetId: ts.id,
+          date: new Date(ts.date).toISOString(), // Ensure date is ISO string
+          clockInTime: clockIn.toISOString(),
+          regularHours: regularHours,
+          overtimeHours: 0,
+          billable: true
+          // No jobId for attendance entries - they're tracked via Timesheet records
+        }
+        
+        // Only include clockOutTime if it exists
+        if (clockOut) {
+          entry.clockOutTime = clockOut.toISOString()
+        }
+        
+        return entry
+      })
+
+      // Submit the entire week
+      console.log('Submitting week:', {
+        userId: selectedUserId,
+        weekStart: weekStart.toISOString(),
+        weekEnd: weekEnd.toISOString(),
+        timeEntriesCount: timeEntries.length,
+        timeEntries: timeEntries
+      })
+
+      const response = await fetch('/api/timesheet-submissions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: userIdToSubmit,
+          weekStart: weekStart.toISOString(),
+          weekEnd: weekEnd.toISOString(),
+          timeEntries
+        }),
+      })
+
+      console.log('Response status:', response.status, response.statusText)
+      
+      let responseData
+      try {
+        responseData = await response.json()
+        console.log('Response data:', responseData)
+      } catch (jsonError) {
+        console.error('Failed to parse response JSON:', jsonError)
+        const text = await response.text()
+        console.error('Response text:', text)
+        toast({
+          title: 'Error',
+          description: `Server error: ${response.status} ${response.statusText}`,
+          variant: 'destructive'
+        })
+        return
+      }
+
+      if (response.ok) {
+        toast({
+          title: 'Success',
+          description: `Week of ${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')} submitted for approval. Your entries are now locked and cannot be edited until approved or rejected.`,
+          duration: 5000
+        })
+        // Update submission status immediately
+        setWeekSubmissionStatus('SUBMITTED')
+        if (responseData.submission?.id) {
+          setWeekSubmissionId(responseData.submission.id)
+        }
+        // Reload timesheets to reflect the submission and locking
+        loadTimesheets()
+      } else {
+        console.error('Submission error:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseData
+        })
+        const errorMessage = responseData.error || 
+                             responseData.details?.[0]?.message || 
+                             responseData.message ||
+                             `Failed to submit timesheet (${response.status})`
+        toast({
+          title: 'Error',
+          description: errorMessage,
+          variant: 'destructive',
+          duration: 5000
+        })
+      }
+    } catch (error) {
+      console.error('Error submitting timesheet:', error)
+      toast({
+        title: 'Error',
+        description: error instanceof Error ? error.message : 'Failed to submit timesheet',
+        variant: 'destructive'
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   // Handler that will open the entry modal using the date passed or default to the current date
-  // CRITICAL: Always use currentDateRef to get the latest value - never use stale closures
+  // CRITICAL: Always use the date parameter if provided - that's the date the user clicked on
   const handleAddEntry = useCallback((date?: Date) => {
+    // Check if week is submitted and locked
+    if (viewMode === 'week' && weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED')) {
+      toast({
+        title: 'Week Locked',
+        description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+        variant: 'default'
+      })
+      return
+    }
+    
     setIsDayModalOpen(false)
-    // Read the latest currentDate from ref
-    const latestDate = currentDateRef.current
-    const resolvedDate = date ? startOfDay(new Date(date)) : startOfDay(latestDate)
-    // Set modalDate and selectedDate, then open modal
-    setModalDate(resolvedDate)
-    setSelectedDate(resolvedDate)
-    setSelectedEntry(null)
-    // Use requestAnimationFrame to ensure state updates before modal renders
-    requestAnimationFrame(() => {
-      setIsModalOpen(true)
+    // If date is provided, use it (from day modal) - normalize to avoid timezone issues
+    // Otherwise use currentDateRef
+    let finalDate: Date
+    if (date) {
+      const year = date.getFullYear()
+      const month = date.getMonth()
+      const day = date.getDate()
+      finalDate = new Date(year, month, day, 12, 0, 0, 0)
+    } else {
+      const latestDate = currentDateRef.current
+      const year = latestDate.getFullYear()
+      const month = latestDate.getMonth()
+      const day = latestDate.getDate()
+      finalDate = new Date(year, month, day, 12, 0, 0, 0)
+    }
+    
+    // Check if the specific date's entry is locked
+    const dateEntry = timesheets.find(ts => {
+      const tsDate = new Date(ts.date)
+      return tsDate.getTime() === finalDate.getTime()
     })
-  }, [])
+    if (dateEntry?.isLocked) {
+      toast({
+        title: 'Entry Locked',
+        description: 'This entry has been submitted for approval and cannot be edited.',
+        variant: 'default'
+      })
+      return
+    }
+    
+    // Set modalDate and selectedDate, then open modal
+    setModalDate(finalDate)
+    setSelectedDate(finalDate)
+    setSelectedEntry(null)
+    // Small delay to ensure day modal closes first
+    setTimeout(() => {
+      setIsModalOpen(true)
+    }, 100)
+  }, [viewMode, weekSubmissionStatus, timesheets, toast])
 
   // Handler for the main "Add Entry" button - uses the same handler
   const handleMainAddEntry = useCallback(() => {
@@ -251,69 +532,80 @@ export function AttendanceView({
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
 
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-7 gap-2">
-        {/* Header */}
-        {weekDays.map((day, idx) => (
-          <div key={idx} className="hidden sm:block text-center font-semibold text-gray-700 py-2 border-b">
-            {format(day, 'EEE')}
-            <div className="text-sm font-normal text-gray-500">{format(day, 'MMM d')}</div>
-          </div>
-        ))}
-
-        {/* Days */}
-        {weekDays.map((day, idx) => {
-          const dayTimesheets = getTimesheetsForDate(day)
-          const dayTotal = calculateDayTotal(day)
-          const isToday = isSameDay(day, new Date())
-
-          return (
-            <div
-              key={idx}
-              className={`min-h-[200px] border-2 rounded-lg p-2 cursor-pointer transition-colors ${
-                isToday 
-                  ? 'border-blue-400 bg-blue-50/30' 
-                  : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/20'
-              }`}
-              onClick={() => handleDateClick(day)}
-            >
-              <div className="text-xs font-medium text-gray-600 mb-2">
-                {format(day, 'd')}
-              </div>
-              
-              <div className="space-y-1">
-                {dayTimesheets.map((ts) => (
-                  <div
-                    key={ts.id}
-                    onClick={(e) => handleEntryClick(ts, e)}
-                    className="text-xs p-1.5 bg-blue-100 border border-blue-200 rounded hover:bg-blue-200 transition-colors"
-                  >
-                    <div className="font-medium text-blue-800">
-                      {(() => {
-                        const clockIn = new Date(ts.clockInTime)
-                        const clockOut = ts.clockOutTime ? new Date(ts.clockOutTime) : null
-                        if (isNaN(clockIn.getTime())) {
-                          return 'Invalid time'
-                        }
-                        return `${format(clockIn, 'h:mm a')}${clockOut ? ` - ${format(clockOut, 'h:mm a')}` : ''}`
-                      })()}
-                    </div>
-                    {ts.totalHours && (
-                      <div className="text-blue-600">{ts.totalHours.toFixed(2)}h</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {dayTotal > 0 && (
-                <div className="mt-2 pt-2 border-t border-gray-300">
-                  <div className="text-xs font-bold text-blue-700 text-center">
-                    {dayTotal.toFixed(2)}h
-                  </div>
-                </div>
-              )}
+      <div className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0 pb-2">
+        <div className="grid grid-cols-7 gap-2 min-w-[700px] sm:min-w-0">
+          {/* Header */}
+          {weekDays.map((day, idx) => (
+            <div key={idx} className="text-center font-semibold text-gray-700 py-2 sm:py-3 border-b border-gray-300 text-xs sm:text-sm sticky top-0 bg-white z-10">
+              <div className="text-xs sm:text-sm font-bold">{format(day, 'EEE')}</div>
+              <div className="text-xs font-normal text-gray-500 mt-0.5">{format(day, 'MMM d')}</div>
             </div>
-          )
-        })}
+          ))}
+
+          {/* Days */}
+          {weekDays.map((day, idx) => {
+            const dayTimesheets = getTimesheetsForDate(day)
+            const dayTotal = calculateDayTotal(day)
+            const isToday = isSameDay(day, new Date())
+
+            return (
+              <div
+                key={idx}
+                className={`min-h-[180px] sm:min-h-[220px] border-2 rounded-lg p-2 sm:p-3 cursor-pointer transition-all ${
+                  isToday 
+                    ? 'border-blue-500 bg-blue-50/40 shadow-md' 
+                    : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/20 hover:shadow-sm'
+                }`}
+                onClick={() => handleDateClick(day)}
+              >
+                <div className="text-xs sm:text-sm font-bold text-gray-700 mb-2 sm:mb-3 flex items-center justify-between">
+                  <span>{format(day, 'EEE d')}</span>
+                  {isToday && (
+                    <span className="text-[10px] sm:text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-full font-semibold">Today</span>
+                  )}
+                </div>
+                
+                <div className="space-y-1.5 sm:space-y-2 flex-1">
+                  {dayTimesheets.length === 0 ? (
+                    <div className="text-[10px] sm:text-xs text-gray-400 italic text-center py-2">
+                      No entries
+                    </div>
+                  ) : (
+                    dayTimesheets.map((ts) => (
+                      <div
+                        key={ts.id}
+                        onClick={(e) => handleEntryClick(ts, e)}
+                        className="text-xs p-2 sm:p-2.5 bg-blue-100 border-2 border-blue-300 rounded-md hover:bg-blue-200 active:bg-blue-300 transition-all touch-manipulation min-h-[48px] sm:min-h-[52px] flex flex-col justify-center shadow-sm hover:shadow-md cursor-pointer"
+                      >
+                        <div className="font-bold text-blue-900 text-xs sm:text-sm leading-tight">
+                          {(() => {
+                            const clockIn = new Date(ts.clockInTime)
+                            const clockOut = ts.clockOutTime ? new Date(ts.clockOutTime) : null
+                            if (isNaN(clockIn.getTime())) {
+                              return 'Invalid time'
+                            }
+                            return `${format(clockIn, 'h:mm a')}${clockOut ? ` - ${format(clockOut, 'h:mm a')}` : ''}`
+                          })()}
+                        </div>
+                        {ts.totalHours && (
+                          <div className="text-blue-700 font-semibold text-[10px] sm:text-xs mt-0.5">{ts.totalHours.toFixed(2)}h</div>
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {dayTotal > 0 && (
+                  <div className="mt-2 sm:mt-3 pt-2 border-t-2 border-gray-300">
+                    <div className="text-xs sm:text-sm font-bold text-blue-700 text-center">
+                      Total: {dayTotal.toFixed(2)}h
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -336,8 +628,9 @@ export function AttendanceView({
           }`}>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="text-xl font-bold text-gray-900">
-                {format(currentDate, 'EEEE, MMMM d, yyyy')}
+              <h3 className="text-base sm:text-xl font-bold text-gray-900">
+                <span className="sm:hidden">{format(currentDate, 'EEE, MMM d, yyyy')}</span>
+                <span className="hidden sm:inline">{format(currentDate, 'EEEE, MMMM d, yyyy')}</span>
               </h3>
               {isToday && (
                 <p className="text-sm text-blue-600 font-medium mt-1">Today</p>
@@ -404,7 +697,7 @@ export function AttendanceView({
           <div className="text-center py-12 text-gray-500">
             <Clock className="h-12 w-12 mx-auto mb-4 text-gray-300" />
             <p className="text-lg font-medium mb-2">No entries for this day</p>
-            <p className="text-sm">Click "Add Entry" to create a new attendance entry</p>
+            <p className="text-sm">Click "Add Attendance" to create a new attendance entry</p>
           </div>
         )}
       </div>
@@ -545,11 +838,12 @@ export function AttendanceView({
 
                 <Button
                   onClick={handleMainAddEntry}
-                  className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-4 py-2 rounded-lg"
+                  disabled={viewMode === 'week' && weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED')}
+                  className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
                   size="sm"
                 >
                   <Plus className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Add Entry</span>
+                  <span className="hidden sm:inline">Add Attendance</span>
                   <span className="sm:hidden">Add</span>
                 </Button>
               </div>
@@ -616,13 +910,71 @@ export function AttendanceView({
                 </Button>
               </div>
 
-              <div className="text-base sm:text-lg font-bold text-gray-900 px-3 py-2 text-center sm:text-left w-full sm:w-auto bg-gray-50 rounded-lg border border-gray-200">
-                {viewMode === 'day'
-                  ? format(currentDate, 'EEEE, MMMM d, yyyy')
-                  : viewMode === 'week'
-                  ? `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')} - ${format(endOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
-                  : format(currentDate, 'MMMM yyyy')
-                }
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <div className="text-base sm:text-lg font-bold text-gray-900 px-3 py-2 text-center sm:text-left bg-gray-50 rounded-lg border border-gray-200">
+                  {viewMode === 'day'
+                    ? (
+                        <>
+                          <span className="sm:hidden">{format(currentDate, 'EEE, MMM d, yyyy')}</span>
+                          <span className="hidden sm:inline">{format(currentDate, 'EEEE, MMMM d, yyyy')}</span>
+                        </>
+                      )
+                    : viewMode === 'week'
+                    ? `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')} - ${format(endOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
+                    : (
+                        <>
+                          <span className="sm:hidden">{format(currentDate, 'MMM yyyy')}</span>
+                          <span className="hidden sm:inline">{format(currentDate, 'MMMM yyyy')}</span>
+                        </>
+                      )
+                  }
+                </div>
+                {/* Submit for Approval button - show in week view, next to date */}
+                {viewMode === 'week' && (
+                  <div className="flex items-center gap-2">
+                    {weekSubmissionStatus && (
+                      <div className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-semibold ${
+                        weekSubmissionStatus === 'SUBMITTED' 
+                          ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+                          : weekSubmissionStatus === 'APPROVED'
+                          ? 'bg-green-100 text-green-800 border border-green-300'
+                          : weekSubmissionStatus === 'REJECTED'
+                          ? 'bg-red-100 text-red-800 border border-red-300'
+                          : 'bg-gray-100 text-gray-800 border border-gray-300'
+                      }`}>
+                        {weekSubmissionStatus === 'SUBMITTED' ? 'Submitted' :
+                         weekSubmissionStatus === 'APPROVED' ? 'Approved' :
+                         weekSubmissionStatus === 'REJECTED' ? 'Rejected' :
+                         weekSubmissionStatus}
+                      </div>
+                    )}
+                    <Button
+                      onClick={handleSubmitWeekForApproval}
+                      disabled={isSubmitting || !selectedUserId || (weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'))}
+                      className="bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm sm:text-base font-bold shadow-lg hover:shadow-xl active:shadow-inner transition-all duration-200 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap disabled:hover:bg-orange-500"
+                      size="sm"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 animate-spin" />
+                          <span className="font-semibold">Submitting...</span>
+                        </>
+                      ) : weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED' ? (
+                        <>
+                          <Send className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                          <span className="hidden sm:inline font-semibold">Submitted</span>
+                          <span className="sm:hidden font-semibold">Submitted</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                          <span className="hidden sm:inline font-semibold">Submit for Approval</span>
+                          <span className="sm:hidden font-semibold">Submit</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -672,6 +1024,7 @@ export function AttendanceView({
           jobs={[]}
           laborCodes={[]}
           isAdmin={isAdmin}
+          mode="clock"
           key={`time-entry-${modalDate.toISOString()}-${selectedEntry?.id || 'new'}`}
         />
       )}

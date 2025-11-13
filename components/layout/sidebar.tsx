@@ -21,7 +21,8 @@ import {
   Box,
   Search,
   FileText,
-  CheckCircle2
+  CheckCircle2,
+  AlertCircle
 } from 'lucide-react'
 
 import { MODULE_COLORS } from '@/lib/dashboard-styles'
@@ -50,6 +51,7 @@ const navigation = [
       { name: 'Time (Job Time Tracking)', href: '/dashboard/timekeeping/time', icon: FileText },
       { name: 'Attendance Approvals', href: '/dashboard/timekeeping/approvals/attendance', icon: CheckCircle2, adminOnly: true },
       { name: 'Time Approvals', href: '/dashboard/timekeeping/approvals/time', icon: CheckCircle2, adminOnly: true },
+      { name: 'Attendance Change Approvals', href: '/dashboard/timekeeping/approvals/time-changes', icon: AlertCircle, adminOnly: true },
     ]
   },
   { 

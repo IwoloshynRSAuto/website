@@ -12,9 +12,11 @@ interface TimePickerProps {
   disabled?: boolean
   className?: string
   placeholder?: string
+  minTime?: string // 12-hour format - minimum allowed time
+  maxTime?: string // 12-hour format - maximum allowed time
 }
 
-export function TimePicker({ value, onChange, disabled, className, placeholder = "Select time" }: TimePickerProps) {
+export function TimePicker({ value, onChange, disabled, className, placeholder = "Select time", minTime, maxTime }: TimePickerProps) {
   const [isOpen, setIsOpen] = React.useState(false)
   const [positionAbove, setPositionAbove] = React.useState(true)
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -39,6 +41,57 @@ export function TimePicker({ value, onChange, disabled, className, placeholder =
 
   const { hour, minute, period } = parseTime(value)
 
+  // Parse min/max times if provided
+  const parseMinMax = (timeStr?: string) => {
+    if (!timeStr) return null
+    try {
+      const [time, period] = timeStr.split(' ')
+      const [hour, minute] = time.split(':').map(Number)
+      return { hour: hour || 0, minute: minute || 0, period: (period || 'AM').toUpperCase() }
+    } catch {
+      return null
+    }
+  }
+
+  const minTimeParsed = parseMinMax(minTime)
+  const maxTimeParsed = parseMinMax(maxTime)
+
+  // Convert 12-hour time to minutes since midnight for comparison
+  const timeToMinutes = (h: number, m: number, p: string): number => {
+    let hour24 = h
+    if (p === 'PM' && h !== 12) {
+      hour24 = h + 12
+    } else if (p === 'AM' && h === 12) {
+      hour24 = 0
+    }
+    return hour24 * 60 + m
+  }
+
+  // Check if a time combination is valid
+  const isTimeValid = (h: number, m: number, p: string): boolean => {
+    const timeMinutes = timeToMinutes(h, m, p)
+    
+    if (minTimeParsed) {
+      const minMinutes = timeToMinutes(minTimeParsed.hour, minTimeParsed.minute, minTimeParsed.period)
+      if (timeMinutes < minMinutes) return false
+    }
+    
+    if (maxTimeParsed) {
+      const maxMinutes = timeToMinutes(maxTimeParsed.hour, maxTimeParsed.minute, maxTimeParsed.period)
+      if (timeMinutes > maxMinutes) return false
+    }
+    
+    return true
+  }
+
+  // Check if a time combination would be valid when combined with other selected values
+  const wouldBeValid = (newHour?: number, newMinute?: number, newPeriod?: string): boolean => {
+    const finalHour = newHour !== undefined ? newHour : hour
+    const finalMinute = newMinute !== undefined ? newMinute : minute
+    const finalPeriod = newPeriod !== undefined ? newPeriod : period
+    return isTimeValid(finalHour, finalMinute, finalPeriod)
+  }
+
   // Generate options
   const hours = Array.from({ length: 12 }, (_, i) => i + 1) // 1-12
   const minutes = [0, 15, 30, 45] // 15-minute increments
@@ -48,6 +101,12 @@ export function TimePicker({ value, onChange, disabled, className, placeholder =
     const finalHour = newHour !== undefined ? newHour : hour
     const finalMinute = newMinute !== undefined ? newMinute : minute
     const finalPeriod = newPeriod !== undefined ? newPeriod : period
+    
+    // Validate the new time before applying
+    if (!isTimeValid(finalHour, finalMinute, finalPeriod)) {
+      // Don't allow invalid time selection at all - just return without calling onChange
+      return
+    }
     
     const time12 = `${finalHour}:${finalMinute.toString().padStart(2, '0')} ${finalPeriod}`
     onChange(time12)
@@ -268,32 +327,68 @@ export function TimePicker({ value, onChange, disabled, className, placeholder =
             <div>
               <div className="text-xs font-semibold text-gray-600 mb-2 px-1">Hour</div>
               <div className="grid grid-cols-4 gap-2">
-                {hours.map((h) => (
-                  <Button
-                    key={h}
-                    type="button"
-                    variant={hour === h ? "default" : "outline"}
-                    size="sm"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleChange(h, undefined, undefined)
-                    }}
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleChange(h, undefined, undefined)
-                    }}
-                    className={cn(
-                      "h-10 font-semibold transition-all",
-                      hour === h 
-                        ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md"
-                        : "hover:bg-blue-50 hover:border-blue-300"
-                    )}
-                  >
-                    {h}
-                  </Button>
-                ))}
+                {hours.map((h) => {
+                  // Check if this hour would be valid with current minute and period
+                  // Also check if it has ANY valid combination
+                  const isValidWithCurrent = isTimeValid(h, minute, period)
+                  const hasValidCombination = minutes.some(m => 
+                    periods.some(p => isTimeValid(h, m, p))
+                  )
+                  const isDisabled = !hasValidCombination
+                  
+                  return (
+                    <Button
+                      key={h}
+                      type="button"
+                      variant={hour === h ? "default" : "outline"}
+                      size="sm"
+                      disabled={isDisabled}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!isDisabled && isValidWithCurrent) {
+                          handleChange(h, undefined, undefined)
+                        } else if (!isDisabled) {
+                          // If hour is valid but not with current minute/period, find first valid combination
+                          for (const m of minutes) {
+                            for (const p of periods) {
+                              if (isTimeValid(h, m, p)) {
+                                handleChange(h, m, p)
+                                return
+                              }
+                            }
+                          }
+                        }
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!isDisabled && isValidWithCurrent) {
+                          handleChange(h, undefined, undefined)
+                        } else if (!isDisabled) {
+                          // If hour is valid but not with current minute/period, find first valid combination
+                          for (const m of minutes) {
+                            for (const p of periods) {
+                              if (isTimeValid(h, m, p)) {
+                                handleChange(h, m, p)
+                                return
+                              }
+                            }
+                          }
+                        }
+                      }}
+                      className={cn(
+                        "h-10 font-semibold transition-all",
+                        hour === h 
+                          ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md"
+                          : "hover:bg-blue-50 hover:border-blue-300",
+                        isDisabled && "opacity-40 cursor-not-allowed bg-gray-100 border-gray-200 hover:bg-gray-100 hover:border-gray-200"
+                      )}
+                    >
+                      {h}
+                    </Button>
+                  )
+                })}
               </div>
             </div>
 
@@ -301,32 +396,44 @@ export function TimePicker({ value, onChange, disabled, className, placeholder =
             <div>
               <div className="text-xs font-semibold text-gray-600 mb-2 px-1">Minutes</div>
               <div className="grid grid-cols-4 gap-2">
-                {minutes.map((m) => (
-                  <Button
-                    key={m}
-                    type="button"
-                    variant={minute === m ? "default" : "outline"}
-                    size="sm"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleChange(undefined, m, undefined)
-                    }}
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleChange(undefined, m, undefined)
-                    }}
-                    className={cn(
-                      "h-10 font-semibold transition-all",
-                      minute === m 
-                        ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md"
-                        : "hover:bg-blue-50 hover:border-blue-300"
-                    )}
-                  >
-                    {m.toString().padStart(2, '0')}
-                  </Button>
-                ))}
+                {minutes.map((m) => {
+                  // Check if this minute is valid with current hour and period
+                  const isValid = isTimeValid(hour, m, period)
+                  const isDisabled = !isValid
+                  
+                  return (
+                    <Button
+                      key={m}
+                      type="button"
+                      variant={minute === m ? "default" : "outline"}
+                      size="sm"
+                      disabled={isDisabled}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!isDisabled) {
+                          handleChange(undefined, m, undefined)
+                        }
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!isDisabled) {
+                          handleChange(undefined, m, undefined)
+                        }
+                      }}
+                      className={cn(
+                        "h-10 font-semibold transition-all",
+                        minute === m 
+                          ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md"
+                          : "hover:bg-blue-50 hover:border-blue-300",
+                        isDisabled && "opacity-40 cursor-not-allowed bg-gray-100 border-gray-200 hover:bg-gray-100 hover:border-gray-200"
+                      )}
+                    >
+                      {m.toString().padStart(2, '0')}
+                    </Button>
+                  )
+                })}
               </div>
             </div>
 
@@ -334,32 +441,44 @@ export function TimePicker({ value, onChange, disabled, className, placeholder =
             <div>
               <div className="text-xs font-semibold text-gray-600 mb-2 px-1">Period</div>
               <div className="grid grid-cols-2 gap-2">
-                {periods.map((p) => (
-                  <Button
-                    key={p}
-                    type="button"
-                    variant={period === p ? "default" : "outline"}
-                    size="lg"
-                    onMouseDown={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleChange(undefined, undefined, p)
-                    }}
-                    onClick={(e) => {
-                      e.preventDefault()
-                      e.stopPropagation()
-                      handleChange(undefined, undefined, p)
-                    }}
-                    className={cn(
-                      "h-12 font-bold text-base transition-all",
-                      period === p 
-                        ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md"
-                        : "hover:bg-blue-50 hover:border-blue-300"
-                    )}
-                  >
-                    {p}
-                  </Button>
-                ))}
+                {periods.map((p) => {
+                  // Check if this period is valid with current hour and minute
+                  const isValid = isTimeValid(hour, minute, p)
+                  const isDisabled = !isValid
+                  
+                  return (
+                    <Button
+                      key={p}
+                      type="button"
+                      variant={period === p ? "default" : "outline"}
+                      size="lg"
+                      disabled={isDisabled}
+                      onMouseDown={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!isDisabled) {
+                          handleChange(undefined, undefined, p)
+                        }
+                      }}
+                      onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        if (!isDisabled) {
+                          handleChange(undefined, undefined, p)
+                        }
+                      }}
+                      className={cn(
+                        "h-12 font-bold text-base transition-all",
+                        period === p 
+                          ? "bg-blue-600 hover:bg-blue-700 text-white shadow-md"
+                          : "hover:bg-blue-50 hover:border-blue-300",
+                        isDisabled && "opacity-40 cursor-not-allowed bg-gray-100 border-gray-200 hover:bg-gray-100 hover:border-gray-200"
+                      )}
+                    >
+                      {p}
+                    </Button>
+                  )
+                })}
               </div>
             </div>
           </div>

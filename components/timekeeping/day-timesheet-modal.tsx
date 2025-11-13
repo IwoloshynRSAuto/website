@@ -194,19 +194,34 @@ export function DayTimesheetModal({
             <DialogTitle className="flex items-center gap-2 text-base sm:text-2xl font-bold truncate flex-1 min-w-0">
               <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-blue-600 flex-shrink-0" />
               <span className="hidden sm:inline">Timesheet for </span>
-              <span className="truncate">{selectedDate ? format(selectedDate, 'EEEE, MMMM d, yyyy') : ''}</span>
+              <span className="truncate">
+                {selectedDate ? (
+                  <>
+                    <span className="sm:hidden">{format(selectedDate, 'EEE, MMM d, yyyy')}</span>
+                    <span className="hidden sm:inline">{format(selectedDate, 'EEEE, MMMM d, yyyy')}</span>
+                  </>
+                ) : ''}
+              </span>
             </DialogTitle>
-            <div className="flex items-center gap-1 sm:gap-2" style={{ position: 'absolute', right: '45px', top: '0' }}>
+            <div className="flex items-center gap-1 sm:gap-2 absolute right-8 sm:right-12 top-0">
               <Button
                 onClick={() => {
-                  // Ask parent for the freshest current date at click time
-                  if (getCurrentDate) {
-                    const date = getCurrentDate()
-                    onAddEntry(startOfDay(date))
+                  // ALWAYS use selectedDate - this is the date the user clicked on
+                  if (selectedDate) {
+                    // Normalize using local date components to avoid timezone issues
+                    const year = selectedDate.getFullYear()
+                    const month = selectedDate.getMonth()
+                    const day = selectedDate.getDate()
+                    const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+                    onAddEntry(normalizedDate)
                   } else {
-                    // Fallback to selectedDate if getter not provided
-                    const dateToUse = selectedDate || new Date()
-                    onAddEntry(startOfDay(dateToUse))
+                    // Fallback only if selectedDate is somehow null
+                    const dateToUse = getCurrentDate ? getCurrentDate() : new Date()
+                    const year = dateToUse.getFullYear()
+                    const month = dateToUse.getMonth()
+                    const day = dateToUse.getDate()
+                    const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+                    onAddEntry(normalizedDate)
                   }
                 }}
                 className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all duration-200 px-3 sm:px-4 py-2 rounded-lg min-h-[44px]"

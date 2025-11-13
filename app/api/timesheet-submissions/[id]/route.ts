@@ -11,7 +11,7 @@ const updateTimesheetStatusSchema = z.object({
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
     // Bypass authentication for testing
@@ -20,12 +20,17 @@ export async function PUT(
     //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     // }
 
+    // Resolve params if it's a Promise (Next.js 15+)
+    const resolvedParams = await Promise.resolve(params)
+    const submissionId = resolvedParams.id
+
     const body = await request.json()
+    console.log('PUT /api/timesheet-submissions/[id] - Request:', { submissionId, body })
     const validatedData = updateTimesheetStatusSchema.parse(body)
 
     // Check if submission exists
     const submission = await prisma.timesheetSubmission.findUnique({
-      where: { id: params.id },
+      where: { id: submissionId },
       include: {
         user: {
           select: {
@@ -83,7 +88,7 @@ export async function PUT(
     }
 
     const updatedSubmission = await prisma.timesheetSubmission.update({
-      where: { id: params.id },
+      where: { id: submissionId },
       data: updateData,
       include: {
         user: {
@@ -160,8 +165,10 @@ export async function PUT(
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
+  const resolvedParams = await Promise.resolve(params)
+  const submissionId = resolvedParams.id
   try {
     // Bypass authentication for testing
     // const session = await getServerSession(authOptions)
@@ -170,7 +177,7 @@ export async function GET(
     // }
 
     const submission = await prisma.timesheetSubmission.findUnique({
-      where: { id: params.id },
+      where: { id: submissionId },
       include: {
         user: {
           select: {
@@ -258,7 +265,7 @@ export async function DELETE(
 
     // Check if submission exists
     const submission = await prisma.timesheetSubmission.findUnique({
-      where: { id: params.id }
+      where: { id: submissionId }
     })
 
     if (!submission) {
@@ -274,13 +281,13 @@ export async function DELETE(
     await prisma.$transaction(async (tx) => {
       // Remove submission reference from time entries
       await tx.timeEntry.updateMany({
-        where: { submissionId: params.id },
+        where: { submissionId: submissionId },
         data: { submissionId: null }
       })
 
       // Delete the submission
       await tx.timesheetSubmission.delete({
-        where: { id: params.id }
+        where: { id: submissionId }
       })
     })
 

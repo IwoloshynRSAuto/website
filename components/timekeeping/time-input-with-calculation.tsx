@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -16,6 +16,74 @@ interface TimeInputWithCalculationProps {
   className?: string
 }
 
+// Move calculateHours outside component to avoid initialization issues
+// Completely rewritten to avoid any negative time calculation issues
+function calculateHoursBetweenTimes(start: string, end: string, breakMins: string, isOT: boolean) {
+  // Early return if inputs are invalid
+  if (!start || !end || typeof start !== 'string' || typeof end !== 'string') {
+    return { regular: 0, overtime: 0, total: 0 }
+  }
+
+  try {
+    const startParts = start.split(':')
+    const endParts = end.split(':')
+    
+    if (startParts.length !== 2 || endParts.length !== 2) {
+      return { regular: 0, overtime: 0, total: 0 }
+    }
+    
+    const startHour = parseInt(startParts[0], 10)
+    const startMinute = parseInt(startParts[1], 10)
+    const endHour = parseInt(endParts[0], 10)
+    const endMinute = parseInt(endParts[1], 10)
+    
+    // Validate parsed values
+    if (isNaN(startHour) || isNaN(startMinute) || isNaN(endHour) || isNaN(endMinute)) {
+      return { regular: 0, overtime: 0, total: 0 }
+    }
+    
+    // Convert to total minutes from midnight
+    const startTotalMinutes = (startHour * 60) + startMinute
+    const endTotalMinutes = (endHour * 60) + endMinute
+    
+    // Calculate difference - handle overnight by checking if end is before start
+    let totalMinutes = 0
+    if (endTotalMinutes >= startTotalMinutes) {
+      // Same day shift
+      totalMinutes = endTotalMinutes - startTotalMinutes
+    } else {
+      // Overnight shift - end is next day
+      totalMinutes = (24 * 60) - startTotalMinutes + endTotalMinutes
+    }
+    
+    // Ensure totalMinutes is never negative (safety check)
+    totalMinutes = Math.max(0, totalMinutes)
+    
+    // Subtract break time if provided
+    if (breakMins && breakMins !== 'none' && typeof breakMins === 'string') {
+      const breakMinutes = parseInt(breakMins, 10)
+      if (!isNaN(breakMinutes) && breakMinutes > 0) {
+        totalMinutes = Math.max(0, totalMinutes - breakMinutes)
+      }
+    }
+    
+    // Convert to hours
+    const totalHours = totalMinutes / 60
+    
+    // Ensure totalHours is never negative
+    const safeTotalHours = Math.max(0, totalHours)
+    
+    // Assign to regular or overtime
+    const regular = isOT ? 0 : safeTotalHours
+    const overtime = isOT ? safeTotalHours : 0
+    
+    return { regular, overtime, total: safeTotalHours }
+  } catch (error) {
+    console.error('Error calculating hours:', error)
+    return { regular: 0, overtime: 0, total: 0 }
+  }
+}
+
 export function TimeInputWithCalculation({
   regularHours,
   overtimeHours,
@@ -24,6 +92,11 @@ export function TimeInputWithCalculation({
   disabled = false,
   className = ''
 }: TimeInputWithCalculationProps) {
+  // Validate callbacks are provided - do this FIRST before any hooks
+  if (!onRegularHoursChange || !onOvertimeHoursChange) {
+    return null
+  }
+  
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
   const [breakDuration, setBreakDuration] = useState('none') // 'none', '15', '30', '60', etc.
@@ -31,6 +104,16 @@ export function TimeInputWithCalculation({
   const [calculatedRegular, setCalculatedRegular] = useState(0)
   const [calculatedOvertime, setCalculatedOvertime] = useState(0)
   const [calculatedTotal, setCalculatedTotal] = useState(0)
+  
+  // Use refs to store callbacks to avoid dependency issues
+  const onRegularHoursChangeRef = useRef<((hours: number) => void)>(onRegularHoursChange)
+  const onOvertimeHoursChangeRef = useRef<((hours: number) => void)>(onOvertimeHoursChange)
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    onRegularHoursChangeRef.current = onRegularHoursChange
+    onOvertimeHoursChangeRef.current = onOvertimeHoursChange
+  }, [onRegularHoursChange, onOvertimeHoursChange])
 
   // Generate time options for full 24-hour day (every 15 minutes)
   const generateTimeOptions = () => {
@@ -65,56 +148,31 @@ export function TimeInputWithCalculation({
     setBreakDuration(newMins === 0 ? 'none' : newMins.toString())
   }
 
-  // Calculate hours between two times
-  const calculateHours = (start: string, end: string, breakMins: string, isOT: boolean) => {
-    if (!start || !end) return { regular: 0, overtime: 0, total: 0 }
-
-    const [startHour, startMinute] = start.split(':').map(Number)
-    const [endHour, endMinute] = end.split(':').map(Number)
-    
-    // Convert to minutes
-    let startMinutes = startHour * 60 + startMinute
-    let endMinutes = endHour * 60 + endMinute
-    
-    // Handle overnight shifts (end time is next day)
-    if (endMinutes <= startMinutes) {
-      endMinutes += 24 * 60 // Add 24 hours
-    }
-    
-    // Calculate total minutes worked
-    let totalMinutes = endMinutes - startMinutes
-    
-    // Subtract break time if provided
-    if (breakMins !== 'none') {
-      totalMinutes = Math.max(0, totalMinutes - parseInt(breakMins))
-    }
-    
-    // Convert back to hours
-    const totalHours = totalMinutes / 60
-    
-    // Assign to regular or overtime based on selector
-    let regular = 0
-    let overtime = 0
-    
-    if (isOT) {
-      overtime = totalHours
-    } else {
-      regular = totalHours
-    }
-    
-    return { regular, overtime, total: totalHours }
-  }
-
-  // Update calculations when times change
+  // Update calculations when times change - use the external function directly
   useEffect(() => {
-    const { regular, overtime, total } = calculateHours(startTime, endTime, breakDuration, isOvertime)
-    setCalculatedRegular(regular)
-    setCalculatedOvertime(overtime)
-    setCalculatedTotal(total)
+    // Only calculate if we have both times
+    if (!startTime || !endTime) {
+      setCalculatedRegular(0)
+      setCalculatedOvertime(0)
+      setCalculatedTotal(0)
+      return
+    }
     
-    // Update parent component
-    onRegularHoursChange(regular)
-    onOvertimeHoursChange(overtime)
+    // Use the external function directly to avoid any initialization issues
+    const result = calculateHoursBetweenTimes(startTime, endTime, breakDuration, isOvertime)
+    setCalculatedRegular(result.regular)
+    setCalculatedOvertime(result.overtime)
+    setCalculatedTotal(result.total)
+    
+    // Update parent component - only if refs are available
+    if (onRegularHoursChangeRef.current && onOvertimeHoursChangeRef.current) {
+      try {
+        onRegularHoursChangeRef.current(result.regular)
+        onOvertimeHoursChangeRef.current(result.overtime)
+      } catch (error) {
+        console.error('Error updating parent component:', error)
+      }
+    }
   }, [startTime, endTime, breakDuration, isOvertime])
 
   // Format hours for display
@@ -134,8 +192,12 @@ export function TimeInputWithCalculation({
     setCalculatedRegular(0)
     setCalculatedOvertime(0)
     setCalculatedTotal(0)
-    onRegularHoursChange(0)
-    onOvertimeHoursChange(0)
+    if (onRegularHoursChangeRef.current) {
+      onRegularHoursChangeRef.current(0)
+    }
+    if (onOvertimeHoursChangeRef.current) {
+      onOvertimeHoursChangeRef.current(0)
+    }
     toast.success('Time inputs cleared!')
   }
 

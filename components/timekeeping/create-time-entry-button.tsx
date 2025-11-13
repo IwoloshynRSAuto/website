@@ -1,9 +1,21 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { Button } from '@/components/ui/button'
-import { CreateTimeEntryDialog } from './create-time-entry-dialog'
 import { Plus } from 'lucide-react'
+
+// Lazy load the dialog to avoid initialization issues
+const CreateTimeEntryDialog = lazy(() => 
+  import('./create-time-entry-dialog').then(module => ({ 
+    default: module.CreateTimeEntryDialog 
+  })).catch(error => {
+    console.error('Error loading CreateTimeEntryDialog:', error)
+    // Return a fallback component
+    return { 
+      default: () => <div>Error loading dialog. Please refresh the page.</div>
+    }
+  })
+)
 
 export function CreateTimeEntryButton() {
   const [isOpen, setIsOpen] = useState(false)
@@ -17,10 +29,14 @@ export function CreateTimeEntryButton() {
         <Plus className="h-4 w-4 mr-2" />
         Add Time Entry
       </Button>
-      <CreateTimeEntryDialog
-        isOpen={isOpen}
-        onClose={() => setIsOpen(false)}
-      />
+      {isOpen && (
+        <Suspense fallback={<div>Loading dialog...</div>}>
+          <CreateTimeEntryDialog
+            isOpen={isOpen}
+            onClose={() => setIsOpen(false)}
+          />
+        </Suspense>
+      )}
     </>
   )
 }

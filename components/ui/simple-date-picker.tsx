@@ -72,13 +72,20 @@ export function SimpleDatePicker({
         <Button
           variant={"outline"}
           className={cn(
-            "w-[220px] justify-start text-left font-normal h-10",
+            "w-full sm:w-[220px] justify-start text-left font-normal h-9 sm:h-10 text-xs sm:text-sm",
             !date && "text-muted-foreground",
             className
           )}
         >
-          <CalendarIcon className="mr-2 h-4 w-4" />
-          {date ? format(date, "MMMM d, yyyy") : <span>{placeholder}</span>}
+          <CalendarIcon className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+          {date ? (
+            <>
+              <span className="sm:hidden">{format(date, "MMM d, yyyy")}</span>
+              <span className="hidden sm:inline">{format(date, "MMMM d, yyyy")}</span>
+            </>
+          ) : (
+            <span>{placeholder}</span>
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-auto p-5 bg-white border-gray-300 shadow-xl" align="start" side="bottom" sideOffset={8}>
@@ -97,8 +104,9 @@ export function SimpleDatePicker({
             >
               <ChevronLeft className="h-4 w-4 text-gray-700" />
             </Button>
-            <div className="font-bold text-lg text-gray-900 px-4">
-              {format(currentMonth, "MMMM yyyy")}
+            <div className="font-bold text-base sm:text-lg text-gray-900 px-2 sm:px-4">
+              <span className="sm:hidden">{format(currentMonth, "MMM yyyy")}</span>
+              <span className="hidden sm:inline">{format(currentMonth, "MMMM yyyy")}</span>
             </div>
             <Button
               variant="ghost"

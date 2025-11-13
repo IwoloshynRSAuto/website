@@ -43,14 +43,19 @@ export function SearchableSelect({
 
   // Filter options based on search
   useEffect(() => {
+    if (!options || options.length === 0) {
+      setFilteredOptions([])
+      return
+    }
     if (!searchValue) {
       setFilteredOptions(options)
     } else {
       const filtered = options.filter(option => {
+        if (!option) return false
         const searchText = searchValue.toLowerCase()
         return (
-          option.label.toLowerCase().includes(searchText) ||
-          option.value.toLowerCase().includes(searchText) ||
+          (option.label?.toLowerCase() || '').includes(searchText) ||
+          (option.value?.toLowerCase() || '').includes(searchText) ||
           (option.searchText && option.searchText.toLowerCase().includes(searchText))
         )
       })
@@ -82,7 +87,7 @@ export function SearchableSelect({
     }
   }, [open])
 
-  const selectedOption = options.find(option => option.value === value)
+  const selectedOption = options?.find(option => option && option.value === value) || null
 
   return (
     <div className={cn("space-y-2", className)} ref={containerRef}>
