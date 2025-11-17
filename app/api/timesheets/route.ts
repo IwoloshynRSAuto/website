@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { roundToNearest15Minutes, getDateOnly, calculateHoursBetween } from '@/lib/utils/time-rounding'
 import { startOfWeek } from 'date-fns'
 import { z } from 'zod'
+import { dateStringSchema, optionalDateStringSchema, nullableDateStringSchema, validateDateRange } from '@/lib/utils/date-validation'
 
 // Simple in-memory rate limiting - more lenient for user actions
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>()
@@ -29,23 +30,15 @@ function checkRateLimit(userId: string): boolean {
 }
 
 const createTimesheetSchema = z.object({
-  clockInTime: z.string().transform((val) => new Date(val)),
-  clockOutTime: z.string().transform((val) => new Date(val)).optional().nullable(),
-  date: z.string().optional().transform((val) => {
-    if (!val) return new Date()
-    // If it's already in YYYY-MM-DD format, parse it as local date
-    if (/^\d{4}-\d{2}-\d{2}$/.test(val)) {
-      const [year, month, day] = val.split('-').map(Number)
-      return new Date(year, month - 1, day, 12, 0, 0, 0) // Use noon to avoid timezone issues
-    }
-    // Otherwise parse as ISO string
-    return new Date(val)
-  }),
+  clockInTime: dateStringSchema,
+  clockOutTime: nullableDateStringSchema.optional(),
+  date: optionalDateStringSchema.default(() => new Date()),
+  userId: z.string().optional(), // Allow admin to specify userId
 })
 
 const updateTimesheetSchema = z.object({
-  clockInTime: z.string().transform((val) => new Date(val)).optional(),
-  clockOutTime: z.string().transform((val) => new Date(val)).optional().nullable(),
+  clockInTime: optionalDateStringSchema,
+  clockOutTime: nullableDateStringSchema.optional(),
   status: z.enum(['in-progress', 'completed', 'needs-review']).optional(),
 })
 
@@ -85,30 +78,44 @@ export async function POST(request: NextRequest) {
       throw validationError
     }
 
-    // Verify user exists in database - try by ID first, then by email
-    let user = await prisma.user.findUnique({
-      where: { id: session.user.id }
-    })
-
-    // If not found by ID, try by email (in case ID is email from old sessions)
-    if (!user && session.user.email) {
-      user = await prisma.user.findUnique({
-        where: { email: session.user.email }
+    // Determine which user to create timesheet for
+    // If userId is provided in body and user is admin, use that userId
+    // Otherwise, use session user
+    let targetUserId = session.user.id
+    if (validatedData.userId) {
+      // Check if session user is admin
+      const sessionUser = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: { role: true }
       })
       
-      // If found by email, log a warning
-      if (user) {
-        console.warn(`[API] User found by email instead of ID. Session ID: ${session.user.id}, DB ID: ${user.id}`)
+      if (sessionUser?.role === 'ADMIN') {
+        targetUserId = validatedData.userId
+        console.log(`[API] Admin ${session.user.id} creating timesheet for user ${targetUserId}`)
+      } else {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Unauthorized',
+            details: 'Only administrators can create timesheets for other users.',
+          },
+          { status: 403 }
+        )
       }
     }
 
+    // Verify target user exists in database
+    let user = await prisma.user.findUnique({
+      where: { id: targetUserId }
+    })
+
     if (!user) {
-      console.error(`[API] User not found. Session ID: ${session.user.id}, Email: ${session.user.email}`)
+      console.error(`[API] Target user not found. User ID: ${targetUserId}`)
       return NextResponse.json(
         {
           success: false,
-          error: 'User not found. Please sign out and sign in again to refresh your session.',
-          details: `Session user ID: ${session.user.id}, Email: ${session.user.email || 'N/A'}`,
+          error: 'User not found.',
+          details: `User ID: ${targetUserId}`,
         },
         { status: 404 }
       )
@@ -116,6 +123,17 @@ export async function POST(request: NextRequest) {
     
     // Get date-only (YYYY-MM-DD) - use local date components to avoid timezone issues
     const dateInput = validatedData.date || new Date()
+    
+    // Validate date range (not too far in past/future)
+    try {
+      validateDateRange(dateInput, 365, 30)
+    } catch (error) {
+      return NextResponse.json(
+        { error: 'Validation error', details: error instanceof Error ? error.message : 'Invalid date range' },
+        { status: 400 }
+      )
+    }
+    
     const dateYear = dateInput.getFullYear()
     const dateMonth = dateInput.getMonth()
     const dateDay = dateInput.getDate()

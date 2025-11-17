@@ -47,13 +47,14 @@ const navigation = [
     icon: Clock, 
     module: 'timesheets',
     children: [
-      { name: 'Attendance (Punch In / Punch Out)', href: '/dashboard/timekeeping', icon: Clock },
+      { name: 'Attendance (Punch In / Punch Out)', href: '/dashboard/timekeeping/attendance', icon: Clock },
       { name: 'Time (Job Time Tracking)', href: '/dashboard/timekeeping/time', icon: FileText },
       { name: 'Attendance Approvals', href: '/dashboard/timekeeping/approvals/attendance', icon: CheckCircle2, adminOnly: true },
       { name: 'Time Approvals', href: '/dashboard/timekeeping/approvals/time', icon: CheckCircle2, adminOnly: true },
       { name: 'Attendance Change Approvals', href: '/dashboard/timekeeping/approvals/time-changes', icon: AlertCircle, adminOnly: true },
     ]
   },
+  { name: 'My Dashboard', href: '/dashboard/employee', icon: Users },
   { 
     name: 'Admin', 
     href: '/dashboard/admin', 

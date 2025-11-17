@@ -380,5 +380,159 @@ export class QuoteService {
 
     return { success: true }
   }
+
+  /**
+   * Get quotes with aging alerts
+   * Returns quotes that haven't been updated in X days or are past their validUntil date
+   */
+  static async getAgingQuotes(agingDays: number = 30) {
+    const cutoffDate = new Date()
+    cutoffDate.setDate(cutoffDate.getDate() - agingDays)
+
+    const quotes = await prisma.quote.findMany({
+      where: {
+        OR: [
+          {
+            // Quotes not updated in X days
+            updatedAt: {
+              lt: cutoffDate,
+            },
+            status: {
+              in: ['DRAFT', 'SENT'],
+            },
+          },
+          {
+            // Quotes past validUntil date
+            validUntil: {
+              lt: new Date(),
+            },
+            status: {
+              in: ['DRAFT', 'SENT'],
+            },
+          },
+        ],
+      },
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        linkedBOMs: true,
+      },
+      orderBy: {
+        updatedAt: 'asc',
+      },
+    })
+
+    // Calculate days since last update
+    return quotes.map((quote) => {
+      const daysSinceUpdate = Math.floor(
+        (new Date().getTime() - quote.updatedAt.getTime()) / (1000 * 60 * 60 * 24)
+      )
+      const isExpired = quote.validUntil && quote.validUntil < new Date()
+      
+      return {
+        ...quote,
+        daysSinceUpdate,
+        isExpired,
+        agingAlert: isExpired
+          ? 'EXPIRED'
+          : daysSinceUpdate >= agingDays
+          ? 'AGING'
+          : 'OK',
+      }
+    })
+  }
+
+  /**
+   * Get estimated labor per discipline for a quote
+   * Aggregates labor estimates by discipline/labor code
+   */
+  static async getEstimatedLaborPerDiscipline(quoteId: string) {
+    const quote = await prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        job: {
+          include: {
+            quotedLabor: {
+              include: {
+                laborCode: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    category: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    })
+
+    if (!quote) {
+      throw new Error('Quote not found')
+    }
+
+    // If quote has been converted to job, get labor estimates from job
+    if (quote.job && quote.job.quotedLabor) {
+      const laborByDiscipline = quote.job.quotedLabor.reduce(
+        (acc, estimate) => {
+          const discipline = estimate.laborCode.category || 'Other'
+          if (!acc[discipline]) {
+            acc[discipline] = {
+              discipline,
+              totalHours: 0,
+              estimates: [],
+            }
+          }
+          acc[discipline].totalHours += estimate.estimatedHours
+          acc[discipline].estimates.push({
+            laborCode: estimate.laborCode.code,
+            laborName: estimate.laborCode.name,
+            hours: estimate.estimatedHours,
+          })
+          return acc
+        },
+        {} as Record<
+          string,
+          {
+            discipline: string
+            totalHours: number
+            estimates: Array<{
+              laborCode: string
+              laborName: string
+              hours: number
+            }>
+          }
+        >
+      )
+
+      return Object.values(laborByDiscipline)
+    }
+
+    // If quote has estimatedHours but no job yet, return a summary
+    if (quote.estimatedHours) {
+      return [
+        {
+          discipline: 'Project Phase',
+          totalHours: quote.estimatedHours,
+          estimates: [
+            {
+              laborCode: 'EST',
+              laborName: 'Estimated Hours',
+              hours: quote.estimatedHours,
+            },
+          ],
+        },
+      ]
+    }
+
+    return []
+  }
 }
 

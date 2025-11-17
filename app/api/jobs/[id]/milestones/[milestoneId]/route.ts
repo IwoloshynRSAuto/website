@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { JobService } from '@/lib/jobs/service'
 import { updateJobMilestoneSchema } from '@/lib/jobs/schemas'
+import { BillingService } from '@/lib/billing/service'
 import { prisma } from '@/lib/prisma'
 
 /**
@@ -33,8 +34,32 @@ export async function PATCH(
     const body = await request.json()
     const validatedData = updateJobMilestoneSchema.partial().parse(body)
 
+    // Get the milestone before update to check if status is changing to COMPLETED
+    const oldMilestone = await prisma.jobMilestone.findUnique({
+      where: { id: milestoneId },
+      select: {
+        status: true,
+        isBillingTrigger: true,
+      },
+    })
+
     // Use JobService to update milestone
     const milestone = await JobService.updateMilestone(milestoneId, validatedData)
+
+    // If milestone was just completed and has billing trigger, create billing milestone
+    if (
+      oldMilestone &&
+      oldMilestone.status !== 'COMPLETED' &&
+      milestone.status === 'COMPLETED' &&
+      milestone.isBillingTrigger
+    ) {
+      try {
+        await BillingService.handleMilestoneCompletion(milestoneId, session.user.id)
+      } catch (billingError: any) {
+        console.error('Error creating billing milestone:', billingError)
+        // Don't fail the milestone update if billing creation fails
+      }
+    }
 
     return NextResponse.json({
       success: true,

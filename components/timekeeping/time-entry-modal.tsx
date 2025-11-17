@@ -522,13 +522,21 @@ export function TimeEntryModal({
         }
       } else if (isClockIn) {
         // Create new timesheet (clocking in)
+        // Include userId if admin is creating for another user
+        const requestBody: any = {
+          clockInTime: clockInDate.toISOString(),
+          date: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        }
+        
+        // If admin selected a different user, include userId
+        if (isAdmin && selectedUserId && selectedUserId !== userId) {
+          requestBody.userId = selectedUserId
+        }
+        
         const response = await fetch('/api/timesheets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clockInTime: clockInDate.toISOString(),
-            date: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-          })
+          body: JSON.stringify(requestBody)
         })
 
         let responseData

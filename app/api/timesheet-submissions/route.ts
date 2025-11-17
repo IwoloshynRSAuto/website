@@ -4,22 +4,24 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { startOfWeek, endOfWeek } from 'date-fns'
+import { getWeekBoundariesUTC, normalizeWeekStartToUTC, normalizeWeekEndToUTC } from '@/lib/utils/date-utils'
+import { dateStringSchema, nullableDateStringSchema, optionalDateStringSchema, validateWeekBoundaries, validateDateInWeek, validateDateRange } from '@/lib/utils/date-validation'
 
 const createTimesheetSubmissionSchema = z.object({
   userId: z.string().min(1, 'User is required'),
-  weekStart: z.string().transform((val) => new Date(val)),
-  weekEnd: z.string().transform((val) => new Date(val)),
+  weekStart: dateStringSchema,
+  weekEnd: dateStringSchema,
   timeEntries: z.array(z.object({
     id: z.string().optional(),
     timesheetId: z.string().optional(), // For attendance entries
-    date: z.string().transform((val) => new Date(val)),
+    date: dateStringSchema,
     clockInTime: z.preprocess(
       (val) => val === null || val === undefined ? undefined : val,
-      z.string().transform((val) => new Date(val)).optional()
+      optionalDateStringSchema
     ),
     clockOutTime: z.preprocess(
       (val) => val === null || val === undefined ? undefined : val,
-      z.string().transform((val) => new Date(val)).optional().nullable()
+      optionalDateStringSchema.nullable()
     ),
     regularHours: z.number().min(0).default(0),
     overtimeHours: z.number().min(0).default(0),
@@ -114,6 +116,24 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Validate and correct weekStart/weekEnd to ensure Sunday-Saturday boundaries
+    // This also normalizes to UTC for database storage
+    const { weekStart, weekEnd } = validateWeekBoundaries(validatedData.weekStart, validatedData.weekEnd)
+    
+    // Validate that all time entry dates are within the week boundaries
+    for (const entry of validatedData.timeEntries) {
+      try {
+        validateDateInWeek(entry.date, weekStart, weekEnd)
+        // Also validate date range (not too far in past/future)
+        validateDateRange(entry.date, 365, 30)
+      } catch (error) {
+        return NextResponse.json(
+          { error: 'Validation error', details: error instanceof Error ? error.message : 'Invalid date in time entry' },
+          { status: 400 }
+        )
+      }
+    }
+    
     // Determine if this is an attendance-only or job-only submission
     // IMPORTANT: This determines which type of submission we're creating/checking
     // ATTENDANCE submissions have no jobId in timeEntries
@@ -132,10 +152,11 @@ export async function POST(request: NextRequest) {
     // Check if timesheet submission already exists for this week and type
     // IMPORTANT: Use composite unique constraint with type to allow separate ATTENDANCE and TIME submissions
     // Use findFirst instead of findUnique to work around Prisma client recognition issues
+    // Use the corrected weekStart
     const existingSubmission = await prisma.timesheetSubmission.findFirst({
       where: {
         userId: validatedData.userId,
-        weekStart: validatedData.weekStart,
+        weekStart: weekStart,
         type: submissionType
       }
     })
@@ -168,7 +189,8 @@ export async function POST(request: NextRequest) {
           data: {
             status: 'SUBMITTED',
             submittedAt: new Date(),
-            weekEnd: validatedData.weekEnd,
+            weekStart: weekStart, // Update with corrected weekStart
+            weekEnd: weekEnd, // Update with corrected weekEnd
             // Clear rejection data when resubmitting
             rejectedAt: null,
             rejectedById: null,
@@ -190,8 +212,8 @@ export async function POST(request: NextRequest) {
         submission = await tx.timesheetSubmission.create({
           data: {
             userId: validatedData.userId,
-            weekStart: validatedData.weekStart,
-            weekEnd: validatedData.weekEnd,
+            weekStart: weekStart, // Use corrected weekStart
+            weekEnd: weekEnd, // Use corrected weekEnd
             type: submissionType, // Include type field
             status: 'SUBMITTED',
             submittedAt: new Date()

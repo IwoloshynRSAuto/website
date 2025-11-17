@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Calendar, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2, AlertCircle, X } from 'lucide-react'
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, isSameMonth, addDays, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns'
+import { getWeekBoundariesUTC } from '@/lib/utils/date-utils'
 import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
 import { useToast } from '@/components/ui/use-toast'
@@ -612,43 +613,55 @@ export function AttendanceView({
         weekSubmissionStatus
       })
       
-      const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
-      const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
+      // Get all attendance entries for the week (entries with no job entries)
+      // First, get all entries for the user being submitted
+      const allUserTimesheets = Array.isArray(timesheets) ? timesheets.filter(ts => {
+        return ts.userId === userIdToSubmit &&
+               ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length === 0
+      }) : []
       
-      // Normalize to UTC start/end of day to match database storage
-      const weekStartUTC = new Date(Date.UTC(
-        weekStart.getUTCFullYear(),
-        weekStart.getUTCMonth(),
-        weekStart.getUTCDate(),
-        0, 0, 0, 0
-      ))
-      const weekEndUTC = new Date(Date.UTC(
-        weekEnd.getUTCFullYear(),
-        weekEnd.getUTCMonth(),
-        weekEnd.getUTCDate(),
-        23, 59, 59, 999
-      ))
+      if (allUserTimesheets.length === 0) {
+        toast({
+          title: 'No entries to submit',
+          description: 'Please add attendance entries for this week before submitting',
+          variant: 'destructive'
+        })
+        setIsSubmitting(false)
+        return
+      }
+      
+      // Group entries by week to ensure we only submit one week at a time
+      // Use currentDate to determine which week to submit (the week currently being viewed)
+      const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+      const currentWeekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
+      
+      // Calculate week boundaries for the current week being viewed
+      const { weekStart, weekEnd } = getWeekBoundariesUTC(currentDate)
+      
+      // weekStart and weekEnd are already normalized to UTC
+      const weekStartUTC = weekStart
+      const weekEndUTC = weekEnd
       
       console.log('[Attendance] Submitting week:', {
+        currentDate: currentDate.toISOString(),
+        currentWeekStart: currentWeekStart.toISOString(),
+        currentWeekEnd: currentWeekEnd.toISOString(),
         weekStart: weekStart.toISOString(),
         weekEnd: weekEnd.toISOString(),
         weekStartUTC: weekStartUTC.toISOString(),
         weekEndUTC: weekEndUTC.toISOString()
       })
       
-      // Get all attendance entries for the week (entries with no job entries)
-      // Normalize dates to start of day for comparison
-      const weekStartNormalized = startOfDay(weekStart)
-      const weekEndNormalized = endOfDay(weekEnd)
+      // Filter entries to only include those within the current week being viewed
+      // Normalize dates to start of day for comparison (use local dates for comparison)
+      const weekStartNormalized = startOfDay(currentWeekStart)
+      const weekEndNormalized = endOfDay(currentWeekEnd)
       
-      const weekTimesheets = Array.isArray(timesheets) ? timesheets.filter(ts => {
+      const weekTimesheets = allUserTimesheets.filter(ts => {
         const tsDate = startOfDay(new Date(ts.date))
-        // Only include entries for the user being submitted
-        return ts.userId === userIdToSubmit &&
-               ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length === 0 && 
-               tsDate >= weekStartNormalized && 
+        return tsDate >= weekStartNormalized && 
                tsDate <= weekEndNormalized
-      }) : []
+      })
 
       if (weekTimesheets.length === 0) {
         toast({

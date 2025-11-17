@@ -9,6 +9,7 @@ import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
 import { useToast } from '@/components/ui/use-toast'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { getWeekBoundariesUTC } from '@/lib/utils/date-utils'
 
 interface User {
   id: string
@@ -426,22 +427,48 @@ export function TimeView({
         weekSubmissionStatus
       })
       
-      const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
-      const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
-      
       // Get all time entries for the week (entries with job entries)
-      // Normalize dates to start of day for comparison
-      const weekStartNormalized = startOfDay(weekStart)
-      const weekEndNormalized = endOfDay(weekEnd)
-      
-      const weekTimesheets = Array.isArray(timesheets) ? timesheets.filter(ts => {
-        const tsDate = startOfDay(new Date(ts.date))
-        // Only include entries for the user being submitted
+      // First, get all entries for the user being submitted
+      const allUserTimesheets = Array.isArray(timesheets) ? timesheets.filter(ts => {
         return ts.userId === userIdToSubmit &&
-               ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length > 0 && 
-               tsDate >= weekStartNormalized && 
-               tsDate <= weekEndNormalized
+               ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length > 0
       }) : []
+      
+      if (allUserTimesheets.length === 0) {
+        toast({
+          title: 'No entries to submit',
+          description: 'Please add job time entries for this week before submitting',
+          variant: 'destructive'
+        })
+        setIsSubmitting(false)
+        return
+      }
+      
+      // Use currentDate to determine which week to submit (the week currently being viewed)
+      const currentWeekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+      const currentWeekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
+      
+      // Calculate week boundaries for the current week being viewed
+      const { weekStart, weekEnd } = getWeekBoundariesUTC(currentDate)
+      
+      console.log('[Time] Submitting week:', {
+        currentDate: currentDate.toISOString(),
+        currentWeekStart: currentWeekStart.toISOString(),
+        currentWeekEnd: currentWeekEnd.toISOString(),
+        weekStart: weekStart.toISOString(),
+        weekEnd: weekEnd.toISOString()
+      })
+      
+      // Filter entries to only include those within the current week being viewed
+      // Normalize dates to start of day for comparison (use local dates for comparison)
+      const weekStartNormalized = startOfDay(currentWeekStart)
+      const weekEndNormalized = endOfDay(currentWeekEnd)
+      
+      const weekTimesheets = allUserTimesheets.filter(ts => {
+        const tsDate = startOfDay(new Date(ts.date))
+        return tsDate >= weekStartNormalized && 
+               tsDate <= weekEndNormalized
+      })
  
       if (weekTimesheets.length === 0) {
         toast({
@@ -1098,40 +1125,28 @@ export function TimeView({
                 {/* Submit for Approval button - show in week view, next to date */}
                 {viewMode === 'week' && (
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-                    {weekSubmissionStatus && (
-                      <div className="flex flex-col gap-1">
-                        <div className={`px-3 py-1.5 rounded-lg border-2 font-semibold text-sm sm:text-base min-h-[44px] flex items-center justify-center whitespace-nowrap ${
-                          weekSubmissionStatus === 'APPROVED' 
-                            ? 'bg-green-100 border-green-300 text-green-800' 
-                            : weekSubmissionStatus === 'SUBMITTED'
-                            ? 'bg-yellow-100 border-yellow-300 text-yellow-800'
-                            : weekSubmissionStatus === 'REJECTED'
-                            ? 'bg-red-100 border-red-300 text-red-800'
-                            : 'bg-gray-100 border-gray-300 text-gray-800'
-                        }`}>
-                          {weekSubmissionStatus === 'APPROVED' ? '✓ Approved' : 
-                           weekSubmissionStatus === 'SUBMITTED' ? 'Submitted' : 
-                           weekSubmissionStatus === 'REJECTED' ? 'Rejected' : 
-                           'Draft'}
-                        </div>
-                        {weekSubmissionStatus === 'REJECTED' && weekRejectionReason && (
-                          <div className="px-3 py-2 rounded-md bg-red-50 border border-red-200 text-xs sm:text-sm text-red-900 max-w-md">
-                            <div className="font-semibold mb-1">Rejection Reason:</div>
-                            <div className="text-red-800">{weekRejectionReason}</div>
-                          </div>
-                        )}
-                      </div>
-                    )}
                     <Button
                       onClick={handleSubmitWeekForApproval}
-                      disabled={isSubmitting || !selectedUserId || weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'}
-                      className="bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm sm:text-base font-bold shadow-lg hover:shadow-xl active:shadow-inner transition-all duration-200 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                      disabled={isSubmitting || !selectedUserId || (weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'))}
+                      className="bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm sm:text-base font-bold shadow-lg hover:shadow-xl active:shadow-inner transition-all duration-200 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap disabled:hover:bg-orange-500"
                       size="sm"
                     >
                       {isSubmitting ? (
                         <>
                           <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 animate-spin" />
                           <span className="font-semibold">Submitting...</span>
+                        </>
+                      ) : weekSubmissionStatus === 'REJECTED' ? (
+                        <>
+                          <Send className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                          <span className="hidden sm:inline font-semibold">Resubmit for Approval</span>
+                          <span className="sm:hidden font-semibold">Resubmit</span>
+                        </>
+                      ) : weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED' ? (
+                        <>
+                          <Send className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                          <span className="hidden sm:inline font-semibold">Submitted</span>
+                          <span className="sm:hidden font-semibold">Submitted</span>
                         </>
                       ) : (
                         <>

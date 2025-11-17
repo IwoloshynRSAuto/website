@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'react-hot-toast'
-import { Download, Upload, Trash2, Database } from 'lucide-react'
+import { Download, Upload, Trash2, Database, XCircle } from 'lucide-react'
 
 export function DataManagement() {
   const [isLoading, setIsLoading] = useState(false)
@@ -91,6 +91,36 @@ export function DataManagement() {
     }
   }
 
+  const handleClearApprovals = async () => {
+    if (!confirm('⚠️ This will permanently delete all timesheet approvals (SUBMITTED, APPROVED, REJECTED). Are you sure?')) {
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const response = await fetch('/api/admin/clear-approvals', {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        const result = await response.json()
+        toast.success(`Approvals cleared! Deleted ${result.deleted || 0} submissions, reset ${result.reset || 0} drafts.`)
+        // Reload the page to refresh the approvals view
+        setTimeout(() => {
+          window.location.reload()
+        }, 1000)
+      } else {
+        const error = await response.json()
+        throw new Error(error.error || 'Clear failed')
+      }
+    } catch (error: any) {
+      console.error('Clear approvals error:', error)
+      toast.error(error.message || 'Failed to clear approvals')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleClearDatabase = async () => {
     if (!confirm('⚠️ This will permanently delete ALL data in the database. Are you sure?')) {
       return
@@ -170,6 +200,25 @@ export function DataManagement() {
               Import Data
             </Button>
           </div>
+        </div>
+
+        {/* Clear Approvals Section */}
+        <div className="space-y-3 border-t pt-6">
+          <div>
+            <h3 className="text-base font-semibold text-orange-600 mb-1">Clear Timesheet Approvals</h3>
+            <p className="text-sm text-gray-600">
+              Delete all timesheet submissions that are SUBMITTED, APPROVED, or REJECTED. This will make the approvals section appear empty.
+            </p>
+          </div>
+          <Button 
+            onClick={handleClearApprovals} 
+            disabled={isLoading}
+            variant="outline"
+            className="w-full sm:w-auto border-orange-300 text-orange-700 hover:bg-orange-50"
+          >
+            <XCircle className="h-4 w-4 mr-2" />
+            Clear All Approvals
+          </Button>
         </div>
 
         {/* Clear Database Section */}

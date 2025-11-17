@@ -38,6 +38,8 @@ model User {
   approvedExpenses      ExpenseReport[]          @relation("ExpenseApprovals")
   rejectedExpenses      ExpenseReport[]          @relation("ExpenseRejections")
   serviceReports       ServiceReport[]          @relation("ServiceReports")
+  deliverableAssignments JobDeliverable[]         @relation("DeliverableAssignments")
+  createdBillingMilestones BillingMilestone[]    @relation("BillingMilestoneCreator")
 
   @@map("users")
 }
@@ -83,6 +85,8 @@ model Job {
   expenseReports   ExpenseReport[]          @relation("JobExpenses")
   serviceReports   ServiceReport[]          @relation("JobServiceReports")
   purchaseOrders   PurchaseOrder[]          @relation("JobPurchaseOrders")
+  deliverables     JobDeliverable[]         @relation("JobDeliverables")
+  billingMilestones BillingMilestone[]      @relation("JobBillingMilestones")
 
   @@map("jobs")
 }
@@ -460,6 +464,8 @@ model FileRecord {
   linkedJobId        String?
   linkedQuoteId      String?
   linkedServiceReportId String?
+  linkedEquipmentId  String?
+  linkedDeliverableId String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   createdBy          User     @relation("FileRecords", fields: [createdById], references: [id])
@@ -467,10 +473,15 @@ model FileRecord {
   linkedQuote        Quote?   @relation("QuoteFiles", fields: [linkedQuoteId], references: [id], onDelete: SetNull)
   linkedServiceReport ServiceReport? @relation("ServiceReportAttachments", fields: [linkedServiceReportId], references: [id], onDelete: SetNull)
   expenseReceipt     ExpenseReport? @relation("ExpenseReceipts")
+  linkedEquipment    Equipment? @relation("EquipmentManuals", fields: [linkedEquipmentId], references: [id], onDelete: SetNull)
+  calibrationCertificate EquipmentCalibration? @relation("CalibrationCertificates")
+  deliverableFiles    JobDeliverable? @relation("DeliverableFiles", fields: [linkedDeliverableId], references: [id], onDelete: SetNull)
 
   @@index([linkedJobId])
   @@index([linkedQuoteId])
   @@index([linkedServiceReportId])
+  @@index([linkedEquipmentId])
+  @@index([linkedDeliverableId])
   @@index([createdById])
   @@index([fileType])
   @@map("file_records")
@@ -512,7 +523,61 @@ model JobMilestone {
   @@index([jobId])
   @@index([status])
   @@index([milestoneType])
+  billingMilestones BillingMilestone[] @relation("BillingMilestoneLink")
   @@map("job_milestones")
+}
+
+model JobDeliverable {
+  id              String    @id @default(cuid())
+  jobId           String
+  templateCode    String?   // RSA PM010-PM140 template codes
+  name            String
+  description     String?
+  deliverableType String    @default("DOCUMENT") // DOCUMENT, HARDWARE, SOFTWARE, OTHER
+  status          String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, DELIVERED, ACCEPTED, REJECTED
+  assignedToId    String?
+  dueDate         DateTime?
+  completedDate   DateTime?
+  deliveredDate   DateTime?
+  acceptedDate    DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  job             Job       @relation("JobDeliverables", fields: [jobId], references: [id], onDelete: Cascade)
+  assignedTo      User?     @relation("DeliverableAssignments", fields: [assignedToId], references: [id], onDelete: SetNull)
+  files           FileRecord[] @relation("DeliverableFiles")
+
+  @@index([jobId])
+  @@index([status])
+  @@index([assignedToId])
+  @@index([templateCode])
+  @@map("job_deliverables")
+}
+
+model BillingMilestone {
+  id                String    @id @default(cuid())
+  jobId             String
+  milestoneId       String?   // Optional link to JobMilestone
+  invoiceNumber     String?
+  amount            Float
+  percentage        Float     // Percentage of total job value
+  status            String    @default("PENDING") // PENDING, INVOICED, PAID, CANCELLED
+  invoicedAt        DateTime?
+  paidAt            DateTime?
+  dueDate           DateTime?
+  notes             String?
+  createdById       String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  job               Job       @relation("JobBillingMilestones", fields: [jobId], references: [id], onDelete: Cascade)
+  milestone         JobMilestone? @relation("BillingMilestoneLink", fields: [milestoneId], references: [id], onDelete: SetNull)
+  createdBy         User      @relation("BillingMilestoneCreator", fields: [createdById], references: [id])
+
+  @@index([jobId])
+  @@index([milestoneId])
+  @@index([status])
+  @@index([invoicedAt])
+  @@map("billing_milestones")
 }
 
 model TimeOffRequest {
@@ -684,4 +749,66 @@ model PurchaseOrderItem {
   @@index([purchaseOrderId])
   @@index([partId])
   @@map("purchase_order_items")
+}
+
+model Equipment {
+  id                String            @id @default(cuid())
+  name              String
+  type              String            // CNC, WELDER, MILL, LATHE, FORKLIFT, CALIBRATION_TOOL, OTHER
+  serial            String?
+  purchaseDate      DateTime?
+  serviceStatus     String            @default("OPERATIONAL") // OPERATIONAL, MAINTENANCE, REPAIR, OUT_OF_SERVICE
+  pmSchedule        String?           // Preventive maintenance schedule (e.g., "Every 3 months")
+  lastPMService     DateTime?
+  nextPMService     DateTime?
+  assignedArea      String?           // Location/area where equipment is assigned
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  maintenanceLogs   EquipmentMaintenanceLog[]
+  calibrationHistory EquipmentCalibration[]
+  manuals           FileRecord[]      @relation("EquipmentManuals")
+
+  @@index([type])
+  @@index([serviceStatus])
+  @@index([assignedArea])
+  @@map("equipment")
+}
+
+model EquipmentMaintenanceLog {
+  id              String     @id @default(cuid())
+  equipmentId     String
+  serviceDate     DateTime
+  serviceType     String     // PREVENTIVE, REPAIR, INSPECTION, CALIBRATION
+  description     String
+  performedBy     String?    // User name or service provider
+  cost            Float?
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  equipment       Equipment  @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+
+  @@index([equipmentId])
+  @@index([serviceDate])
+  @@index([serviceType])
+  @@map("equipment_maintenance_logs")
+}
+
+model EquipmentCalibration {
+  id              String     @id @default(cuid())
+  equipmentId     String
+  calibrationDate DateTime
+  nextCalibrationDate DateTime?
+  calibratedBy    String?    // User name or service provider
+  certificateNumber String?
+  notes           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  equipment       Equipment  @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  certificateFile FileRecord? @relation("CalibrationCertificates")
+
+  @@index([equipmentId])
+  @@index([calibrationDate])
+  @@index([nextCalibrationDate])
+  @@map("equipment_calibrations")
 }

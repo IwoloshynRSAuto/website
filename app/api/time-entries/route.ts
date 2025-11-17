@@ -3,9 +3,10 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { dateStringSchema, validateDateRangeQuery, validateDateRange } from '@/lib/utils/date-validation'
 
 const createTimeEntrySchema = z.object({
-  date: z.string().transform((val) => new Date(val)),
+  date: dateStringSchema,
   regularHours: z.number().min(0, 'Regular hours must be positive').default(0),
   overtimeHours: z.number().min(0, 'Overtime hours must be positive').default(0),
   notes: z.string().nullable().optional(),
@@ -26,6 +27,16 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json()
     const validatedData = createTimeEntrySchema.parse(body)
+    
+    // Validate date range (not too far in past/future)
+    try {
+      validateDateRange(validatedData.date, 365, 30)
+    } catch (error) {
+      return NextResponse.json(
+        { error: 'Validation error', details: error instanceof Error ? error.message : 'Invalid date range' },
+        { status: 400 }
+      )
+    }
 
     // Create the time entry
     const timeEntry = await prisma.timeEntry.create({
@@ -101,9 +112,16 @@ export async function PUT(request: NextRequest) {
     // Validate update data
     const validatedData = createTimeEntrySchema.partial().parse(updateData)
     
-    // Transform date if provided
+    // Validate date range if date is being updated
     if (validatedData.date) {
-      validatedData.date = new Date(validatedData.date)
+      try {
+        validateDateRange(validatedData.date, 365, 30)
+      } catch (error) {
+        return NextResponse.json(
+          { error: 'Validation error', details: error instanceof Error ? error.message : 'Invalid date range' },
+          { status: 400 }
+        )
+      }
     }
 
     // Update the time entry
@@ -180,10 +198,20 @@ export async function GET(request: NextRequest) {
     const where: any = {}
     if (userId) where.userId = userId
     if (jobId) where.jobId = jobId
-    if (startDate && endDate) {
-      where.date = {
-        gte: new Date(startDate),
-        lte: new Date(endDate)
+    if (startDate || endDate) {
+      try {
+        const { start, end } = validateDateRangeQuery(startDate, endDate)
+        if (start && end) {
+          where.date = {
+            gte: start,
+            lte: end
+          }
+        }
+      } catch (error) {
+        return NextResponse.json(
+          { error: 'Validation error', details: error instanceof Error ? error.message : 'Invalid date range query' },
+          { status: 400 }
+        )
       }
     }
 

@@ -24,6 +24,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Check, X, Eye, Clock, User, Calendar } from 'lucide-react'
 import { format } from 'date-fns'
+import { getWeekStart, getWeekEnd } from '@/lib/utils/date-utils'
 import { useToast } from '@/components/ui/use-toast'
 
 interface AttendanceSubmission {
@@ -271,12 +272,29 @@ export function AttendanceApprovals() {
                         <div className="flex items-center gap-2">
                           <Calendar className="h-4 w-4 text-gray-500" />
                           {(() => {
-                            const start = new Date(submission.weekStart)
-                            const end = new Date(submission.weekEnd)
-                            // Use UTC date components to avoid timezone shifts
-                            const startDate = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
-                            const endDate = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
-                            return `${format(startDate, 'M/d')} - ${format(endDate, 'M/d')}`
+                            // The dates in the database are stored as UTC midnight
+                            // Convert UTC dates to local dates for display
+                            const startUTC = new Date(submission.weekStart)
+                            const endUTC = new Date(submission.weekEnd)
+                            
+                            // Extract UTC date components and create local dates
+                            // This ensures we display the correct calendar dates regardless of timezone
+                            const startDate = new Date(Date.UTC(
+                              startUTC.getUTCFullYear(),
+                              startUTC.getUTCMonth(),
+                              startUTC.getUTCDate()
+                            ))
+                            const endDate = new Date(Date.UTC(
+                              endUTC.getUTCFullYear(),
+                              endUTC.getUTCMonth(),
+                              endUTC.getUTCDate()
+                            ))
+                            
+                            // Format using local date components for display
+                            const startLocal = new Date(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate())
+                            const endLocal = new Date(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate())
+                            
+                            return `${format(startLocal, 'M/d')} - ${format(endLocal, 'M/d')}`
                           })()}
                         </div>
                       </TableCell>
@@ -384,11 +402,21 @@ export function AttendanceApprovals() {
                 <>
                   {selectedSubmission.user.name || selectedSubmission.user.email} -{' '}
                   {(() => {
+                    // Ensure we're displaying the correct Sunday-Saturday range
                     const start = new Date(selectedSubmission.weekStart)
                     const end = new Date(selectedSubmission.weekEnd)
-                    // Use UTC date components to avoid timezone shifts
-                    const startDate = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
-                    const endDate = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+                    // Use local date components to display the actual calendar dates
+                    const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate())
+                    const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate())
+                    // Verify and adjust to Sunday-Saturday boundaries
+                    const startDay = startDate.getDay()
+                    const endDay = endDate.getDay()
+                    if (startDay !== 0) {
+                      startDate.setDate(startDate.getDate() - startDay)
+                    }
+                    if (endDay !== 6) {
+                      endDate.setDate(endDate.getDate() + (6 - endDay))
+                    }
                     return `${format(startDate, 'M/d')} - ${format(endDate, 'M/d')} (Sunday - Saturday)`
                   })()}
                 </>
