@@ -7,6 +7,7 @@ import { useSession } from 'next-auth/react'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard,
+  Home,
   Users,
   Clock,
   Shield,
@@ -22,48 +23,63 @@ import {
   Search,
   FileText,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  BarChart3,
+  Calendar,
+  DollarSign,
+  UserCheck,
+  TrendingUp,
+  MapPin,
 } from 'lucide-react'
 
 import { MODULE_COLORS } from '@/lib/dashboard-styles'
 
 const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { 
+    name: 'Home', 
+    href: '/dashboard/home', 
+    icon: Home,
+    children: [
+      { name: 'PTO Approvals', href: '/dashboard/home/approvals/pto', icon: Calendar, adminOnly: true },
+      { name: 'Expense Approvals', href: '/dashboard/home/approvals/expense', icon: DollarSign, adminOnly: true },
+    ]
+  },
+  { 
+    name: 'Timesheets', 
+    href: '/dashboard/timekeeping', 
+    icon: Clock, 
+    module: 'timesheets',
+    children: [
+      { name: 'Attendance', href: '/dashboard/timekeeping/attendance', icon: Clock },
+      { name: 'Time', href: '/dashboard/timekeeping/time', icon: FileText },
+      { name: 'Timesheet Approvals', href: '/dashboard/timekeeping/approvals/attendance', icon: CheckCircle2, adminOnly: true },
+      { name: 'Attendance Approvals', href: '/dashboard/timekeeping/approvals/time-changes', icon: AlertCircle, adminOnly: true },
+      { name: 'Attendance Locations', href: '/dashboard/timekeeping/locations', icon: MapPin, adminOnly: true },
+    ]
+  },
   { name: 'Jobs', href: '/dashboard/jobs', icon: Wrench },
   { 
     name: 'Parts', 
-    href: '/dashboard/parts', 
+    href: '/dashboard/parts/database', 
     icon: Package,
     children: [
       { name: 'Parts Database', href: '/dashboard/parts/database', icon: Database },
       { name: 'Packages / Assemblies', href: '/dashboard/parts/packages', icon: Box },
       { name: 'BOM', href: '/dashboard/parts/boms', icon: Package },
+      { name: 'Part Sales', href: '/dashboard/part-sales', icon: DollarSign },
     ]
   },
+  { name: 'Vendors', href: '/dashboard/vendors', icon: Building2 },
   { name: 'Customers', href: '/dashboard/customers', icon: Building2 },
   { 
-    name: 'Time Sheets', 
-    href: '/dashboard/timekeeping', 
-    icon: Clock, 
-    module: 'timesheets',
-    children: [
-      { name: 'Attendance (Punch In / Punch Out)', href: '/dashboard/timekeeping/attendance', icon: Clock },
-      { name: 'Time (Job Time Tracking)', href: '/dashboard/timekeeping/time', icon: FileText },
-      { name: 'Attendance Approvals', href: '/dashboard/timekeeping/approvals/attendance', icon: CheckCircle2, adminOnly: true },
-      { name: 'Time Approvals', href: '/dashboard/timekeeping/approvals/time', icon: CheckCircle2, adminOnly: true },
-      { name: 'Attendance Change Approvals', href: '/dashboard/timekeeping/approvals/time-changes', icon: AlertCircle, adminOnly: true },
-    ]
-  },
-  { name: 'My Dashboard', href: '/dashboard/employee', icon: Users },
-  { 
-    name: 'Admin', 
-    href: '/dashboard/admin', 
+    name: 'Admin Dashboard', 
+    href: '/dashboard/manager', 
     icon: Settings,
     adminOnly: true,
     children: [
-      { name: 'Labor Codes', href: '/dashboard/admin/labor-codes', icon: Code },
       { name: 'Employee Management', href: '/dashboard/admin/employees', icon: Users },
-      { name: 'Timesheet Approval', href: '/dashboard/timekeeping/administrator', icon: Clock }
+      { name: 'Metrics & Analytics', href: '/dashboard/metrics', icon: BarChart3 },
+      { name: 'Labor Codes', href: '/dashboard/admin/labor-codes', icon: Code },
     ]
   },
 ]
@@ -77,11 +93,32 @@ export function Sidebar() {
 
   // Determine module color classes based on pathname
   const getModuleClasses = (href: string) => {
+    if (href.includes('/home')) {
+      return {
+        active: 'bg-indigo-100 text-indigo-700 border-l-2 border-indigo-500',
+        icon: 'text-indigo-500',
+        childActive: 'bg-indigo-50 text-indigo-600 border-l-2 border-indigo-500',
+      }
+    }
+    if (href.includes('/employee') || href.includes('/my-dashboard')) {
+      return {
+        active: 'bg-cyan-100 text-cyan-700 border-l-2 border-cyan-500',
+        icon: 'text-cyan-500',
+        childActive: 'bg-cyan-50 text-cyan-600 border-l-2 border-cyan-500',
+      }
+    }
     if (href.includes('/timekeeping') || href.includes('/timesheets')) {
       return {
         active: 'bg-orange-100 text-orange-700 border-l-2 border-orange-500',
         icon: 'text-orange-500',
         childActive: 'bg-orange-50 text-orange-600 border-l-2 border-orange-500',
+      }
+    }
+    if (href.includes('/metrics') || href.includes('/analytics')) {
+      return {
+        active: 'bg-emerald-100 text-emerald-700 border-l-2 border-emerald-500',
+        icon: 'text-emerald-500',
+        childActive: 'bg-emerald-50 text-emerald-600 border-l-2 border-emerald-500',
       }
     }
     if (href.includes('/jobs')) {
@@ -112,7 +149,7 @@ export function Sidebar() {
         childActive: 'bg-amber-50 text-amber-600 border-l-2 border-amber-600',
       }
     }
-    if (href.includes('/admin')) {
+    if (href.includes('/admin') || href.includes('/manager')) {
       return {
         active: 'bg-slate-100 text-slate-700 border-l-2 border-slate-600',
         icon: 'text-slate-600',
@@ -129,7 +166,7 @@ export function Sidebar() {
 
   return (
     <div className="flex flex-col w-[260px] bg-gray-900 shadow-lg fixed left-0 top-0 h-full">
-      <Link href="/dashboard" className="flex items-center h-16 px-6 border-b border-gray-800 hover:bg-gray-800 transition-colors cursor-pointer">
+      <Link href="/dashboard/home" className="flex items-center h-16 px-6 border-b border-gray-800 hover:bg-gray-800 transition-colors cursor-pointer">
         <Wrench className="h-6 w-6 text-blue-500" />
         <span className="ml-2 text-lg font-semibold text-white">
           RS Automation Portal
@@ -138,11 +175,11 @@ export function Sidebar() {
       
       <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
         {navigation.filter(item => {
-          // Show admin items only to admin users
+          // Show admin/manager items only to admin or manager users
           if (item.adminOnly) {
             const userRole = session?.user?.role
             // Always check - don't filter if we can't determine role
-            if (!session || !session.user || userRole !== 'ADMIN') {
+            if (!session || !session.user || (userRole !== 'ADMIN' && userRole !== 'MANAGER')) {
               return false
             }
           }
@@ -173,10 +210,10 @@ export function Sidebar() {
               {hasChildren && isActive && (
                 <div className="ml-6 mt-1 space-y-1">
                   {item.children.filter(child => {
-                    // Filter admin-only children
+                    // Filter admin/manager-only children
                     if (child.adminOnly) {
                       const userRole = session?.user?.role
-                      if (!session || !session.user || userRole !== 'ADMIN') {
+                      if (!session || !session.user || (userRole !== 'ADMIN' && userRole !== 'MANAGER')) {
                         return false
                       }
                     }

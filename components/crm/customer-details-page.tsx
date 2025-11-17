@@ -28,10 +28,12 @@ import {
   CheckCircle2, AlertCircle, Calendar, ArrowLeft, MapPin
 } from 'lucide-react'
 import { QuoteFileViewer } from '@/components/crm/quote-file-viewer'
+import { CustomerMetricsDashboard } from '@/components/customers/customer-metrics-dashboard'
 import { format, isAfter, subDays, differenceInDays } from 'date-fns'
 import { toast } from 'react-hot-toast'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
+import { BarChart3 } from 'lucide-react'
 
 interface Contact {
   id: string
@@ -79,9 +81,10 @@ interface CustomerDetailsPageProps {
   initialContacts?: Contact[]
   initialQuotes?: Quote[]
   initialJobs?: Job[]
+  initialMetrics?: any
 }
 
-export function CustomerDetailsPage({ customer: initialCustomer, initialContacts = [], initialQuotes = [], initialJobs = [] }: CustomerDetailsPageProps) {
+export function CustomerDetailsPage({ customer: initialCustomer, initialContacts = [], initialQuotes = [], initialJobs = [], initialMetrics }: CustomerDetailsPageProps) {
   const router = useRouter()
   const [customer, setCustomer] = useState<Customer>(initialCustomer)
   const [contacts, setContacts] = useState<Contact[]>(initialContacts)
@@ -272,9 +275,9 @@ export function CustomerDetailsPage({ customer: initialCustomer, initialContacts
 
   return (
     <div className="pt-4">
-      {/* Tabs for Quotes and Jobs */}
+      {/* Tabs for Quotes, Jobs, and Metrics */}
       <Tabs defaultValue="quotes" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="quotes" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
             Quotes ({quotes.length})
@@ -282,6 +285,10 @@ export function CustomerDetailsPage({ customer: initialCustomer, initialContacts
           <TabsTrigger value="jobs" className="flex items-center gap-2">
             <Briefcase className="h-4 w-4" />
             Jobs ({jobs.length})
+          </TabsTrigger>
+          <TabsTrigger value="metrics" className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Metrics
           </TabsTrigger>
         </TabsList>
 

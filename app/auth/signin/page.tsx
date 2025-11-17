@@ -7,7 +7,7 @@ import { Mail } from 'lucide-react'
 
 export default function SignInPage() {
   const handleMicrosoftSignIn = () => {
-    signIn('azure-ad', { callbackUrl: '/dashboard' })
+    signIn('azure-ad', { callbackUrl: '/dashboard/home' })
   }
 
 

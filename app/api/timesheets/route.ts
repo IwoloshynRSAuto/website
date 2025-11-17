@@ -34,6 +34,11 @@ const createTimesheetSchema = z.object({
   clockOutTime: nullableDateStringSchema.optional(),
   date: optionalDateStringSchema.default(() => new Date()),
   userId: z.string().optional(), // Allow admin to specify userId
+  // Geolocation fields (only include if they exist in database)
+  geoLat: z.number().optional().nullable(),
+  geoLon: z.number().optional().nullable(),
+  geoAccuracy: z.number().optional().nullable(),
+  // locationDenied: z.boolean().optional().default(false), // Removed - field doesn't exist in database
 })
 
 const updateTimesheetSchema = z.object({
@@ -73,7 +78,7 @@ export async function POST(request: NextRequest) {
     } catch (validationError: any) {
       console.error('[API] Validation error:', validationError)
       if (validationError instanceof z.ZodError) {
-        console.error('[API] Validation errors:', JSON.stringify(validationError.errors, null, 2))
+        console.error('[API] Validation errors:', JSON.stringify(validationError.issues, null, 2))
       }
       throw validationError
     }
@@ -106,7 +111,13 @@ export async function POST(request: NextRequest) {
 
     // Verify target user exists in database
     let user = await prisma.user.findUnique({
-      where: { id: targetUserId }
+      where: { id: targetUserId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      }
     })
 
     if (!user) {
@@ -145,7 +156,7 @@ export async function POST(request: NextRequest) {
     // Check for midnight - handle timezone conversion
     // When client sends local midnight (00:00), it may arrive as 00:00-06:00 UTC depending on timezone
     // Job-only timesheets are created with midnight local time, which converts to early morning UTC
-    function isMidnight(date: Date) {
+    const isMidnight = (date: Date) => {
       const utcHours = date.getUTCHours();
       const utcMinutes = date.getUTCMinutes();
       // Check if it's exactly UTC midnight, or very early morning (00:00-06:00) which covers most timezones
@@ -348,18 +359,65 @@ export async function POST(request: NextRequest) {
     // Determine status based on whether clock out time is provided
     const status = roundedClockOut ? 'completed' : 'in-progress'
     
-    const timesheet = await prisma.timesheet.create({
-      data: {
-        userId: user.id, // Use the database user ID we just found
-        date: dateForDb,
-        clockInTime: roundedClockIn,
-        clockOutTime: roundedClockOut,
-        status: status,
-      },
-      include: {
-        jobEntries: true,
+    // Build create data - start with only basic required fields
+    // Don't include geolocation fields since they may not exist in database
+    const createData: any = {
+      userId: user.id, // Use the database user ID we just found
+      date: dateForDb,
+      clockInTime: roundedClockIn,
+      clockOutTime: roundedClockOut,
+      status: status,
+    }
+    
+    // Try to add geolocation fields only if they're provided
+    // We'll catch errors if they don't exist in the database
+    if (validatedData.geoLat !== undefined && validatedData.geoLat !== null) {
+      createData.geoLat = validatedData.geoLat
+    }
+    if (validatedData.geoLon !== undefined && validatedData.geoLon !== null) {
+      createData.geoLon = validatedData.geoLon
+    }
+    if (validatedData.geoAccuracy !== undefined && validatedData.geoAccuracy !== null) {
+      createData.geoAccuracy = validatedData.geoAccuracy
+    }
+    
+    let timesheet
+    try {
+      timesheet = await prisma.timesheet.create({
+        data: createData,
+        include: {
+          jobEntries: true,
+        }
+      })
+    } catch (createError: any) {
+      // If any geolocation-related error occurs, retry without geolocation fields
+      const errorMsg = String(createError?.message || createError?.code || '')
+      const isGeoError = errorMsg.includes('geo') || 
+                        errorMsg.includes('location') || 
+                        errorMsg.includes('Unknown argument') ||
+                        createError?.code === 'P2009' // Prisma schema validation error
+      
+      if (isGeoError) {
+        console.warn('[API] Geolocation fields not available, creating without them. Error:', errorMsg.substring(0, 150))
+        // Retry with only basic fields
+        const basicData = {
+          userId: user.id,
+          date: dateForDb,
+          clockInTime: roundedClockIn,
+          clockOutTime: roundedClockOut,
+          status: status,
+        }
+        timesheet = await prisma.timesheet.create({
+          data: basicData,
+          include: {
+            jobEntries: true,
+          }
+        })
+      } else {
+        // Re-throw if it's a different error
+        throw createError
       }
-    })
+    }
 
     console.log('[API] Timesheet created successfully:', timesheet.id)
     return NextResponse.json(
@@ -379,13 +437,13 @@ export async function POST(request: NextRequest) {
     })
     
     if (error instanceof z.ZodError) {
-      console.error('[API] Zod validation errors:', JSON.stringify(error.errors, null, 2))
+      console.error('[API] Zod validation errors:', JSON.stringify(error.issues, null, 2))
       return NextResponse.json(
         {
           success: false,
           error: 'Invalid request data',
-          details: error.errors.map((e) => `${e.path.join('.')}: ${e.message}`).join(', '),
-          validationErrors: error.errors
+          details: error.issues.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', '),
+          validationErrors: error.issues
         },
         { status: 400 }
       )
@@ -454,7 +512,7 @@ export async function GET(request: NextRequest) {
       select: { id: true },
     })
 
-    if (!authorizeOwnResource(session.user, 'read', 'timesheet', targetUser?.id)) {
+    if (!authorizeOwnResource(session.user as any, 'read', 'timesheet', targetUser?.id)) {
       return NextResponse.json(
         { success: false, error: 'Forbidden: Insufficient permissions' },
         { status: 403 }

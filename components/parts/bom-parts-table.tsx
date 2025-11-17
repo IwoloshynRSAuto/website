@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -54,6 +54,20 @@ export function BOMPartsTable({ bomId, parts, onPartUpdated }: BOMPartsTableProp
   const [sortBy, setSortBy] = useState<string | null>(null)
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [localValues, setLocalValues] = useState<Record<string, { purchasePrice?: string; markupPercent?: string }>>({})
+  const [vendorFilter, setVendorFilter] = useState<string>('all')
+  const [vendors, setVendors] = useState<Array<{ id: string; name: string }>>([])
+
+  // Load vendors on mount
+  useEffect(() => {
+    fetch('/api/vendors')
+      .then(r => r.json())
+      .then(data => {
+        if (data.success && data.data) {
+          setVendors(data.data.map((v: any) => ({ id: v.id, name: v.name })))
+        }
+      })
+      .catch(err => console.error('Error loading vendors:', err))
+  }, [])
 
   const handleSort = (field: string) => {
     if (sortBy === field) {
@@ -64,7 +78,12 @@ export function BOMPartsTable({ bomId, parts, onPartUpdated }: BOMPartsTableProp
     }
   }
 
-  const sortedParts = [...parts].sort((a, b) => {
+  // Filter by vendor
+  const filteredParts = vendorFilter === 'all' 
+    ? parts 
+    : parts.filter(part => part.source === vendorFilter)
+
+  const sortedParts = [...filteredParts].sort((a, b) => {
     if (!sortBy) return 0
 
     let aVal: any
@@ -169,8 +188,33 @@ export function BOMPartsTable({ bomId, parts, onPartUpdated }: BOMPartsTableProp
     )
   }
 
+  // Get unique vendors from parts
+  const uniqueVendors = Array.from(new Set(parts.map(p => p.source).filter(Boolean))) as string[]
+
   return (
     <div className="w-full" style={{ width: '100%', maxWidth: '100%' }}>
+      {/* Vendor Filter */}
+      {uniqueVendors.length > 0 && (
+        <div className="p-4 border-b flex items-center gap-4 bg-gray-50">
+          <label className="text-sm font-medium text-gray-700">Filter by Vendor:</label>
+          <Select value={vendorFilter} onValueChange={setVendorFilter}>
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="All Vendors" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Vendors</SelectItem>
+              {uniqueVendors.map(vendor => (
+                <SelectItem key={vendor} value={vendor}>{vendor}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {vendorFilter !== 'all' && (
+            <span className="text-sm text-gray-500">
+              Showing {filteredParts.length} of {parts.length} parts
+            </span>
+          )}
+        </div>
+      )}
       <div className="max-h-[calc(100vh-400px)] overflow-y-auto" style={{ width: '100%', overflowX: 'hidden' }}>
         <Table className="w-full table-fixed" style={{ width: '100%', tableLayout: 'fixed' }}>
             <TableHeader className="sticky top-0 bg-white z-10 border-b border-gray-200">

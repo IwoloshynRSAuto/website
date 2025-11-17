@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth'
 import { redirect, notFound } from 'next/navigation'
 import { CustomerDetailsEditable } from '@/components/crm/customer-details-editable'
 import { CustomerDetailsPage } from '@/components/crm/customer-details-page'
+import { CustomerMetricsDashboard } from '@/components/customers/customer-metrics-dashboard'
+import { CustomerService } from '@/lib/customers/service'
 
 interface PageProps {
   params: Promise<{
@@ -134,6 +136,14 @@ export default async function CustomerDetailsPageRoute({ params }: PageProps) {
       return new Date(item.lastFollowUp) < sevenDaysAgo
     }).length
 
+    // Fetch customer metrics
+    let customerMetrics = null
+    try {
+      customerMetrics = await CustomerService.getCustomerMetrics(customerId)
+    } catch (error) {
+      console.error('Error fetching customer metrics:', error)
+    }
+
     return (
       <div className="flex flex-col">
         <CustomerDetailsEditable 
@@ -156,6 +166,7 @@ export default async function CustomerDetailsPageRoute({ params }: PageProps) {
             initialContacts={serializedData.initialContacts}
             initialQuotes={serializedData.initialQuotes}
             initialJobs={serializedData.initialJobs}
+            initialMetrics={customerMetrics}
           />
         </div>
       </div>

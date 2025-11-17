@@ -63,6 +63,11 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
           laborCode: true
         }
       },
+      milestones: {
+        orderBy: {
+          scheduledStartDate: 'asc'
+        }
+      },
       _count: {
         select: {
           timeEntries: true
@@ -160,6 +165,19 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
               estimatedDelivery: part.estimatedDelivery?.toISOString() || null,
             })),
           } : null}
+          milestones={job.milestones.map(m => ({
+            id: m.id,
+            name: m.name,
+            description: m.description,
+            milestoneType: m.milestoneType,
+            scheduledStartDate: m.scheduledStartDate?.toISOString() || null,
+            scheduledEndDate: m.scheduledEndDate?.toISOString() || null,
+            actualStartDate: m.actualStartDate?.toISOString() || null,
+            actualEndDate: m.actualEndDate?.toISOString() || null,
+            status: m.status,
+            billingPercentage: m.billingPercentage ? Number(m.billingPercentage) : null,
+            isBillingTrigger: m.isBillingTrigger,
+          }))}
         />
         
         {/* ECO History - Show for all jobs */}

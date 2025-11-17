@@ -109,7 +109,9 @@ export function PartsTable({
               <TableHead className="w-[150px]">
                 <SortButton field="manufacturer">Manufacturer</SortButton>
               </TableHead>
-              <TableHead className="w-[150px]">Primary Source</TableHead>
+              <TableHead className="w-[150px]">
+                <SortButton field="primarySource">Primary Vendor</SortButton>
+              </TableHead>
               <TableHead className="w-[120px] text-right">
                 <div className="flex justify-end">
                   <SortButton field="purchasePrice">Purchase Price</SortButton>

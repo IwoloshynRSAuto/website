@@ -358,6 +358,33 @@ export function TimeEntryModal({
     }
   }, [selectedEntry, userId, jobs, laborCodes, selectedDate, mode])
 
+  const getCurrentLocation = (): Promise<{ lat: number; lon: number; accuracy: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(null)
+        return
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            accuracy: position.coords.accuracy || 0,
+          })
+        },
+        () => {
+          // User denied or error - don't block, just return null
+          resolve(null)
+        },
+        {
+          timeout: 5000,
+          enableHighAccuracy: false,
+        }
+      )
+    })
+  }
+
   const handleSaveClockInOut = async () => {
     // Check if entry is locked
     if (selectedEntry && (selectedEntry as any).isLocked) {
@@ -474,13 +501,25 @@ export function TimeEntryModal({
         // Update existing timesheet (clocking out or editing)
         const updateData: any = {}
         if (isClockOut) {
+          // Get geolocation for clock-out
+          const location = await getCurrentLocation()
           updateData.clockOutTime = clockOutDate?.toISOString() || null
           updateData.status = clockOutDate ? 'completed' : 'in-progress'
+          updateData.clockOutGeoLat = location?.lat ?? null
+          updateData.clockOutGeoLon = location?.lon ?? null
+          updateData.clockOutGeoAccuracy = location?.accuracy ?? null
         } else if (selectedEntry) {
           // Editing existing entry with both times
           updateData.clockInTime = clockInDate.toISOString()
           updateData.clockOutTime = clockOutDate?.toISOString() || null
           updateData.status = clockOutDate ? 'completed' : 'in-progress'
+          // Only add geolocation if clocking out (not editing both times)
+          if (clockOutDate) {
+            const location = await getCurrentLocation()
+            updateData.clockOutGeoLat = location?.lat ?? null
+            updateData.clockOutGeoLon = location?.lon ?? null
+            updateData.clockOutGeoAccuracy = location?.accuracy ?? null
+          }
         }
 
         const response = await fetch(`/api/timesheets/${timesheetIdToUpdate}`, {
@@ -1521,10 +1560,8 @@ export function TimeEntryModal({
                     setChangeRequestClockOut('')
                     onClose()
                     // Reload data to show the change request status
-                    if (onClose) {
-                      // Trigger a refresh by calling the parent's reload function if available
-                      window.location.reload()
-                    }
+                    // Trigger a refresh
+                    window.location.reload()
                   } else {
                     // Parse error response
                     let errorMessage = 'Failed to submit change request'

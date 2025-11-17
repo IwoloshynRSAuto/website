@@ -13,6 +13,9 @@ import { toast } from 'react-hot-toast'
 import { LaborCodeBreakdownModal } from '@/components/jobs/labor-code-breakdown-modal'
 import { SubmitECOModal } from '@/components/jobs/submit-eco-modal'
 import { BOMPartsTable } from '@/components/parts/bom-parts-table'
+import { BulkBOMUpdate } from '@/components/jobs/bulk-bom-update'
+import { MilestoneGanttView } from '@/components/jobs/milestone-gantt-view'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 interface Milestone {
   id: string
@@ -97,6 +100,20 @@ interface BOM {
   parts: BOMPart[]
 }
 
+interface JobMilestone {
+  id: string
+  name: string
+  description: string | null
+  milestoneType: string
+  scheduledStartDate: string | null
+  scheduledEndDate: string | null
+  actualStartDate: string | null
+  actualEndDate: string | null
+  status: string
+  billingPercentage: number | null
+  isBillingTrigger: boolean
+}
+
 interface JobDetailsClientProps {
   jobId: string
   jobNumber: string
@@ -106,9 +123,10 @@ interface JobDetailsClientProps {
   jobType: string
   relatedQuoteId?: string | null
   bom?: BOM | null
+  milestones?: JobMilestone[]
 }
 
-export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, quotedLabor, jobType, relatedQuoteId, bom }: JobDetailsClientProps) {
+export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, quotedLabor, jobType, relatedQuoteId, bom, milestones: initialMilestones = [] }: JobDetailsClientProps) {
   const [mounted, setMounted] = useState(false)
   const [selectedLaborCodeId, setSelectedLaborCodeId] = useState<string | null>(null)
   const [isBreakdownModalOpen, setIsBreakdownModalOpen] = useState(false)
@@ -678,6 +696,75 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
         </CardContent>
       </Card>
 
+      {/* Milestones Section with Gantt View */}
+      {initialMilestones.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Project Milestones</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="gantt" className="space-y-4">
+              <TabsList>
+                <TabsTrigger value="gantt">Gantt View</TabsTrigger>
+                <TabsTrigger value="list">List View</TabsTrigger>
+              </TabsList>
+              <TabsContent value="gantt">
+                <MilestoneGanttView milestones={initialMilestones} />
+              </TabsContent>
+              <TabsContent value="list">
+                <div className="space-y-2">
+                  {initialMilestones.map((milestone) => (
+                    <div key={milestone.id} className="border rounded-lg p-4">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="font-medium">{milestone.name}</div>
+                          {milestone.description && (
+                            <div className="text-sm text-gray-600 mt-1">{milestone.description}</div>
+                          )}
+                          <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
+                            {milestone.scheduledStartDate && milestone.scheduledEndDate && (
+                              <span>
+                                Scheduled: {format(new Date(milestone.scheduledStartDate), 'MMM d')} - {format(new Date(milestone.scheduledEndDate), 'MMM d, yyyy')}
+                              </span>
+                            )}
+                            {milestone.actualStartDate && milestone.actualEndDate && (
+                              <span>
+                                Actual: {format(new Date(milestone.actualStartDate), 'MMM d')} - {format(new Date(milestone.actualEndDate), 'MMM d, yyyy')}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline">{milestone.milestoneType}</Badge>
+                          <Badge
+                            variant={
+                              milestone.status === 'COMPLETED'
+                                ? 'default'
+                                : milestone.status === 'IN_PROGRESS'
+                                ? 'secondary'
+                                : milestone.status === 'BLOCKED'
+                                ? 'destructive'
+                                : 'outline'
+                            }
+                          >
+                            {milestone.status.replace('_', ' ')}
+                          </Badge>
+                          {milestone.isBillingTrigger && (
+                            <Badge variant="outline" className="border-green-500 text-green-700">
+                              Billing
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Financial Information & Billing Milestones Section */}
       <Card>
         <CardHeader>
@@ -1135,6 +1222,23 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                   window.location.reload()
                 }}
               />
+              
+              {/* Bulk Status Update */}
+              <div className="mt-6">
+                <BulkBOMUpdate
+                  bomId={bom.id}
+                  parts={bom.parts.map(part => ({
+                    id: part.id,
+                    partNumber: part.partNumber,
+                    description: part.description,
+                    status: part.status,
+                    source: part.source,
+                  }))}
+                  onUpdated={() => {
+                    window.location.reload()
+                  }}
+                />
+              </div>
               
               {/* Summary Card */}
               <Card className="mt-6">

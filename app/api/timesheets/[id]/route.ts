@@ -35,6 +35,11 @@ const updateTimesheetSchema = z.object({
     z.null()
   ]).optional(),
   status: z.enum(['in-progress', 'completed', 'needs-review']).optional(),
+  // Geolocation fields for clock-out
+  clockOutGeoLat: z.number().optional().nullable(),
+  clockOutGeoLon: z.number().optional().nullable(),
+  clockOutGeoAccuracy: z.number().optional().nullable(),
+  // clockOutLocationDenied: z.boolean().optional().default(false), // Removed - field doesn't exist in database yet
 })
 
 // PATCH /api/timesheets/:id - Update timesheet
@@ -85,13 +90,25 @@ export async function PATCH(
 
     // Verify user exists and get database user ID
     let user = await prisma.user.findUnique({
-      where: { id: session.user.id }
+      where: { id: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      }
     })
 
     // If not found by ID, try by email (for old sessions)
     if (!user && session.user.email) {
       user = await prisma.user.findUnique({
-        where: { email: session.user.email }
+        where: { email: session.user.email },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        }
       })
     }
 
@@ -213,7 +230,7 @@ export async function PATCH(
           {
             success: false,
             error: 'Validation error',
-            details: error.errors,
+            details: (error as z.ZodError).issues,
           },
           { status: 400 }
         )
@@ -243,6 +260,21 @@ export async function PATCH(
     if (validatedData.status) {
       updateData.status = validatedData.status
     }
+
+    // Add geolocation fields for clock-out
+    if (validatedData.clockOutGeoLat !== undefined) {
+      updateData.clockOutGeoLat = validatedData.clockOutGeoLat
+    }
+    if (validatedData.clockOutGeoLon !== undefined) {
+      updateData.clockOutGeoLon = validatedData.clockOutGeoLon
+    }
+    if (validatedData.clockOutGeoAccuracy !== undefined) {
+      updateData.clockOutGeoAccuracy = validatedData.clockOutGeoAccuracy
+    }
+    // clockOutLocationDenied removed - field doesn't exist in database yet
+    // if (validatedData.clockOutLocationDenied !== undefined) {
+    //   updateData.clockOutLocationDenied = validatedData.clockOutLocationDenied
+    // }
 
     // Calculate total hours if both times are present
     const clockIn = updateData.clockInTime || timesheet.clockInTime
@@ -370,11 +402,36 @@ export async function PATCH(
     }
 
     console.log('[PATCH /api/timesheets/:id] About to update timesheet...')
-    console.log('[PATCH /api/timesheets/:id] Updating timesheet with data:', JSON.stringify(updateData, null, 2))
+    
+    // Only include valid fields that exist in the Timesheet model
+    // Note: clockOutLocationDenied may not exist in database yet - check before including
+    const validUpdateData: any = {}
+    const allowedFields = [
+      'clockInTime',
+      'clockOutTime',
+      'status',
+      'totalHours',
+      'geoLat',
+      'geoLon',
+      'geoAccuracy',
+      'locationDenied',
+      'clockOutGeoLat',
+      'clockOutGeoLon',
+      'clockOutGeoAccuracy'
+      // 'clockOutLocationDenied' - Commented out until database migration is run
+    ]
+    
+    for (const field of allowedFields) {
+      if (updateData[field] !== undefined) {
+        validUpdateData[field] = updateData[field]
+      }
+    }
+    
+    console.log('[PATCH /api/timesheets/:id] Updating timesheet with data:', JSON.stringify(validUpdateData, null, 2))
     
     const updated = await prisma.timesheet.update({
       where: { id: timesheetId },
-      data: updateData,
+      data: validUpdateData,
       include: {
         jobEntries: {
           orderBy: {
@@ -395,7 +452,7 @@ export async function PATCH(
         {
           success: false,
           error: 'Validation error',
-          details: error.errors,
+          details: error.issues,
         },
         { status: 400 }
       )
@@ -449,13 +506,25 @@ export async function DELETE(
 
     // Verify user exists and get database user ID
     let user = await prisma.user.findUnique({
-      where: { id: session.user.id }
+      where: { id: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      }
     })
 
     // If not found by ID, try by email (for old sessions)
     if (!user && session.user.email) {
       user = await prisma.user.findUnique({
-        where: { email: session.user.email }
+        where: { email: session.user.email },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        }
       })
     }
 

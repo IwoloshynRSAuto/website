@@ -10,8 +10,8 @@ export default async function TimeChangeApprovalsPage() {
     redirect('/auth/signin')
   }
 
-  // Only admins can access this page
-  if (session.user.role !== 'ADMIN') {
+  // Check if user is admin or manager
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER') {
     redirect('/dashboard/timekeeping')
   }
 

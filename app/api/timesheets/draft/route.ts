@@ -22,12 +22,24 @@ export async function GET(request: NextRequest) {
 
     // Verify user exists
     let user = await prisma.user.findUnique({
-      where: { id: session.user.id }
+      where: { id: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      }
     })
 
     if (!user && session.user.email) {
       user = await prisma.user.findUnique({
-        where: { email: session.user.email }
+        where: { email: session.user.email },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        }
       })
     }
 
@@ -121,12 +133,24 @@ export async function POST(request: NextRequest) {
 
     // Verify user exists
     let user = await prisma.user.findUnique({
-      where: { id: session.user.id }
+      where: { id: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      }
     })
 
     if (!user && session.user.email) {
       user = await prisma.user.findUnique({
-        where: { email: session.user.email }
+        where: { email: session.user.email },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        }
       })
     }
 
@@ -175,12 +199,24 @@ export async function DELETE(request: NextRequest) {
 
     // Verify user exists
     let user = await prisma.user.findUnique({
-      where: { id: session.user.id }
+      where: { id: session.user.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+      }
     })
 
     if (!user && session.user.email) {
       user = await prisma.user.findUnique({
-        where: { email: session.user.email }
+        where: { email: session.user.email },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+        }
       })
     }
 

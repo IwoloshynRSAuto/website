@@ -16,8 +16,12 @@ model User {
   position             String?
   wage                 Decimal?
   phone                String?
+  managerId            String?
   createdAt            DateTime                 @default(now())
   updatedAt            DateTime                 @updatedAt
+  manager              User?                   @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports        User[]                   @relation("EmployeeManager")
+  auditLogs            AuditLog[]               @relation("AuditLogs")
   ecoOrders            EngineeringChangeOrder[]
   createdJobs          Job[]                    @relation("JobCreator")
   assignedJobs         Job[]                    @relation("JobAssignee")
@@ -201,6 +205,7 @@ model Quote {
   customer             Customer?       @relation(fields: [customerId], references: [id])
   fileRecords          FileRecord[]     @relation("QuoteFiles")
   revisions            QuoteRevision[]  @relation("QuoteRevisions")
+  lostReason           QuoteLostReason?
 
   @@map("quotes")
 }
@@ -401,6 +406,16 @@ model Timesheet {
   clockOutTime   DateTime?
   totalHours     Float?
   status         String              @default("in-progress") // in-progress, completed, needs-review
+  // Geolocation fields
+  geoLat         Float?              // Latitude for clock-in
+  geoLon         Float?              // Longitude for clock-in
+  geoAccuracy    Float?              // Accuracy in meters
+  locationDenied Boolean             @default(false) // True if user denied location permission
+  // Geolocation for clock-out
+  clockOutGeoLat Float?              // Latitude for clock-out
+  clockOutGeoLon Float?              // Longitude for clock-out
+  clockOutGeoAccuracy Float?         // Accuracy for clock-out
+  clockOutLocationDenied Boolean     @default(false) // True if location denied on clock-out
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -801,14 +816,46 @@ model EquipmentCalibration {
   nextCalibrationDate DateTime?
   calibratedBy    String?    // User name or service provider
   certificateNumber String?
+  certificateFileId String?  @unique
   notes           String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   equipment       Equipment  @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
-  certificateFile FileRecord? @relation("CalibrationCertificates")
+  certificateFile FileRecord? @relation("CalibrationCertificates", fields: [certificateFileId], references: [id], onDelete: SetNull)
 
   @@index([equipmentId])
   @@index([calibrationDate])
   @@index([nextCalibrationDate])
   @@map("equipment_calibrations")
+}
+
+model AuditLog {
+  id            String   @id @default(cuid())
+  userId        String
+  action        String   // CREATE, UPDATE, DELETE, APPROVE, REJECT, SUBMIT
+  resourceType  String   // USER, TIME_OFF_REQUEST, EXPENSE_REPORT, TIME_CHANGE_REQUEST, etc.
+  resourceId    String?
+  details       Json?    // Additional details about the action
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+  user          User     @relation("AuditLogs", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([resourceType])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model QuoteLostReason {
+  id          String   @id @default(cuid())
+  quoteId     String   @unique
+  reason      String   // PRICE, TIMELINE, SPECIFICATIONS, COMPETITOR, OTHER
+  details     String?
+  createdAt   DateTime @default(now())
+  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([reason])
+  @@map("quote_lost_reasons")
 }

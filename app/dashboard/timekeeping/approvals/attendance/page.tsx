@@ -10,7 +10,8 @@ export default async function AttendanceApprovalsPage() {
     redirect('/auth/signin')
   }
 
-  if (session.user.role !== 'ADMIN') {
+  // Check if user is admin or manager
+  if (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER') {
     redirect('/dashboard/timekeeping')
   }
 

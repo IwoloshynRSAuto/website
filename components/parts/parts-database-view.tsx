@@ -153,12 +153,43 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialState.sortOrder)
   const [selectedCategory, setSelectedCategory] = useState<string>(initialState.selectedCategory)
   const [selectedSubcategory, setSelectedSubcategory] = useState<string>(initialState.selectedSubcategory)
+  const [selectedVendor, setSelectedVendor] = useState<string>('')
   const [isInitialized, setIsInitialized] = useState(false)
+  
+  // Fetch primary vendors for filter (vendors used as primarySource in parts)
+  const [vendors, setVendors] = useState<Array<{ id: string; name: string }>>([])
+  
+  useEffect(() => {
+    // Fetch primary vendors (vendors that are used as primarySource in parts)
+    fetch('/api/parts/primary-vendors')
+      .then(res => {
+        if (!res.ok) {
+          console.error('Primary vendors API returned error:', res.status, res.statusText)
+          return res.json().then(err => { throw new Error(err.error || 'Failed to fetch') })
+        }
+        return res.json()
+      })
+      .then(data => {
+        console.log('Primary vendors response:', data)
+        if (data.success) {
+          const vendorList = data.data || []
+          console.log(`Setting ${vendorList.length} vendors in dropdown`)
+          setVendors(vendorList)
+        } else {
+          console.error('Primary vendors API returned success=false:', data.error)
+          setVendors([])
+        }
+      })
+      .catch((error) => {
+        console.error('Error fetching primary vendors:', error)
+        setVendors([])
+      })
+  }, [])
 
   const limit = 500
 
   // Update URL with current filters/sorting
-  const updateURL = (search: string, page: number, sort: string, order: 'asc' | 'desc', category: string, subcategory: string) => {
+  const updateURL = (search: string, page: number, sort: string, order: 'asc' | 'desc', category: string, subcategory: string, vendor: string) => {
     if (typeof window === 'undefined') return
     
     const params = new URLSearchParams()
@@ -168,6 +199,7 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
     if (order !== 'desc') params.set('sortOrder', order)
     if (category) params.set('category', category)
     if (subcategory) params.set('subcategory', subcategory)
+    if (vendor) params.set('vendorId', vendor)
 
     const newUrl = params.toString() 
       ? `${window.location.pathname}?${params.toString()}`
@@ -178,11 +210,11 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
   }
 
   // Fetch parts with search, pagination, and sorting
-  const fetchParts = async (search: string = searchTerm, page: number = currentPage, sort: string = sortBy, order: 'asc' | 'desc' = sortOrder, category: string = selectedCategory, subcategory: string = selectedSubcategory): Promise<void> => {
+  const fetchParts = async (search: string = searchTerm, page: number = currentPage, sort: string = sortBy, order: 'asc' | 'desc' = sortOrder, category: string = selectedCategory, subcategory: string = selectedSubcategory, vendor: string = selectedVendor): Promise<void> => {
     setIsLoading(true)
     try {
       // Update URL with current state
-      updateURL(search, page, sort, order, category, subcategory)
+      updateURL(search, page, sort, order, category, subcategory, vendor)
       
       const params = new URLSearchParams({
         page: page.toString(),
@@ -197,6 +229,9 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
       if (subcategory) {
         params.append('subcategory', subcategory)
       }
+      if (vendor) {
+        params.append('vendorId', vendor)
+      }
       params.append('sortBy', sort)
       params.append('sortOrder', order)
 
@@ -206,10 +241,17 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
         setParts(data.parts || [])
         setTotal(data.pagination?.total || data.total || 0)
       } else {
-        console.error('Failed to fetch parts')
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
+        console.error('Failed to fetch parts:', response.status, errorData)
+        // Set empty state on error
+        setParts([])
+        setTotal(0)
       }
     } catch (error) {
       console.error('Error fetching parts:', error)
+      // Set empty state on error
+      setParts([])
+      setTotal(0)
     } finally {
       setIsLoading(false)
     }
@@ -218,7 +260,7 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
   // Ref to prevent multiple simultaneous fetches
   const fetchingRef = useRef(false)
 
-  // Debounced search - only debounce search term, not category/subcategory
+    // Debounced search - only debounce search term, not category/subcategory
   useEffect(() => {
     // Skip if not initialized yet (prevents initial double fetch)
     if (!isInitialized || fetchingRef.current) return
@@ -226,7 +268,7 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
     const timer = setTimeout(() => {
       fetchingRef.current = true
       setCurrentPage(1)
-      fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory).finally(() => {
+      fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory, selectedVendor).finally(() => {
         fetchingRef.current = false
       })
     }, 300)
@@ -242,7 +284,7 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
     
     fetchingRef.current = true
     setCurrentPage(1)
-    fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory).finally(() => {
+    fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory, selectedVendor).finally(() => {
       fetchingRef.current = false
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -256,7 +298,7 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
     const timer = setTimeout(() => {
       fetchingRef.current = true
       setCurrentPage(1)
-      fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory).finally(() => {
+      fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory, selectedVendor).finally(() => {
         fetchingRef.current = false
       })
     }, 300)
@@ -265,12 +307,25 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSubcategory, isInitialized])
 
+  // Immediate filter for vendor changes
+  useEffect(() => {
+    // Skip if not initialized yet (prevents initial double fetch)
+    if (!isInitialized || fetchingRef.current) return
+    
+    fetchingRef.current = true
+    setCurrentPage(1)
+    fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory, selectedVendor).finally(() => {
+      fetchingRef.current = false
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedVendor, isInitialized])
+
   // Handle page changes
   useEffect(() => {
     // Skip if not initialized yet
     if (!isInitialized) return
     
-    fetchParts(searchTerm, currentPage, sortBy, sortOrder, selectedCategory, selectedSubcategory)
+    fetchParts(searchTerm, currentPage, sortBy, sortOrder, selectedCategory, selectedSubcategory, selectedVendor)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, isInitialized])
 
@@ -280,7 +335,7 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
     if (!isInitialized) return
     
     setCurrentPage(1)
-    fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory)
+    fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory, selectedVendor)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortBy, sortOrder, isInitialized])
 
@@ -304,7 +359,7 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
 
       if (response.ok) {
         // Preserve all filters when refreshing after delete
-        fetchParts(searchTerm, currentPage, sortBy, sortOrder, selectedCategory, selectedSubcategory)
+        fetchParts(searchTerm, currentPage, sortBy, sortOrder, selectedCategory, selectedSubcategory, selectedVendor)
       } else {
         const error = await response.json()
         alert(error.error || 'Failed to delete part')
@@ -319,9 +374,28 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
     // Close dialog first
     setIsCreateDialogOpen(false)
     
+    // Refresh vendor list to include any new vendors from the new part
+    fetch('/api/parts/primary-vendors')
+      .then(res => {
+        if (!res.ok) {
+          console.error('Primary vendors API returned error:', res.status, res.statusText)
+          return res.json().then(err => { throw new Error(err.error || 'Failed to fetch') })
+        }
+        return res.json()
+      })
+      .then(data => {
+        if (data.success) {
+          const vendorList = data.data || []
+          setVendors(vendorList)
+        }
+      })
+      .catch((error) => {
+        console.error('Error refreshing vendors:', error)
+      })
+    
     // Immediately refresh the parts list with current filters
     // Don't wait - this ensures the new part appears right away
-    await fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory)
+    await fetchParts(searchTerm, 1, sortBy, sortOrder, selectedCategory, selectedSubcategory, selectedVendor)
   }
 
   const totalPages = Math.ceil(total / limit)
@@ -342,13 +416,16 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
 
     if (hasUrlParams) {
       // We have URL params, fetch with those instead of using initial parts
+      const urlVendor = searchParams?.get('vendorId') || ''
+      setSelectedVendor(urlVendor)
       fetchParts(
         initialState.searchTerm,
         initialState.currentPage,
         initialState.sortBy,
         initialState.sortOrder,
         initialState.selectedCategory,
-        initialState.selectedSubcategory
+        initialState.selectedSubcategory,
+        urlVendor
       )
     } else if (initialParts && initialParts.length > 0) {
       // No URL params, use initial parts from server (ONLY on first render)
@@ -388,7 +465,30 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
         {/* Search and Sort Controls */}
         <div className="mb-6 space-y-4">
           {/* Filters */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <Label htmlFor="vendor-filter">Vendor</Label>
+              <Select
+                value={selectedVendor || 'all'}
+                onValueChange={(value) => {
+                  setSelectedVendor(value === 'all' ? '' : value)
+                  setCurrentPage(1)
+                }}
+              >
+                <SelectTrigger id="vendor-filter">
+                  <SelectValue placeholder="All vendors" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All vendors</SelectItem>
+                  {vendors.map((v) => (
+                    <SelectItem key={v.id} value={v.id}>
+                      {v.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
             <div>
               <Label htmlFor="category-filter">Category</Label>
               <Select
@@ -449,6 +549,7 @@ export function PartsDatabaseView({ initialParts = [], initialTotal = 0 }: Parts
                   <SelectItem value="partNumber">Part Number</SelectItem>
                   <SelectItem value="category">Category</SelectItem>
                   <SelectItem value="manufacturer">Manufacturer</SelectItem>
+                  <SelectItem value="primarySource">Primary Vendor</SelectItem>
                   <SelectItem value="purchasePrice">Purchase Price</SelectItem>
                 </SelectContent>
               </Select>

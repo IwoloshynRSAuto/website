@@ -1,19 +1,35 @@
-﻿import React from 'react'
+﻿import React, { Suspense } from 'react'
 import { prisma } from '@/lib/prisma'
 import { CreateJobButton } from '@/components/jobs/create-job-button'
 import { JobsTableStandard } from '@/components/jobs/jobs-table-standard'
 import { MultiSOPButton } from '@/components/common/multi-sop-button'
 import { SOPS } from '@/lib/sops'
+import { JobsQuotesTabs } from '@/components/jobs/jobs-quotes-tabs'
 
 // Force dynamic rendering to prevent caching
 export const dynamic = 'force-dynamic'
 
 export default async function JobsPage() {
-  // Fetch real data from database with cache-busting
+  // Fetch jobs (including quotes with type='QUOTE')
   const jobs = await prisma.job.findMany({
+    where: {
+      type: { in: ['JOB', 'QUOTE'] }
+    },
     include: {
-      assignedTo: true,
-      createdBy: true,
+      assignedTo: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        }
+      },
+      createdBy: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        }
+      },
       customer: true,
       _count: {
         select: {
@@ -22,6 +38,37 @@ export default async function JobsPage() {
       }
     },
     orderBy: { createdAt: 'desc' }
+  })
+
+  // Fetch quotes from Quote model (BOM-based quotes)
+  const quotes = await prisma.quote.findMany({
+    where: {
+      linkedBOMs: {
+        some: {},
+      },
+    },
+    include: {
+      linkedBOMs: {
+        include: {
+          parts: {
+            select: {
+              id: true,
+              quantity: true,
+              purchasePrice: true,
+              customerPrice: true,
+            },
+          },
+        },
+      },
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          email: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' },
   })
 
   // Convert Decimal fields to numbers for client compatibility
@@ -33,9 +80,37 @@ export default async function JobsPage() {
     dueTodayPercent: job.dueTodayPercent ? Number(job.dueTodayPercent) : null
   }))
 
+  // Transform quotes to match job-like structure
+  const quotesData = quotes.map(quote => {
+    const firstBOM = quote.linkedBOMs[0] || null
+    const bomParts = firstBOM?.parts || []
+    const totalCost = bomParts.reduce((sum, part) => {
+      return sum + (Number(part.purchasePrice) * part.quantity)
+    }, 0)
+    const totalCustomerPrice = bomParts.reduce((sum, part) => {
+      return sum + Number(part.customerPrice)
+    }, 0)
+
+    return {
+      id: quote.id,
+      quoteNumber: quote.quoteNumber,
+      title: quote.title,
+      customerName: quote.customer?.name || null,
+      bomId: firstBOM?.id || null,
+      bomName: firstBOM?.name || null,
+      status: quote.status,
+      totalCost,
+      totalCustomerPrice,
+      createdAt: quote.createdAt.toISOString(),
+      updatedAt: quote.updatedAt.toISOString(),
+      customer: quote.customer,
+      linkedBOMs: quote.linkedBOMs,
+    }
+  })
+
   // Calculate stats
   const totalJobs = jobsResponse.filter(j => j.type === 'JOB').length
-  const totalQuotes = jobsResponse.filter(j => j.type === 'QUOTE').length
+  const totalQuotes = jobsResponse.filter(j => j.type === 'QUOTE').length + quotesData.length
   const activeJobs = jobsResponse.filter(j => j.status === 'ACTIVE' && j.type === 'JOB').length
   const completedJobs = jobsResponse.filter(j => j.status === 'COMPLETED').length
   const totalHours = jobsResponse.reduce((sum, j) => sum + (j.estimatedHours || 0), 0)
@@ -44,8 +119,8 @@ export default async function JobsPage() {
     <div className="p-3 sm:p-4 lg:p-6">
       <div className="mb-4 sm:mb-6 lg:mb-8">
         <div>
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Jobs</h1>
-          <p className="text-sm sm:text-base text-gray-600">Manage active projects, timelines, and job progress</p>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Jobs & Quotes</h1>
+          <p className="text-sm sm:text-base text-gray-600">Manage active projects, quotes, timelines, and job progress</p>
         </div>
       </div>
 
@@ -60,7 +135,7 @@ export default async function JobsPage() {
             </div>
             <div className="ml-3 lg:ml-4">
               <p className="text-xs lg:text-sm font-medium text-gray-600">Active Jobs</p>
-              <p className="text-xl lg:text-2xl font-bold text-gray-900">{totalJobs}</p>
+              <p className="text-xl lg:text-2xl font-bold text-gray-900">{activeJobs}</p>
             </div>
           </div>
         </div>
@@ -73,7 +148,7 @@ export default async function JobsPage() {
               </svg>
             </div>
             <div className="ml-3 lg:ml-4">
-              <p className="text-xs lg:text-sm font-medium text-gray-600">Pending Quotes</p>
+              <p className="text-xs lg:text-sm font-medium text-gray-600">Total Quotes</p>
               <p className="text-xl lg:text-2xl font-bold text-gray-900">{totalQuotes}</p>
             </div>
           </div>
@@ -109,19 +184,22 @@ export default async function JobsPage() {
       </div>
 
       <div className="mt-8">
-        <JobsTableStandard 
-          jobs={jobsResponse}
-          headerButtons={
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <MultiSOPButton 
-                sops={[SOPS.CREATE_QUOTE, SOPS.CONVERT_QUOTE]}
-                variant="outline"
-                className="border-gray-300 hover:bg-gray-50"
-              />
-              <CreateJobButton />
-            </div>
-          }
-        />
+        <Suspense fallback={<div>Loading...</div>}>
+          <JobsQuotesTabs 
+            jobs={jobsResponse}
+            quotes={quotesData}
+            headerButtons={
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <MultiSOPButton 
+                  sops={[SOPS.CREATE_QUOTE, SOPS.CONVERT_QUOTE]}
+                  variant="outline"
+                  className="border-gray-300 hover:bg-gray-50"
+                />
+                <CreateJobButton />
+              </div>
+            }
+          />
+        </Suspense>
       </div>
     </div>
   )

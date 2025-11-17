@@ -6,9 +6,11 @@ import { CustomersTable } from '@/components/admin/customers-table'
 import { CreateCustomerDialog } from '@/components/admin/create-customer-dialog'
 import { CreateCustomerButton } from '@/components/admin/create-customer-button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Building2, Users } from 'lucide-react'
+import { Building2, Users, TrendingUp } from 'lucide-react'
 import { HowToButton } from '@/components/common/how-to-button'
 import { SOPS } from '@/lib/sops'
+import Link from 'next/link'
+import { Button } from '@/components/ui/button'
 
 export default async function CustomersPage() {
   const session = await getServerSession(authOptions)
@@ -35,14 +37,22 @@ export default async function CustomersPage() {
   return (
     <div className="p-3 sm:p-4 lg:p-6">
       <div className="mb-4 sm:mb-6 lg:mb-8">
-        <div>
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Customers</h1>
-          <p className="text-sm sm:text-base text-gray-600">
-            {isAdmin 
-              ? "Manage customer information, contacts, and accounts" 
-              : "View customer information and project history"
-            }
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Customers</h1>
+            <p className="text-sm sm:text-base text-gray-600">
+              {isAdmin 
+                ? "Manage customer information, contacts, and accounts" 
+                : "View customer information and project history"
+              }
+            </p>
+          </div>
+          <Link href="/dashboard/customers/top">
+            <Button variant="outline">
+              <TrendingUp className="h-4 w-4 mr-2" />
+              Top Customers
+            </Button>
+          </Link>
         </div>
       </div>
 

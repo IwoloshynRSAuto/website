@@ -11,6 +11,7 @@ import { format } from 'date-fns'
 import Link from 'next/link'
 import { toast } from 'react-hot-toast'
 import { BOMPartsTable } from '@/components/parts/bom-parts-table'
+import { QuoteLaborEstimatesSection } from '@/components/quotes/quote-labor-estimates-section'
 
 interface BOMPart {
   id: string
@@ -246,7 +247,7 @@ export function QuoteDetailPage({ quote: initialQuote }: QuoteDetailPageProps) {
 
         <DashboardContent>
           {/* Quote Information - Compact Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
             <div className="lg:col-span-3">
               <Card>
                 <CardHeader>
@@ -305,6 +306,11 @@ export function QuoteDetailPage({ quote: initialQuote }: QuoteDetailPageProps) {
               </Card>
             )}
           </div>
+
+          {/* Labor Estimates - Only show if quote hasn't been converted to job */}
+          {quote.status !== 'WON' && (
+            <QuoteLaborEstimatesSection quoteId={quote.id} />
+          )}
         </DashboardContent>
       </DashboardPageContainer>
 

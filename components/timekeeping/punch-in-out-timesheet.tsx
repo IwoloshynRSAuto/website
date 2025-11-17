@@ -644,6 +644,33 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
     }
   }
 
+  const getCurrentLocation = (): Promise<{ lat: number; lon: number; accuracy: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(null)
+        return
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+            accuracy: position.coords.accuracy || 0,
+          })
+        },
+        () => {
+          // User denied or error - don't block, just return null
+          resolve(null)
+        },
+        {
+          timeout: 5000,
+          enableHighAccuracy: false,
+        }
+      )
+    })
+  }
+
   const handleClockOut = async () => {
     if (!currentTimesheet) {
       toast({
@@ -699,6 +726,11 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
         return
       }
 
+      // Get geolocation for clock-out
+      console.log('[Clock Out] Getting geolocation...')
+      const location = await getCurrentLocation()
+      console.log('[Clock Out] Location:', location)
+
       console.log('[Clock Out] Clock out date:', clockOutDate.toISOString())
       console.log('[Clock Out] Sending PATCH to /api/timesheets/' + currentTimesheet.id)
 
@@ -707,7 +739,10 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clockOutTime: clockOutDate.toISOString(),
-          status: 'in-progress' // Keep in-progress so they can clock back in
+          status: 'in-progress', // Keep in-progress so they can clock back in
+          clockOutGeoLat: location?.lat ?? null,
+          clockOutGeoLon: location?.lon ?? null,
+          clockOutGeoAccuracy: location?.accuracy ?? null,
         })
       })
 
@@ -1001,6 +1036,15 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
         0
       )
         }
+      }
+
+      if (!currentTimesheet) {
+        toast({
+          title: 'Error',
+          description: 'No active timesheet found',
+          variant: 'destructive'
+        })
+        return
       }
 
       const response = await fetch(`/api/timesheets/${currentTimesheet.id}/jobs`, {

@@ -25,7 +25,14 @@ export async function GET(request: NextRequest) {
       isActive: searchParams.get('isActive') === 'true' ? true : searchParams.get('isActive') === 'false' ? false : undefined,
     })
 
-    const vendors = await VendorService.getVendors(filters)
+    let vendors: any[] = []
+    try {
+      vendors = await VendorService.getVendors(filters)
+    } catch (error: any) {
+      // If vendors table doesn't exist, return empty array
+      console.warn('Vendors table not found, returning empty list:', error?.message)
+      vendors = []
+    }
 
     return NextResponse.json({
       success: true,

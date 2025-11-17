@@ -117,6 +117,12 @@ export function EmployeeDashboard({ data }: EmployeeDashboardProps) {
 
   return (
     <div className="space-y-6">
+      {/* Page Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">My Dashboard</h1>
+        <p className="text-sm sm:text-base text-gray-600 mt-1">Your tasks, time tracking, and request overview</p>
+      </div>
+
       {/* Stats Overview */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <Card>
@@ -231,7 +237,7 @@ export function EmployeeDashboard({ data }: EmployeeDashboardProps) {
                 <Calendar className="h-5 w-5" />
                 Time Off Requests
               </CardTitle>
-              <Link href="/dashboard/timekeeping">
+              <Link href="/dashboard/employee/requests">
                 <Button variant="outline" size="sm">
                   <Plus className="h-4 w-4 mr-1" />
                   New Request
@@ -308,10 +314,15 @@ export function EmployeeDashboard({ data }: EmployeeDashboardProps) {
         {/* Recent Time Tracking */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Clock className="h-5 w-5" />
-              Recent Time Entries
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Recent Time Entries
+              </CardTitle>
+              <Link href="/dashboard/timekeeping/time">
+                <Button variant="outline" size="sm">View All</Button>
+              </Link>
+            </div>
           </CardHeader>
           <CardContent>
             {data.recentTimeEntries.length === 0 ? (
@@ -319,9 +330,9 @@ export function EmployeeDashboard({ data }: EmployeeDashboardProps) {
             ) : (
               <div className="space-y-2">
                 {data.recentTimeEntries.slice(0, 5).map((entry) => (
-                  <div key={entry.id} className="flex items-center justify-between text-sm">
-                    <div>
-                      <p className="font-medium text-gray-900">
+                  <div key={entry.id} className="flex items-center justify-between text-sm border-b pb-2 last:border-0 last:pb-0">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 truncate">
                         {entry.jobNumber} - {entry.jobTitle}
                       </p>
                       <p className="text-xs text-gray-500">
@@ -329,7 +340,7 @@ export function EmployeeDashboard({ data }: EmployeeDashboardProps) {
                         {entry.laborCode && ` • ${entry.laborCode.code}`}
                       </p>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right ml-4 flex-shrink-0">
                       <p className="font-semibold">
                         {(entry.regularHours || 0) + (entry.overtimeHours || 0)}h
                       </p>
@@ -340,6 +351,45 @@ export function EmployeeDashboard({ data }: EmployeeDashboardProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* Recent Attendance */}
+        {data.recentAttendance.length > 0 && (
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Recent Attendance
+                </CardTitle>
+                <Link href="/dashboard/timekeeping/attendance">
+                  <Button variant="outline" size="sm">View All</Button>
+                </Link>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {data.recentAttendance.slice(0, 5).map((att) => (
+                  <div key={att.id} className="flex items-center justify-between text-sm border-b pb-2 last:border-0 last:pb-0">
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900">
+                        {format(new Date(att.date), 'MMM d, yyyy')}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {format(new Date(att.clockInTime), 'h:mm a')}
+                        {att.clockOutTime && ` - ${format(new Date(att.clockOutTime), 'h:mm a')}`}
+                      </p>
+                    </div>
+                    <div className="text-right ml-4 flex-shrink-0">
+                      {att.totalHours && (
+                        <p className="font-semibold">{att.totalHours.toFixed(1)}h</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Pending Expenses */}
