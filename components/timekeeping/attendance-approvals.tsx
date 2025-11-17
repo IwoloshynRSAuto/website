@@ -75,18 +75,45 @@ export function AttendanceApprovals() {
       const response = await fetch('/api/timesheet-submissions')
       if (response.ok) {
         const data = await response.json()
-        // Filter for attendance-only submissions (submissions with timesheets but no timeEntries with jobs)
-        const attendanceSubmissions = data
-          .filter((sub: any) => {
-            // Attendance submissions have timesheets but no job-related timeEntries
-            const hasTimesheets = sub.timesheets && sub.timesheets.length > 0
-            const hasJobEntries = sub.timeEntries && sub.timeEntries.some((te: any) => te.jobId)
-            return hasTimesheets && !hasJobEntries
-          })
-          .map((sub: any) => ({
-            ...sub,
-            totalHours: sub.totalHours || 0
-          }))
+        // Handle both array and object responses
+        const submissionsData = Array.isArray(data) ? data : (data.data || data.submissions || [])
+        
+        // Filter for attendance-only submissions
+        // Attendance submissions: have timesheets OR have no job-related timeEntries
+        const attendanceSubmissions = Array.isArray(submissionsData)
+          ? submissionsData
+              .filter((sub: any) => {
+                // Check if it has job entries (TimeEntry records with jobId)
+                const hasJobEntries = sub.timeEntries && Array.isArray(sub.timeEntries) && sub.timeEntries.some((te: any) => te.jobId)
+                
+                // If it has job entries, it's NOT an attendance submission
+                if (hasJobEntries) {
+                  return false
+                }
+                
+                // If it has timesheets, it's an attendance submission
+                const hasTimesheets = sub.timesheets && Array.isArray(sub.timesheets) && sub.timesheets.length > 0
+                if (hasTimesheets) {
+                  return true
+                }
+                
+                // If it has no timeEntries at all, it might be an attendance submission
+                // (attendance entries are stored in Timesheet table, not TimeEntry)
+                const hasNoTimeEntries = !sub.timeEntries || !Array.isArray(sub.timeEntries) || sub.timeEntries.length === 0
+                if (hasNoTimeEntries) {
+                  // This could be an attendance submission - check if there are timesheets in the database
+                  // For now, include it if it has no job entries
+                  return true
+                }
+                
+                return false
+              })
+              .map((sub: any) => ({
+                ...sub,
+                totalHours: sub.totalHours || 0
+              }))
+          : []
+        
         setSubmissions(attendanceSubmissions)
       }
     } catch (error) {
@@ -243,7 +270,14 @@ export function AttendanceApprovals() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Calendar className="h-4 w-4 text-gray-500" />
-                          {format(new Date(submission.weekStart), 'MMM d')} - {format(new Date(submission.weekEnd), 'MMM d, yyyy')}
+                          {(() => {
+                            const start = new Date(submission.weekStart)
+                            const end = new Date(submission.weekEnd)
+                            // Use UTC date components to avoid timezone shifts
+                            const startDate = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
+                            const endDate = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+                            return `${format(startDate, 'M/d')} - ${format(endDate, 'M/d')}`
+                          })()}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -349,8 +383,14 @@ export function AttendanceApprovals() {
               {selectedSubmission && (
                 <>
                   {selectedSubmission.user.name || selectedSubmission.user.email} -{' '}
-                  {format(new Date(selectedSubmission.weekStart), 'MMM d')} -{' '}
-                  {format(new Date(selectedSubmission.weekEnd), 'MMM d, yyyy')}
+                  {(() => {
+                    const start = new Date(selectedSubmission.weekStart)
+                    const end = new Date(selectedSubmission.weekEnd)
+                    // Use UTC date components to avoid timezone shifts
+                    const startDate = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
+                    const endDate = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+                    return `${format(startDate, 'M/d')} - ${format(endDate, 'M/d')} (Sunday - Saturday)`
+                  })()}
                 </>
               )}
             </DialogDescription>
@@ -367,6 +407,13 @@ export function AttendanceApprovals() {
                   <div className="mt-1">{getStatusBadge(selectedSubmission.status)}</div>
                 </div>
               </div>
+              
+              {selectedSubmission.status === 'REJECTED' && selectedSubmission.rejectionReason && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-red-900 mb-2 block">Rejection Reason:</Label>
+                  <p className="text-sm text-red-800">{selectedSubmission.rejectionReason}</p>
+                </div>
+              )}
               
               {selectedSubmission.timesheets && selectedSubmission.timesheets.length > 0 ? (
                 <div className="space-y-2">

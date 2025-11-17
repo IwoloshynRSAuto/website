@@ -286,11 +286,13 @@ export function TimeEntryModal({
       const today = startOfDay(new Date())
       const response = await fetch(`/api/timesheets?userId=${selectedUserId}&startDate=${today.toISOString()}&endDate=${today.toISOString()}`)
       if (response.ok) {
-        const timesheets = await response.json()
+        const data = await response.json()
+        // Ensure we have an array - handle both array and object responses
+        const timesheets = Array.isArray(data) ? data : (data.data || data.timesheets || [])
         // Find active timesheet (clocked in but not clocked out)
-        const activeTimesheet = timesheets.find((ts: any) => 
+        const activeTimesheet = Array.isArray(timesheets) ? timesheets.find((ts: any) => 
           ts.clockInTime && !ts.clockOutTime && ts.status === 'in-progress'
-        )
+        ) : null
         
         if (activeTimesheet) {
           setHasActiveClockIn(true)
@@ -328,8 +330,8 @@ export function TimeEntryModal({
       }
       if (selectedEntry.jobEntries.length > 0) {
         const firstJob = selectedEntry.jobEntries[0]
-        const job = jobs.find(j => j.jobNumber === firstJob.jobNumber)
-        const laborCode = laborCodes.find(lc => lc.code === firstJob.laborCode)
+        const job = Array.isArray(jobs) ? jobs.find(j => j.jobNumber === firstJob.jobNumber) : null
+        const laborCode = Array.isArray(laborCodes) ? laborCodes.find(lc => lc.code === firstJob.laborCode) : null
         if (job) setSelectedJobId(job.id)
         if (laborCode) setSelectedLaborCodeId(laborCode.id)
         setJobStartTime(formatTime12Hour(new Date(firstJob.punchInTime)))
@@ -462,35 +464,8 @@ export function TimeEntryModal({
       const day = entryDate.getDate()
 
       // Check for overlapping entries on the same date (only for clock in, not clock out)
-      if (isClockIn && !selectedEntry) {
-        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-        const checkResponse = await fetch(`/api/timesheets?userId=${selectedUserId}&startDate=${dateStr}&endDate=${dateStr}`)
-        if (checkResponse.ok) {
-          const existingEntries = await checkResponse.json()
-          const hasOverlap = existingEntries.some((entry: any) => {
-            if (entry.id === activeTimesheetId) return false // Skip active timesheet
-            const existingIn = new Date(entry.clockInTime)
-            const existingOut = entry.clockOutTime ? new Date(entry.clockOutTime) : new Date(year, month, day, 23, 59, 59)
-            
-            // Check if time ranges overlap
-            const newIn = clockInDate
-            const newOut = clockOutDate || new Date(year, month, day, 23, 59, 59)
-            
-            // Overlap occurs if: newIn < existingOut && newOut > existingIn
-            return newIn < existingOut && newOut > existingIn
-          })
-          
-          if (hasOverlap) {
-            toast({
-              title: 'Error',
-              description: 'This time entry overlaps with an existing entry. Please adjust the time range.',
-              variant: 'destructive'
-            })
-            setIsSubmitting(false)
-            return
-          }
-        }
-      }
+      // Note: We skip client-side overlap check and let the server handle it
+      // The server properly filters out job-only timesheets
 
       // If clocking out an active timesheet, use the active timesheet ID
       const timesheetIdToUpdate = activeTimesheetId || selectedEntry?.id
@@ -515,8 +490,35 @@ export function TimeEntryModal({
         })
 
         if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || 'Failed to update timesheet')
+          let errorMessage = 'Failed to update timesheet'
+          let errorDetails = ''
+          try {
+            const error = await response.json()
+            errorMessage = error.error || error.message || errorMessage
+            errorDetails = error.details ? ` ${error.details}` : ''
+          } catch (parseError) {
+            errorMessage = `Request failed: ${response.status} ${response.statusText}`
+          }
+          const fullErrorMessage = `${errorMessage}${errorDetails}`
+          const isOverlapError = fullErrorMessage.toLowerCase().includes('overlap') || 
+                                fullErrorMessage.toLowerCase().includes('overlapping')
+          
+          console.error('[Time Entry Modal] Error updating timesheet:', {
+            status: response.status,
+            errorMessage,
+            errorDetails,
+            isOverlapError,
+            fullErrorMessage
+          })
+          
+          toast({
+            title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
+            description: fullErrorMessage,
+            variant: 'destructive',
+            duration: isOverlapError ? 10000 : 5000 // Show overlap errors longer
+          })
+          setIsSubmitting(false)
+          return
         }
       } else if (isClockIn) {
         // Create new timesheet (clocking in)
@@ -529,9 +531,49 @@ export function TimeEntryModal({
           })
         })
 
+        let responseData
+        try {
+          responseData = await response.json()
+        } catch (jsonError) {
+          // If JSON parsing fails, show a generic error
+          toast({
+            title: 'Error',
+            description: `Request failed: ${response.status} ${response.statusText}`,
+            variant: 'destructive'
+          })
+          setIsSubmitting(false)
+          return
+        }
+        
         if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || 'Failed to create timesheet')
+          const errorMessage = responseData.error || responseData.message || 'Failed to create timesheet'
+          const errorDetails = responseData.details ? ` ${responseData.details}` : ''
+          const fullErrorMessage = `${errorMessage}${errorDetails}`
+          const isOverlapError = fullErrorMessage.toLowerCase().includes('overlap') || 
+                                fullErrorMessage.toLowerCase().includes('overlapping')
+          
+          console.error('[Time Entry Modal] Error creating timesheet:', {
+            status: response.status,
+            errorMessage,
+            errorDetails,
+            isOverlapError,
+            fullErrorMessage,
+            responseData
+          })
+          
+          toast({
+            title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
+            description: fullErrorMessage,
+            variant: 'destructive',
+            duration: isOverlapError ? 10000 : 5000 // Show overlap errors longer
+          })
+          setIsSubmitting(false)
+          return
+        }
+        
+        // Response is successful - verify the response structure
+        if (!responseData.success) {
+          throw new Error(responseData.error || 'Failed to create timesheet')
         }
       }
 
@@ -550,10 +592,16 @@ export function TimeEntryModal({
       await checkActiveClockIn()
       onClose()
     } catch (error: any) {
+      // Handle network errors or other exceptions that weren't caught above
+      const errorMessage = error.message || 'Failed to save timesheet entry'
+      const isOverlapError = errorMessage.toLowerCase().includes('overlap') || 
+                            errorMessage.toLowerCase().includes('overlapping')
+      
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to save timesheet entry',
-        variant: 'destructive'
+        title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+        duration: isOverlapError ? 8000 : 5000 // Show overlap errors longer
       })
     } finally {
       setIsSubmitting(false)
@@ -572,8 +620,8 @@ export function TimeEntryModal({
 
     setIsSubmitting(true)
     try {
-      const selectedJob = jobs.find(j => j.id === selectedJobId)
-      const selectedLaborCode = laborCodes.find(lc => lc.id === selectedLaborCodeId)
+      const selectedJob = Array.isArray(jobs) ? jobs.find(j => j.id === selectedJobId) : null
+      const selectedLaborCode = Array.isArray(laborCodes) ? laborCodes.find(lc => lc.id === selectedLaborCodeId) : null
 
       if (!selectedJob || !selectedLaborCode) {
         throw new Error('Selected job or labor code not found')
@@ -611,32 +659,130 @@ export function TimeEntryModal({
       // Ensure timesheet exists first
       let timesheetId = selectedEntry?.id
       if (!timesheetId) {
-        // Create a timesheet for this date
+        // First, try to find an existing timesheet for this date
         const year = entryDate.getFullYear()
         const month = entryDate.getMonth()
         const day = entryDate.getDate()
-        const defaultClockIn = new Date(year, month, day, 8, 0, 0, 0)
-
-        const response = await fetch('/api/timesheets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            clockInTime: defaultClockIn.toISOString(),
-            date: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-          })
-        })
-
-        if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || 'Failed to create timesheet')
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+        
+        // Get start and end of day for the query
+        const startOfDay = new Date(year, month, day, 0, 0, 0, 0)
+        const endOfDay = new Date(year, month, day, 23, 59, 59, 999)
+        
+        const existingResponse = await fetch(
+          `/api/timesheets?userId=${userId}&startDate=${startOfDay.toISOString()}&endDate=${endOfDay.toISOString()}`
+        )
+        
+        if (existingResponse.ok) {
+          const existingData = await existingResponse.json()
+          const existingTimesheets = Array.isArray(existingData) ? existingData : (existingData.data || existingData.timesheets || [])
+          
+          // For job entries, ONLY use job-only timesheets
+          // Job-only timesheets are identified by:
+          // 1. Midnight clock-in (00:00) AND no clock-out, OR
+          // 2. Already has job entries (regardless of clock-in/out)
+          // NEVER use attendance timesheets (those with clock-out times and no job entries)
+          const existingTimesheet = Array.isArray(existingTimesheets) 
+            ? existingTimesheets.find((ts: any) => {
+                const tsDate = new Date(ts.date)
+                const dateMatches = tsDate.getFullYear() === year && 
+                                   tsDate.getMonth() === month && 
+                                   tsDate.getDate() === day
+                
+                if (!dateMatches) return false
+                
+                // Check if this timesheet already has job entries
+                const hasJobEntries = ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length > 0
+                
+                // If it has job entries, it's definitely a job-only timesheet
+                if (hasJobEntries) {
+                  return true
+                }
+                
+                // Otherwise, check if it's a job-only timesheet (midnight entry, no clock-out)
+                const clockIn = ts.clockInTime ? new Date(ts.clockInTime) : null
+                const isMidnightEntry = clockIn && 
+                                       clockIn.getHours() === 0 && 
+                                       clockIn.getMinutes() === 0
+                const hasNoClockOut = !ts.clockOutTime
+                
+                // Only use if it's midnight entry with no clock-out (job-only container)
+                // Do NOT use if it has a clock-out (attendance entry)
+                return isMidnightEntry && hasNoClockOut
+              })
+            : null
+          
+          if (existingTimesheet) {
+            timesheetId = existingTimesheet.id
+            console.log('[TimeEntryModal] Found existing job-only timesheet:', timesheetId)
+          } else {
+            console.log('[TimeEntryModal] No job-only timesheet found, will create new one')
+          }
         }
+        
+        // If no job-only timesheet found, create a new one with midnight time (job-only timesheet)
+        if (!timesheetId) {
+          // Use midnight to minimize overlap issues
+          const defaultClockIn = new Date(year, month, day, 0, 0, 0, 0)
 
-        const newTimesheet = await response.json()
-        timesheetId = newTimesheet.id
+          const response = await fetch('/api/timesheets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              clockInTime: defaultClockIn.toISOString(),
+              date: dateStr
+            })
+          })
+
+          let responseData
+          try {
+            responseData = await response.json()
+          } catch (jsonError) {
+            toast({
+              title: 'Error',
+              description: `Request failed: ${response.status} ${response.statusText}`,
+              variant: 'destructive'
+            })
+            setIsSubmitting(false)
+            return
+          }
+          
+          if (!response.ok) {
+            const errorMessage = responseData.error || responseData.message || 'Failed to create timesheet'
+            const errorDetails = responseData.details ? ` ${responseData.details}` : ''
+            const fullErrorMessage = `${errorMessage}${errorDetails}`
+            const isOverlapError = fullErrorMessage.toLowerCase().includes('overlap') || 
+                                  fullErrorMessage.toLowerCase().includes('overlapping')
+            
+            console.error('[Time Entry Modal] Error creating timesheet (job entry):', {
+              status: response.status,
+              errorMessage,
+              errorDetails,
+              isOverlapError,
+              fullErrorMessage,
+              responseData
+            })
+            
+            toast({
+              title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
+              description: fullErrorMessage,
+              variant: 'destructive',
+              duration: isOverlapError ? 10000 : 5000 // Show overlap errors longer
+            })
+            setIsSubmitting(false)
+            return
+          }
+          
+          // Handle both direct response and wrapped response
+          timesheetId = responseData.id || responseData.data?.id
+          if (!timesheetId) {
+            throw new Error('Failed to get timesheet ID from response')
+          }
+        }
       }
 
       // Create or update job entry
-      if (selectedEntry?.jobEntries.length > 0) {
+      if (selectedEntry?.jobEntries && Array.isArray(selectedEntry.jobEntries) && selectedEntry.jobEntries.length > 0) {
         // Update existing job entry
         const existingJob = selectedEntry.jobEntries[0]
         const response = await fetch(`/api/jobs/${existingJob.id}`, {
@@ -649,9 +795,12 @@ export function TimeEntryModal({
           })
         })
 
+        const responseData = await response.json()
+        
         if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || 'Failed to update job entry')
+          const errorMessage = responseData.error || 'Failed to update job entry'
+          const errorDetails = responseData.details ? ` ${responseData.details}` : ''
+          throw new Error(`${errorMessage}${errorDetails}`)
         }
       } else {
         // Create new job entry
@@ -667,9 +816,55 @@ export function TimeEntryModal({
           })
         })
 
+        let responseData
+        try {
+          responseData = await response.json()
+        } catch (jsonError) {
+          toast({
+            title: 'Error',
+            description: `Request failed: ${response.status} ${response.statusText}`,
+            variant: 'destructive'
+          })
+          setIsSubmitting(false)
+          return
+        }
+        
         if (!response.ok) {
-          const error = await response.json()
-          throw new Error(error.error || 'Failed to create job entry')
+          const errorMessage = responseData.error || responseData.message || 'Failed to create job entry'
+          const errorDetails = responseData.details ? ` ${responseData.details}` : ''
+          const fullErrorMessage = `${errorMessage}${errorDetails}`
+          const isOverlapError = fullErrorMessage.toLowerCase().includes('overlap') || 
+                                fullErrorMessage.toLowerCase().includes('overlapping')
+          
+          console.error('[Time Entry Modal] Error creating job entry:', {
+            status: response.status,
+            errorMessage,
+            errorDetails,
+            isOverlapError,
+            fullErrorMessage,
+            responseData
+          })
+          
+          toast({
+            title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
+            description: fullErrorMessage,
+            variant: 'destructive',
+            duration: isOverlapError ? 10000 : 5000 // Show overlap errors longer
+          })
+          setIsSubmitting(false)
+          return
+        }
+        
+        // Verify response structure - handle both { success: true, data: {...} } and direct { id: ... } formats
+        if (responseData.success && responseData.data) {
+          // Response is wrapped: { success: true, data: { id: ... } }
+          console.log('[Job Entry] Created successfully:', responseData.data.id)
+        } else if (responseData.id) {
+          // Response is direct: { id: ... }
+          console.log('[Job Entry] Created successfully:', responseData.id)
+        } else {
+          console.error('[Job Entry] Unexpected response format:', responseData)
+          throw new Error(responseData.error || 'Failed to create job entry - unexpected response format')
         }
       }
 
@@ -680,10 +875,16 @@ export function TimeEntryModal({
 
       onClose()
     } catch (error: any) {
+      // Handle network errors or other exceptions that weren't caught above
+      const errorMessage = error.message || 'Failed to save job entry'
+      const isOverlapError = errorMessage.toLowerCase().includes('overlap') || 
+                            errorMessage.toLowerCase().includes('overlapping')
+      
       toast({
-        title: 'Error',
-        description: error.message || 'Failed to save job entry',
-        variant: 'destructive'
+        title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
+        description: errorMessage,
+        variant: 'destructive',
+        duration: isOverlapError ? 8000 : 5000 // Show overlap errors longer
       })
     } finally {
       setIsSubmitting(false)
@@ -724,7 +925,7 @@ export function TimeEntryModal({
               />
             </div>
           </div>
-          <DialogDescription className="sr-only">
+          <DialogDescription>
             {selectedEntry 
               ? `Edit an existing ${mode === 'clock' ? 'clock in/out entry' : 'job time entry'}` 
               : `Add a new ${mode === 'clock' ? 'clock in/out entry' : 'job time entry'}`}
@@ -745,76 +946,97 @@ export function TimeEntryModal({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {users.map((user) => (
+                    {Array.isArray(users) ? users.map((user) => (
                       <SelectItem key={user.id} value={user.id}>
                         {user.name || user.email}
                       </SelectItem>
-                    ))}
+                    )) : null}
                   </SelectContent>
                 </Select>
               </div>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-              <div className="space-y-2 p-3 sm:p-4 bg-green-50 rounded-lg border border-green-200">
-                <Label className="text-xs sm:text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <LogIn className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
-                  Clock In
-                </Label>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-white border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700">
-                    {clockInTime || (hasActiveClockIn ? 'Already clocked in' : 'Click "Clock In" to record current time')}
+            {(() => {
+              // Check if this is today - only allow clock in/out for today
+              const today = startOfDay(new Date())
+              const entryDay = startOfDay(entryDate)
+              const isToday = entryDay.getTime() === today.getTime()
+              
+              if (!isToday) {
+                // For past days, show read-only message
+                return (
+                  <div className="space-y-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                    <p className="text-sm text-yellow-800 font-medium">
+                      Clock in/out is only available for today. For past days, please use "Request Change" to add or modify time entries.
+                    </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const now = new Date()
-                      const rounded = roundToNearest15Minutes(now)
-                      setClockInTime(formatTime12Hour(rounded))
-                    }}
-                    disabled={!!clockInTime || hasActiveClockIn}
-                    className="bg-green-600 hover:bg-green-700 text-white font-medium min-w-[80px] sm:min-w-[100px] text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Clock In
-                  </Button>
-                </div>
-                {hasActiveClockIn && !clockInTime && (
-                  <p className="text-xs text-red-600 mt-1">You are already clocked in. Please clock out first.</p>
-                )}
-                {clockInTime && (
-                  <p className="text-xs text-gray-500 mt-1">Clock-in time recorded. Use "Request Change" to modify.</p>
-                )}
-              </div>
+                )
+              }
+              
+              // For today, show clock in/out buttons
+              return (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                  <div className="space-y-2 p-3 sm:p-4 bg-green-50 rounded-lg border border-green-200">
+                    <Label className="text-xs sm:text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <LogIn className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+                      Clock In
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-white border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700">
+                        {clockInTime || (hasActiveClockIn ? 'Already clocked in' : 'Click "Clock In" to record current time')}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const now = new Date()
+                          const rounded = roundToNearest15Minutes(now)
+                          setClockInTime(formatTime12Hour(rounded))
+                        }}
+                        disabled={!!clockInTime || hasActiveClockIn}
+                        className="bg-green-600 hover:bg-green-700 text-white font-medium min-w-[80px] sm:min-w-[100px] text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Clock In
+                      </Button>
+                    </div>
+                    {hasActiveClockIn && !clockInTime && (
+                      <p className="text-xs text-red-600 mt-1">You are already clocked in. Please clock out first.</p>
+                    )}
+                    {clockInTime && (
+                      <p className="text-xs text-gray-500 mt-1">Clock-in time recorded. Use "Request Change" to modify.</p>
+                    )}
+                  </div>
 
-              <div className="space-y-2 p-3 sm:p-4 bg-red-50 rounded-lg border border-red-200">
-                <Label className="text-xs sm:text-sm font-semibold text-gray-700 flex items-center gap-2">
-                  <LogOut className="h-3 w-3 sm:h-4 sm:w-4 text-red-600" />
-                  Clock Out
-                </Label>
-                <div className="flex items-center gap-2">
-                  <div className="flex-1 bg-white border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700">
-                    {clockOutTime || (!hasActiveClockIn && !clockInTime ? 'Clock in first to clock out' : 'Click "Clock Out" to record current time')}
+                  <div className="space-y-2 p-3 sm:p-4 bg-red-50 rounded-lg border border-red-200">
+                    <Label className="text-xs sm:text-sm font-semibold text-gray-700 flex items-center gap-2">
+                      <LogOut className="h-3 w-3 sm:h-4 sm:w-4 text-red-600" />
+                      Clock Out
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-white border border-gray-300 rounded-md px-3 py-2 text-sm text-gray-700">
+                        {clockOutTime || (!hasActiveClockIn && !clockInTime ? 'Clock in first to clock out' : 'Click "Clock Out" to record current time')}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const now = new Date()
+                          const rounded = roundToNearest15Minutes(now)
+                          handleClockOutTimeChange(formatTime12Hour(rounded))
+                        }}
+                        disabled={!!clockOutTime || (!hasActiveClockIn && !clockInTime)}
+                        className="bg-red-600 hover:bg-red-700 text-white font-medium min-w-[80px] sm:min-w-[100px] text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Clock Out
+                      </Button>
+                    </div>
+                    {!hasActiveClockIn && !clockInTime && (
+                      <p className="text-xs text-red-600 mt-1">You must clock in first before you can clock out.</p>
+                    )}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      const now = new Date()
-                      const rounded = roundToNearest15Minutes(now)
-                      handleClockOutTimeChange(formatTime12Hour(rounded))
-                    }}
-                    disabled={!!clockOutTime || (!hasActiveClockIn && !clockInTime)}
-                    className="bg-red-600 hover:bg-red-700 text-white font-medium min-w-[80px] sm:min-w-[100px] text-xs sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Clock Out
-                  </Button>
                 </div>
-                {!hasActiveClockIn && !clockInTime && (
-                  <p className="text-xs text-red-600 mt-1">You must clock in first before you can clock out.</p>
-                )}
-              </div>
-            </div>
+              )
+            })()}
 
             {clockInTime && clockOutTime && (
               <div className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg">
@@ -835,20 +1057,30 @@ export function TimeEntryModal({
               </div>
             )}
 
-            {/* Request Change Button */}
-            {(clockInTime || clockOutTime) && (
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsChangeRequestOpen(true)}
-                  className="text-orange-600 border-orange-300 hover:bg-orange-50"
-                >
-                  <FileText className="h-4 w-4 mr-2" />
-                  Request Change
-                </Button>
-              </div>
-            )}
+            {/* Request Change Button - ONLY for attendance (clock mode), NOT for job entries */}
+            {mode === 'clock' && (() => {
+              const today = startOfDay(new Date())
+              const entryDay = startOfDay(entryDate)
+              const isPastDay = entryDay.getTime() < today.getTime()
+              const isToday = entryDay.getTime() === today.getTime()
+              const hasEntry = clockInTime || clockOutTime
+              
+              // Show for all days (today and past) or when there's an entry
+              // This allows users to request changes for today as well
+              return (
+                <div className="flex justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsChangeRequestOpen(true)}
+                    className="text-orange-600 border-orange-300 hover:bg-orange-50"
+                  >
+                    <FileText className="h-4 w-4 mr-2" />
+                    {!hasEntry ? 'Request Time Entry' : 'Request Change'}
+                  </Button>
+                </div>
+              )
+            })()}
 
             <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3 pt-4 border-t">
               {selectedEntry && (
@@ -907,23 +1139,38 @@ export function TimeEntryModal({
                 >
                   Cancel
                 </Button>
-                <Button 
-                  onClick={handleSaveClockInOut} 
-                  disabled={isSubmitting}
-                  className="flex-1 sm:flex-initial min-w-[120px] h-11 text-sm sm:text-base font-semibold bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Saving...
-                    </>
-                  ) : (
-                    <>
-                      <FileText className="h-4 w-4 mr-2" />
-                      Save Entry
-                    </>
-                  )}
-                </Button>
+                {(() => {
+                  // Check if this is today - only allow saving for today
+                  const today = startOfDay(new Date())
+                  const entryDay = startOfDay(entryDate)
+                  const isToday = entryDay.getTime() === today.getTime()
+                  
+                  if (!isToday) {
+                    // For past days, hide Save button (only Request Change is available)
+                    return null
+                  }
+                  
+                  // For today, show Save button
+                  return (
+                    <Button 
+                      onClick={handleSaveClockInOut} 
+                      disabled={isSubmitting}
+                      className="flex-1 sm:flex-initial min-w-[120px] h-11 text-sm sm:text-base font-semibold bg-green-600 hover:bg-green-700 text-white shadow-md hover:shadow-lg"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <FileText className="h-4 w-4 mr-2" />
+                          Save Entry
+                        </>
+                      )}
+                    </Button>
+                  )
+                })()}
               </div>
             </div>
             </div>
@@ -942,11 +1189,11 @@ export function TimeEntryModal({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {users.map((user) => (
+                    {Array.isArray(users) ? users.map((user) => (
                       <SelectItem key={user.id} value={user.id}>
                         {user.name || user.email}
                       </SelectItem>
-                    ))}
+                    )) : null}
                   </SelectContent>
                 </Select>
               </div>
@@ -1014,11 +1261,11 @@ export function TimeEntryModal({
                   Job Number *
                 </Label>
                 <SearchableSelect
-                  options={jobs.map(job => ({
+                  options={Array.isArray(jobs) ? jobs.map(job => ({
                     value: job.id,
                     label: `${job.jobNumber} - ${job.title}`,
                     searchText: `${job.jobNumber} ${job.title}`
-                  }))}
+                  })) : []}
                   value={selectedJobId}
                   onValueChange={setSelectedJobId}
                   placeholder="Search or select job..."
@@ -1036,11 +1283,11 @@ export function TimeEntryModal({
                     <SelectValue placeholder="Select Labor Code" />
                   </SelectTrigger>
                   <SelectContent>
-                    {laborCodes.map((code) => (
+                    {Array.isArray(laborCodes) ? laborCodes.map((code) => (
                       <SelectItem key={code.id} value={code.id}>
                         {code.code} - {code.name}
                       </SelectItem>
-                    ))}
+                    )) : null}
                   </SelectContent>
                 </Select>
               </div>
@@ -1271,14 +1518,52 @@ export function TimeEntryModal({
                       window.location.reload()
                     }
                   } else {
-                    const error = await response.json()
-                    throw new Error(error.error || 'Failed to submit change request')
+                    // Parse error response
+                    let errorMessage = 'Failed to submit change request'
+                    let errorDetails = ''
+                    
+                    try {
+                      const error = await response.json()
+                      errorMessage = error.error || error.message || errorMessage
+                      errorDetails = error.details ? ` ${error.details}` : ''
+                    } catch (parseError) {
+                      // If JSON parsing fails, use status text
+                      errorMessage = `Request failed: ${response.status} ${response.statusText}`
+                    }
+                    
+                    const fullErrorMessage = `${errorMessage}${errorDetails}`
+                    const isOverlapError = fullErrorMessage.toLowerCase().includes('overlap') || 
+                                          fullErrorMessage.toLowerCase().includes('overlapping')
+                    
+                    console.error('[Time Entry Modal] Error submitting change request:', {
+                      status: response.status,
+                      errorMessage,
+                      errorDetails,
+                      isOverlapError,
+                      fullErrorMessage
+                    })
+                    
+                    toast({
+                      title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
+                      description: fullErrorMessage,
+                      variant: 'destructive',
+                      duration: isOverlapError ? 10000 : 5000 // Show overlap errors longer
+                    })
+                    
+                    // Don't throw - we've already shown the error
+                    return
                   }
                 } catch (error: any) {
+                  // Handle network errors or other exceptions
+                  const errorMessage = error.message || 'Failed to submit change request'
+                  const isOverlapError = errorMessage.toLowerCase().includes('overlap') || 
+                                        errorMessage.toLowerCase().includes('overlapping')
+                  
                   toast({
-                    title: 'Error',
-                    description: error.message || 'Failed to submit change request',
-                    variant: 'destructive'
+                    title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
+                    description: errorMessage,
+                    variant: 'destructive',
+                    duration: isOverlapError ? 8000 : 5000 // Show overlap errors longer
                   })
                 } finally {
                   setIsSubmitting(false)

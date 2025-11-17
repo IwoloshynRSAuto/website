@@ -185,11 +185,14 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
     try {
       const response = await fetch('/api/customers')
       if (response.ok) {
-        const data = await response.json()
-        setCustomers(data)
+        const result = await response.json()
+        // Handle both wrapped { success, data } and direct array responses
+        const data = result.data || (Array.isArray(result) ? result : [])
+        setCustomers(Array.isArray(data) ? data : [])
       }
     } catch (error) {
       console.error('Failed to fetch customers:', error)
+      setCustomers([])
     }
   }
 
@@ -197,11 +200,14 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
     try {
       const response = await fetch('/api/quotes')
       if (response.ok) {
-        const data = await response.json()
-        setQuotes(data)
+        const result = await response.json()
+        // Handle both wrapped { success, data } and direct array responses
+        const data = result.data || (Array.isArray(result) ? result : [])
+        setQuotes(Array.isArray(data) ? data : [])
       }
     } catch (error) {
       console.error('Failed to fetch quotes:', error)
+      setQuotes([])
     }
   }
 
@@ -209,12 +215,15 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
     try {
       const response = await fetch('/api/jobs')
       if (response.ok) {
-        const jobs = await response.json()
+        const result = await response.json()
+        // Handle both wrapped { success, data } and direct array responses
+        const jobs = result.data || (Array.isArray(result) ? result : [])
+        const jobsArray = Array.isArray(jobs) ? jobs : []
         const prefix = type === 'QUOTE' ? 'Q' : 'E'
         
         // Filter jobs by type prefix
-        const sameTypeJobs = jobs.filter((job: any) => 
-          job.jobNumber.startsWith(prefix)
+        const sameTypeJobs = jobsArray.filter((job: any) => 
+          job && job.jobNumber && job.jobNumber.startsWith(prefix)
         )
         
         if (sameTypeJobs.length === 0) {
@@ -447,10 +456,10 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
           <div>
             <SearchableSelect
               label="Customer"
-              options={customers.map(customer => ({
+              options={Array.isArray(customers) ? customers.map(customer => ({
                 value: customer.id,
                 label: customer.name
-              }))}
+              })) : []}
               value={formData.customerId}
               onValueChange={(value) => handleSelectChange('customerId', value)}
               placeholder="Select a customer"

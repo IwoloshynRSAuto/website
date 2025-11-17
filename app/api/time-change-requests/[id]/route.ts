@@ -107,6 +107,78 @@ export async function PUT(
           ? calculateHoursBetween(changeRequest.requestedClockInTime, clockOut)
           : null
 
+        // Round the requested times
+        const roundedClockIn = roundToNearest15Minutes(changeRequest.requestedClockInTime)
+        const roundedClockOut = clockOut ? roundToNearest15Minutes(clockOut) : null
+
+        // Check for overlaps before applying the change
+        const changeDate = new Date(changeRequest.date)
+        const year = changeDate.getFullYear()
+        const month = changeDate.getMonth()
+        const day = changeDate.getDate()
+        const startOfDay = new Date(year, month, day, 0, 0, 0, 0)
+        const endOfDay = new Date(year, month, day, 23, 59, 59, 999)
+
+        // Get all existing timesheets for this user and date (excluding the one being updated if it exists)
+        const existingEntries = await tx.timesheet.findMany({
+          where: {
+            userId: changeRequest.userId,
+            date: {
+              gte: startOfDay,
+              lte: endOfDay
+            },
+            id: changeRequest.timesheetId ? { not: changeRequest.timesheetId } : undefined
+          },
+          include: {
+            jobEntries: true
+          }
+        })
+
+        // Check if the requested times would overlap with existing entries
+        const newIn = roundedClockIn
+        const newOut = roundedClockOut || new Date(year, month, day, 23, 59, 59, 999)
+
+        // Check if this is a job-only timesheet (midnight clock-in, no clock-out)
+        const clockInLocal = new Date(roundedClockIn.getFullYear(), roundedClockIn.getMonth(), roundedClockIn.getDate(),
+                                      roundedClockIn.getHours(), roundedClockIn.getMinutes(), roundedClockIn.getSeconds())
+        const isJobOnlyTimesheet = clockInLocal.getHours() === 0 && 
+                                    clockInLocal.getMinutes() === 0 && 
+                                    !roundedClockOut
+
+        if (!isJobOnlyTimesheet) {
+          // Check for overlaps with existing attendance entries
+          const hasOverlap = existingEntries.some(entry => {
+            // Skip job-only timesheets
+            const entryIn = new Date(entry.clockInTime)
+            const entryInLocal = new Date(entryIn.getFullYear(), entryIn.getMonth(), entryIn.getDate(), 
+                                          entryIn.getHours(), entryIn.getMinutes(), entryIn.getSeconds())
+            const isEntryJobOnly = entryInLocal.getHours() === 0 && 
+                                   entryInLocal.getMinutes() === 0 && 
+                                   !entry.clockOutTime
+
+            if (isEntryJobOnly) {
+              return false // Job-only timesheets don't count as overlaps
+            }
+
+            const existingIn = entryIn
+            const existingOut = entry.clockOutTime ? new Date(entry.clockOutTime) : new Date(year, month, day, 23, 59, 59, 999)
+
+            // Overlap occurs if: newIn < existingOut && newOut > existingIn
+            return newIn < existingOut && newOut > existingIn
+          })
+
+          if (hasOverlap) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'Cannot approve: This time change would create an overlapping entry. Please reject this request and ask the user to adjust the times.',
+                details: 'Time entries cannot overlap on the same date.',
+              },
+              { status: 400 }
+            )
+          }
+        }
+
         if (changeRequest.timesheetId) {
           // Update existing timesheet
           const timesheet = await tx.timesheet.findUnique({
@@ -117,8 +189,8 @@ export async function PUT(
             await tx.timesheet.update({
               where: { id: changeRequest.timesheetId },
               data: {
-                clockInTime: changeRequest.requestedClockInTime,
-                clockOutTime: changeRequest.requestedClockOutTime,
+                clockInTime: roundedClockIn,
+                clockOutTime: roundedClockOut,
                 totalHours: totalHours,
                 status: clockOut ? 'completed' : 'in-progress'
               }
@@ -130,8 +202,8 @@ export async function PUT(
             data: {
               userId: changeRequest.userId,
               date: changeRequest.date,
-              clockInTime: changeRequest.requestedClockInTime,
-              clockOutTime: changeRequest.requestedClockOutTime,
+              clockInTime: roundedClockIn,
+              clockOutTime: roundedClockOut,
               totalHours: totalHours,
               status: clockOut ? 'completed' : 'in-progress'
             }

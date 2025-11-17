@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "quotes" ADD COLUMN "quoteType" TEXT NOT NULL DEFAULT 'PROJECT';
+

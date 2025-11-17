@@ -1,7 +1,8 @@
 'use client'
 
 import { SessionProvider } from 'next-auth/react'
-import { Toaster } from 'react-hot-toast'
+import { Toaster as ReactHotToaster } from 'react-hot-toast'
+import { Toaster as ShadcnToaster } from '@/components/ui/toaster'
 import { ReactNode, useEffect, useRef } from 'react'
 
 interface ProvidersProps {
@@ -133,7 +134,8 @@ export function Providers({ children }: ProvidersProps) {
       refetchOnWindowFocus={false}
     >
       {children}
-      <Toaster position="top-right" />
+      <ReactHotToaster position="top-right" />
+      <ShadcnToaster />
     </SessionProvider>
   )
 }

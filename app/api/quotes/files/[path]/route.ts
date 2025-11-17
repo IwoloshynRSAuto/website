@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { readFile } from 'fs/promises'
-import { join } from 'path'
-import { existsSync } from 'fs'
+import { getStorage } from '@/lib/storage'
 
 export async function GET(
   request: NextRequest,
@@ -12,55 +10,58 @@ export async function GET(
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     // Handle params - could be a Promise in Next.js 15+
     const resolvedParams = params instanceof Promise ? await params : params
-    const { path: filePath } = resolvedParams
+    const path = decodeURIComponent(resolvedParams.path)
 
-    // Security: Only allow files from storage/quotes directory
-    // Decode URL-encoded path
-    const decodedPath = decodeURIComponent(filePath)
-    
-    // Prevent directory traversal attacks - extract just the filename
-    let filename = decodedPath
-    
-    // Remove any path components, keep only the filename
-    if (decodedPath.includes('/') || decodedPath.includes('\\')) {
-      filename = decodedPath.split(/[/\\]/).pop() || decodedPath
-    }
-    
-    // Prevent directory traversal
-    if (filename.includes('..')) {
-      return NextResponse.json({ error: 'Invalid file path' }, { status: 400 })
-    }
-    
-    // Construct safe path
-    const storageDir = join(process.cwd(), 'storage', 'quotes')
-    const safePath = join(storageDir, filename)
-    
-    // Verify the resolved path is within the storage/quotes directory
-    if (!safePath.startsWith(storageDir)) {
-      return NextResponse.json({ error: 'Invalid file path' }, { status: 400 })
+    // Security: prevent path traversal
+    if (path.includes('..') || path.startsWith('/')) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid file path' },
+        { status: 400 }
+      )
     }
 
-    if (!existsSync(safePath)) {
-      return NextResponse.json({ error: 'File not found' }, { status: 404 })
+    // Ensure path is within quotes directory
+    const storagePath = path.startsWith('quotes/') ? path : `quotes/${path}`
+
+    const storage = await getStorage()
+
+    // Check if file exists
+    const exists = await storage.exists(storagePath)
+    if (!exists) {
+      return NextResponse.json(
+        { success: false, error: 'File not found' },
+        { status: 404 }
+      )
     }
 
-    // Read and return file
-    const fileBuffer = await readFile(safePath)
-    
-    // Determine content type
-    const ext = filename.split('.').pop()?.toLowerCase()
-    const contentType = 
-      ext === 'pdf' ? 'application/pdf' :
-      ext === 'doc' ? 'application/msword' :
-      ext === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' :
-      'application/octet-stream'
+    // Download file
+    const buffer = await storage.download(storagePath)
 
-    return new NextResponse(fileBuffer, {
+    // Determine content type from file extension
+    const ext = storagePath.split('.').pop()?.toLowerCase()
+    const contentTypeMap: Record<string, string> = {
+      pdf: 'application/pdf',
+      doc: 'application/msword',
+      docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      gif: 'image/gif',
+      txt: 'text/plain',
+      json: 'application/json',
+    }
+    const contentType = ext ? contentTypeMap[ext] || 'application/octet-stream' : 'application/octet-stream'
+    const filename = storagePath.split('/').pop() || storagePath
+
+    return new NextResponse(buffer, {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `inline; filename="${filename}"`,
@@ -69,7 +70,11 @@ export async function GET(
   } catch (error: any) {
     console.error('Error serving quote file:', error)
     return NextResponse.json(
-      { error: 'Failed to serve file', details: error.message },
+      {
+        success: false,
+        error: 'Failed to serve file',
+        details: error.message,
+      },
       { status: 500 }
     )
   }

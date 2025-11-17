@@ -2,20 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { updateCustomerSchema } from '@/lib/customers/schemas'
 import { z } from 'zod'
-
-const updateCustomerSchema = z.object({
-  name: z.string().min(1, 'Customer name is required'),
-  email: z.union([
-    z.string().email('Invalid email format'),
-    z.literal(''),
-    z.null()
-  ]).optional(),
-  phone: z.union([z.string(), z.literal(''), z.null()]).optional(),
-  address: z.union([z.string(), z.literal(''), z.null()]).optional(),
-  isActive: z.boolean().optional(),
-  fileLink: z.union([z.string(), z.literal(''), z.null()]).optional(),
-})
 
 export async function GET(
   request: NextRequest,

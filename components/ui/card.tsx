@@ -1,79 +1,81 @@
-import * as React from "react"
+/**
+ * Card component - Standardized card UI
+ */
 
-import { cn } from "@/lib/utils"
+import * as React from 'react'
+import { cn } from '@/lib/utils'
 
-const Card = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn(
-      "rounded-2xl border border-gray-200 bg-white shadow-md hover:shadow-lg transition-shadow duration-200",
-      className
-    )}
-    {...props}
-  />
-))
-Card.displayName = "Card"
+export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode
+}
 
-const CardHeader = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn("flex flex-col space-y-1.5 p-6", className)}
-    {...props}
-  />
-))
-CardHeader.displayName = "CardHeader"
+export function Card({ className, children, ...props }: CardProps) {
+  return (
+    <div
+      className={cn('rounded-lg border bg-card text-card-foreground shadow-sm', className)}
+      {...props}
+    >
+      {children}
+    </div>
+  )
+}
 
-const CardTitle = React.forwardRef<
-  HTMLParagraphElement,
-  React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
-  <h3
-    ref={ref}
-    className={cn(
-      "text-xl font-semibold text-gray-800",
-      className
-    )}
-    {...props}
-  />
-))
-CardTitle.displayName = "CardTitle"
+export interface CardHeaderProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode
+}
 
-const CardDescription = React.forwardRef<
-  HTMLParagraphElement,
-  React.HTMLAttributes<HTMLParagraphElement>
->(({ className, ...props }, ref) => (
-  <p
-    ref={ref}
-    className={cn("text-sm text-muted-foreground", className)}
-    {...props}
-  />
-))
-CardDescription.displayName = "CardDescription"
+export function CardHeader({ className, children, ...props }: CardHeaderProps) {
+  return (
+    <div className={cn('flex flex-col space-y-1.5 p-6', className)} {...props}>
+      {children}
+    </div>
+  )
+}
 
-const CardContent = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div ref={ref} className={cn("p-6 pt-0", className)} {...props} />
-))
-CardContent.displayName = "CardContent"
+export interface CardTitleProps extends React.HTMLAttributes<HTMLHeadingElement> {
+  children: React.ReactNode
+}
 
-const CardFooter = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement>
->(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn("flex items-center p-6 pt-0", className)}
-    {...props}
-  />
-))
-CardFooter.displayName = "CardFooter"
+export function CardTitle({ className, children, ...props }: CardTitleProps) {
+  return (
+    <h3 className={cn('text-2xl font-semibold leading-none tracking-tight', className)} {...props}>
+      {children}
+    </h3>
+  )
+}
 
-export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
+export interface CardDescriptionProps extends React.HTMLAttributes<HTMLParagraphElement> {
+  children: React.ReactNode
+}
+
+export function CardDescription({ className, children, ...props }: CardDescriptionProps) {
+  return (
+    <p className={cn('text-sm text-muted-foreground', className)} {...props}>
+      {children}
+    </p>
+  )
+}
+
+export interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode
+}
+
+export function CardContent({ className, children, ...props }: CardContentProps) {
+  return (
+    <div className={cn('p-6 pt-0', className)} {...props}>
+      {children}
+    </div>
+  )
+}
+
+export interface CardFooterProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode
+}
+
+export function CardFooter({ className, children, ...props }: CardFooterProps) {
+  return (
+    <div className={cn('flex items-center p-6 pt-0', className)} {...props}>
+      {children}
+    </div>
+  )
+}

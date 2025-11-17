@@ -40,6 +40,7 @@ interface DayTimesheetModalProps {
   jobs: Array<{ id: string; jobNumber: string; title: string }>
   laborCodes: Array<{ id: string; code: string; name: string }>
   getCurrentDate?: () => Date
+  mode?: 'clock' | 'job' // 'clock' for Attendance, 'job' for TIME
 }
 
 export function DayTimesheetModal({
@@ -52,15 +53,22 @@ export function DayTimesheetModal({
   userId,
   jobs,
   laborCodes,
-  getCurrentDate
+  getCurrentDate,
+  mode = 'clock' // Default to 'clock' for backward compatibility
 }: DayTimesheetModalProps) {
   const { toast } = useToast()
   const [isSubmitting, setIsSubmitting] = useState(false)
   
-  const dayTimesheets = selectedDate ? timesheets.filter(ts => {
+  const dayTimesheets = selectedDate && Array.isArray(timesheets) ? timesheets.filter(ts => {
     const tsDate = new Date(ts.date)
     return tsDate.toDateString() === selectedDate.toDateString()
   }) : []
+  
+  // Check if any entry for this day is locked (submitted/approved)
+  const isDayLocked = Array.isArray(dayTimesheets) && dayTimesheets.some(ts => {
+    const isLocked = (ts as any).isLocked || (ts as any).submissionStatus === 'SUBMITTED' || (ts as any).submissionStatus === 'APPROVED'
+    return isLocked
+  })
 
   const calculateEntryHours = (entry: TimesheetEntry): number => {
     if (entry.totalHours) return entry.totalHours
@@ -82,9 +90,11 @@ export function DayTimesheetModal({
   }
 
   // Total hours should only include clock in/out entries, not job entries
-  const totalDayHours = dayTimesheets
-    .filter(ts => ts.jobEntries.length === 0) // Only clock in/out entries
-    .reduce((sum, ts) => sum + calculateEntryHours(ts), 0)
+  const totalDayHours = Array.isArray(dayTimesheets)
+    ? dayTimesheets
+        .filter(ts => ts.jobEntries && ts.jobEntries.length === 0) // Only clock in/out entries
+        .reduce((sum, ts) => sum + calculateEntryHours(ts), 0)
+    : 0
 
   const handleSubmitForApproval = async () => {
     if (!selectedDate) return
@@ -92,12 +102,21 @@ export function DayTimesheetModal({
     // Convert timesheet entries to submission format
     const timeEntries: any[] = []
     
+    if (!Array.isArray(dayTimesheets)) {
+      toast({
+        title: 'Error',
+        description: 'No timesheet entries found',
+        variant: 'destructive'
+      })
+      return
+    }
+
     for (const ts of dayTimesheets) {
       // Only process entries with job entries (skip clock in/out only entries)
-      if (ts.jobEntries.length > 0) {
+      if (ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length > 0) {
         for (const jobEntry of ts.jobEntries) {
           // Find job by jobNumber
-          const job = jobs.find(j => j.jobNumber === jobEntry.jobNumber)
+          const job = Array.isArray(jobs) ? jobs.find(j => j.jobNumber === jobEntry.jobNumber) : null
           if (!job) {
             toast({
               title: 'Error',
@@ -204,33 +223,142 @@ export function DayTimesheetModal({
               </span>
             </DialogTitle>
             <div className="flex items-center gap-1 sm:gap-2 absolute right-8 sm:right-12 top-0">
-              <Button
-                onClick={() => {
-                  // ALWAYS use selectedDate - this is the date the user clicked on
-                  if (selectedDate) {
-                    // Normalize using local date components to avoid timezone issues
-                    const year = selectedDate.getFullYear()
-                    const month = selectedDate.getMonth()
-                    const day = selectedDate.getDate()
-                    const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
-                    onAddEntry(normalizedDate)
-                  } else {
-                    // Fallback only if selectedDate is somehow null
-                    const dateToUse = getCurrentDate ? getCurrentDate() : new Date()
-                    const year = dateToUse.getFullYear()
-                    const month = dateToUse.getMonth()
-                    const day = dateToUse.getDate()
-                    const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
-                    onAddEntry(normalizedDate)
-                  }
-                }}
-                className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all duration-200 px-3 sm:px-4 py-2 rounded-lg min-h-[44px]"
-                size="sm"
-              >
-                <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-                <span className="hidden sm:inline">Add Entry</span>
-                <span className="sm:hidden">Add</span>
-              </Button>
+              {(() => {
+                // For TIME mode (job), always show "Add Time" button
+                if (mode === 'job') {
+                  return (
+                    <Button
+                      onClick={() => {
+                        if (isDayLocked) {
+                          toast({
+                            title: 'Day Locked',
+                            description: 'This day has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+                            variant: 'default'
+                          })
+                          return
+                        }
+                        
+                        // ALWAYS use selectedDate - this is the date the user clicked on
+                        if (selectedDate) {
+                          // Normalize using local date components to avoid timezone issues
+                          const year = selectedDate.getFullYear()
+                          const month = selectedDate.getMonth()
+                          const day = selectedDate.getDate()
+                          const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+                          onAddEntry(normalizedDate)
+                        } else {
+                          // Fallback only if selectedDate is somehow null
+                          const dateToUse = getCurrentDate ? getCurrentDate() : new Date()
+                          const year = dateToUse.getFullYear()
+                          const month = dateToUse.getMonth()
+                          const day = dateToUse.getDate()
+                          const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+                          onAddEntry(normalizedDate)
+                        }
+                      }}
+                      disabled={isDayLocked}
+                      className={`text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all duration-200 px-3 sm:px-4 py-2 rounded-lg min-h-[44px] ${
+                        isDayLocked
+                          ? 'bg-gray-400 cursor-not-allowed opacity-60'
+                          : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white'
+                      }`}
+                      size="sm"
+                    >
+                      <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                      <span className="hidden sm:inline">Add Time</span>
+                      <span className="sm:hidden">Add</span>
+                    </Button>
+                  )
+                }
+                
+                // For Attendance mode (clock), check if this is today
+                const today = startOfDay(new Date())
+                const selectedDay = selectedDate ? startOfDay(selectedDate) : null
+                const isToday = selectedDay && selectedDay.getTime() === today.getTime()
+                
+                if (isToday) {
+                  // For today, show "Add Entry" button (allows clock in/out)
+                  return (
+                    <Button
+                      onClick={() => {
+                        if (isDayLocked) {
+                          toast({
+                            title: 'Day Locked',
+                            description: 'This day has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+                            variant: 'default'
+                          })
+                          return
+                        }
+                        
+                        // ALWAYS use selectedDate - this is the date the user clicked on
+                        if (selectedDate) {
+                          // Normalize using local date components to avoid timezone issues
+                          const year = selectedDate.getFullYear()
+                          const month = selectedDate.getMonth()
+                          const day = selectedDate.getDate()
+                          const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+                          onAddEntry(normalizedDate)
+                        } else {
+                          // Fallback only if selectedDate is somehow null
+                          const dateToUse = getCurrentDate ? getCurrentDate() : new Date()
+                          const year = dateToUse.getFullYear()
+                          const month = dateToUse.getMonth()
+                          const day = dateToUse.getDate()
+                          const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+                          onAddEntry(normalizedDate)
+                        }
+                      }}
+                      disabled={isDayLocked}
+                      className={`text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all duration-200 px-3 sm:px-4 py-2 rounded-lg min-h-[44px] ${
+                        isDayLocked
+                          ? 'bg-gray-400 cursor-not-allowed opacity-60'
+                          : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white'
+                      }`}
+                      size="sm"
+                    >
+                      <Plus className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                      <span className="hidden sm:inline">Add Entry</span>
+                      <span className="sm:hidden">Add</span>
+                    </Button>
+                  )
+                } else {
+                  // For past days in Attendance mode, show "Request Change" button
+                  return (
+                    <Button
+                      onClick={() => {
+                        if (isDayLocked) {
+                          toast({
+                            title: 'Day Locked',
+                            description: 'This day has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+                            variant: 'default'
+                          })
+                          return
+                        }
+                        
+                        // Open modal for past day - will show "Request Change" option
+                        if (selectedDate) {
+                          const year = selectedDate.getFullYear()
+                          const month = selectedDate.getMonth()
+                          const day = selectedDate.getDate()
+                          const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+                          onAddEntry(normalizedDate)
+                        }
+                      }}
+                      disabled={isDayLocked}
+                      className={`text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all duration-200 px-3 sm:px-4 py-2 rounded-lg min-h-[44px] ${
+                        isDayLocked
+                          ? 'bg-gray-400 cursor-not-allowed opacity-60'
+                          : 'bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white'
+                      }`}
+                      size="sm"
+                    >
+                      <FileText className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+                      <span className="hidden sm:inline">Request Change</span>
+                      <span className="sm:hidden">Request</span>
+                    </Button>
+                  )
+                }
+              })()}
             </div>
           </div>
         </DialogHeader>
@@ -245,7 +373,7 @@ export function DayTimesheetModal({
           ) : (
             <div className="space-y-6">
               {/* Clock In/Out Entries */}
-              {dayTimesheets.filter(ts => ts.jobEntries.length === 0).length > 0 && (
+              {Array.isArray(dayTimesheets) && dayTimesheets.filter(ts => ts.jobEntries && ts.jobEntries.length === 0).length > 0 && (
                 <div>
                   <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3 flex items-center gap-2">
                     <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
@@ -263,12 +391,28 @@ export function DayTimesheetModal({
                       </TableHeader>
                       <TableBody>
                         {dayTimesheets
-                          .filter(ts => ts.jobEntries.length === 0)
-                          .map((ts) => (
+                          .filter(ts => ts.jobEntries && ts.jobEntries.length === 0)
+                          .map((ts) => {
+                            const isLocked = (ts as any).isLocked || (ts as any).submissionStatus === 'SUBMITTED' || (ts as any).submissionStatus === 'APPROVED'
+                            return (
                             <TableRow 
                               key={ts.id} 
-                              className="hover:bg-blue-50 cursor-pointer transition-colors"
-                              onClick={() => onEditEntry(ts)}
+                              className={`transition-colors ${
+                                isLocked 
+                                  ? 'bg-gray-100 opacity-60 cursor-not-allowed' 
+                                  : 'hover:bg-blue-50 cursor-pointer'
+                              }`}
+                              onClick={() => {
+                                if (!isLocked) {
+                                  onEditEntry(ts)
+                                } else {
+                                  toast({
+                                    title: 'Entry Locked',
+                                    description: 'This entry has been submitted for approval and cannot be edited.',
+                                    variant: 'default'
+                                  })
+                                }
+                              }}
                             >
                               <TableCell className="font-medium">
                                 {format(new Date(ts.clockInTime), 'h:mm a')}
@@ -284,18 +428,26 @@ export function DayTimesheetModal({
                                 {calculateEntryHours(ts).toFixed(2)}h
                               </TableCell>
                               <TableCell>
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                  ts.status === 'completed' 
-                                    ? 'bg-green-100 text-green-800'
-                                    : ts.status === 'in-progress'
-                                    ? 'bg-blue-100 text-blue-800'
-                                    : 'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {ts.status}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                    ts.status === 'completed' 
+                                      ? 'bg-green-100 text-green-800'
+                                      : ts.status === 'in-progress'
+                                      ? 'bg-blue-100 text-blue-800'
+                                      : 'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {ts.status}
+                                  </span>
+                                  {isLocked && (
+                                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                      {(ts as any).submissionStatus === 'APPROVED' ? 'Approved' : 'Submitted'}
+                                    </span>
+                                  )}
+                                </div>
                               </TableCell>
                             </TableRow>
-                          ))}
+                            )
+                          })}
                       </TableBody>
                     </Table>
                   </div>
@@ -303,7 +455,7 @@ export function DayTimesheetModal({
               )}
 
               {/* Job Entries */}
-              {dayTimesheets.filter(ts => ts.jobEntries.length > 0).length > 0 && (
+              {Array.isArray(dayTimesheets) && dayTimesheets.filter(ts => ts.jobEntries && ts.jobEntries.length > 0).length > 0 && (
                 <div>
                   <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3 flex items-center gap-2">
                     <FileText className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
@@ -319,19 +471,36 @@ export function DayTimesheetModal({
                           <TableHead className="font-semibold text-xs sm:text-sm">Labor Code</TableHead>
                           <TableHead className="font-semibold text-xs sm:text-sm">Hours</TableHead>
                           <TableHead className="font-semibold text-xs sm:text-sm">Notes</TableHead>
+                          <TableHead className="font-semibold text-xs sm:text-sm">Status</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {dayTimesheets
-                          .filter(ts => ts.jobEntries.length > 0)
+                          .filter(ts => ts.jobEntries && ts.jobEntries.length > 0)
                           .flatMap(ts => 
                             ts.jobEntries.map(job => ({ timesheet: ts, job }))
                           )
-                          .map(({ timesheet, job }) => (
+                          .map(({ timesheet, job }) => {
+                            const isLocked = (timesheet as any).isLocked || (timesheet as any).submissionStatus === 'SUBMITTED' || (timesheet as any).submissionStatus === 'APPROVED'
+                            return (
                             <TableRow 
                               key={job.id} 
-                              className="hover:bg-green-50 cursor-pointer transition-colors"
-                              onClick={() => onEditEntry(timesheet)}
+                              className={`transition-colors ${
+                                isLocked
+                                  ? 'bg-gray-100 opacity-60 cursor-not-allowed'
+                                  : 'hover:bg-green-50 cursor-pointer'
+                              }`}
+                              onClick={() => {
+                                if (!isLocked) {
+                                  onEditEntry(timesheet)
+                                } else {
+                                  toast({
+                                    title: 'Entry Locked',
+                                    description: 'This entry has been submitted for approval and cannot be edited.',
+                                    variant: 'default'
+                                  })
+                                }
+                              }}
                             >
                               <TableCell className="font-medium">
                                 {format(new Date(job.punchInTime), 'h:mm a')}
@@ -361,8 +530,16 @@ export function DayTimesheetModal({
                                   <span className="text-gray-400">—</span>
                                 )}
                               </TableCell>
+                              <TableCell>
+                                {isLocked && (
+                                  <span className="px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                    {(timesheet as any).submissionStatus === 'APPROVED' ? 'Approved' : 'Submitted'}
+                                  </span>
+                                )}
+                              </TableCell>
                             </TableRow>
-                          ))}
+                            )
+                          })}
                       </TableBody>
                     </Table>
                   </div>
@@ -389,7 +566,7 @@ export function DayTimesheetModal({
         <div className="flex justify-end pt-3 sm:pt-4 border-t mt-3 sm:mt-4 px-2 sm:px-0">
           <Button
             onClick={handleSubmitForApproval}
-            disabled={isSubmitting || dayTimesheets.filter(ts => ts.jobEntries.length > 0).length === 0}
+            disabled={isSubmitting || !Array.isArray(dayTimesheets) || dayTimesheets.filter(ts => ts.jobEntries && ts.jobEntries.length > 0).length === 0}
             className="bg-green-600 hover:bg-green-700 text-white px-4 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-semibold shadow-md hover:shadow-lg transition-all disabled:bg-gray-400 disabled:cursor-not-allowed disabled:shadow-none w-full sm:w-auto"
           >
             {isSubmitting ? (

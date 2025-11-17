@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Calendar, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2 } from 'lucide-react'
+import { Calendar, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2, AlertCircle, X } from 'lucide-react'
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, isSameMonth, addDays, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns'
 import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
@@ -60,8 +60,30 @@ export function AttendanceView({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [weekSubmissionStatus, setWeekSubmissionStatus] = useState<string | null>(null)
   const [weekSubmissionId, setWeekSubmissionId] = useState<string | null>(null)
+  const [weekRejectionReason, setWeekRejectionReason] = useState<string | null>(null)
+  // Store submission status per week (weekStart -> status)
+  const [submissionStatusCache, setSubmissionStatusCache] = useState<Map<string, { status: string | null, id: string | null, rejectionReason?: string | null }>>(new Map())
   // Store the date to use for the modal - set before opening
   const [modalDate, setModalDate] = useState<Date | null>(null)
+  // Rejected change requests notifications
+  const [rejectedChangeRequests, setRejectedChangeRequests] = useState<Array<{
+    id: string
+    date: string
+    rejectionReason: string | null
+    requestedClockInTime: string
+    requestedClockOutTime: string | null
+  }>>([])
+  const [dismissedNotifications, setDismissedNotifications] = useState<Set<string>>(new Set())
+  // Weekly submission rejection notifications (array like change requests)
+  const [rejectedWeeklySubmissions, setRejectedWeeklySubmissions] = useState<Array<{
+    id: string
+    weekStart: string
+    weekEnd: string
+    rejectionReason: string | null
+    rejectedAt: string | null
+  }>>([])
+  // Track dismissals by submissionId + rejectedAt timestamp to handle re-rejections
+  const [dismissedWeeklyRejections, setDismissedWeeklyRejections] = useState<Set<string>>(new Set())
   
   // Ref to always get the latest currentDate value
   const currentDateRef = useRef(currentDate)
@@ -98,31 +120,154 @@ export function AttendanceView({
       
       if (response.ok) {
         const data = await response.json()
+        // Ensure we have an array - handle both array and object responses
+        const timesheetsData = Array.isArray(data) ? data : (data.data || data.timesheets || [])
         // Filter to only show clock in/out entries (entries with no job entries)
-        const attendanceEntries = data.filter((ts: TimesheetEntry) => ts.jobEntries.length === 0)
+        const attendanceEntries = Array.isArray(timesheetsData) 
+          ? timesheetsData.filter((ts: TimesheetEntry) => ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length === 0)
+          : []
         setTimesheets(attendanceEntries)
         
         // Check submission status for the current week (if in week view)
+        // IMPORTANT: Only check status for entries belonging to the selected user
+        // Always check submission status in week view, and preserve it when switching views
+        // ALWAYS check API first to ensure we have the latest status (especially after page reload)
         if (viewMode === 'week') {
           const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
-          // Find any entry from this week that has submission status
-          const weekEntry = attendanceEntries.find((ts: TimesheetEntry) => {
-            const tsDate = new Date(ts.date)
-            const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
-            return tsWeekStart.getTime() === weekStart.getTime() && ts.submissionStatus && ts.submissionStatus !== 'DRAFT'
-          })
+          const weekKey = `${selectedUserId}-${weekStart.toISOString()}`
           
-          if (weekEntry) {
-            setWeekSubmissionStatus(weekEntry.submissionStatus || null)
-            setWeekSubmissionId(weekEntry.submissionId || null)
-          } else {
-            // No submission found for this week
-            setWeekSubmissionStatus(null)
-            setWeekSubmissionId(null)
+          // Always check API first (don't rely on cache on initial load)
+          // Cache is only used for immediate UI updates, but API is source of truth
+          const shouldUseCache = submissionStatusCache.size > 0
+          
+          if (shouldUseCache) {
+            const cachedStatus = submissionStatusCache.get(weekKey)
+            if (cachedStatus) {
+              setWeekSubmissionStatus(cachedStatus.status)
+              setWeekSubmissionId(cachedStatus.id)
+            }
+          }
+          
+          // Always check API to ensure we have the latest status
+          // This is especially important after page reload when cache is empty
+          // Normalize weekStart to UTC start of day for API query
+          const weekStartUTC = new Date(Date.UTC(
+            weekStart.getUTCFullYear(),
+            weekStart.getUTCMonth(),
+            weekStart.getUTCDate(),
+            0, 0, 0, 0
+          ))
+          try {
+            const submissionResponse = await fetch(
+              `/api/timesheet-submissions?userId=${selectedUserId}&weekStart=${weekStartUTC.toISOString()}`
+            )
+            if (submissionResponse.ok) {
+              const submissionData = await submissionResponse.json()
+              const submissions = Array.isArray(submissionData) ? submissionData : (submissionData.data || [])
+              
+              // Find submission for this week (attendance entries only - those without jobId)
+              const weekSubmission = submissions.find((sub: any) => {
+                const subWeekStart = new Date(sub.weekStart)
+                const subWeekStartUTC = new Date(Date.UTC(
+                  subWeekStart.getUTCFullYear(),
+                  subWeekStart.getUTCMonth(),
+                  subWeekStart.getUTCDate(),
+                  0, 0, 0, 0
+                ))
+                const hasJobEntries = sub.timeEntries && Array.isArray(sub.timeEntries) && 
+                                     sub.timeEntries.some((te: any) => te.jobId)
+                return subWeekStartUTC.getTime() === weekStartUTC.getTime() && !hasJobEntries
+              })
+              if (weekSubmission) {
+                const status = weekSubmission.status || null
+                const id = weekSubmission.id || null
+                const rejectionReason = weekSubmission.rejectionReason || null
+                setWeekSubmissionStatus(status)
+                setWeekSubmissionId(id)
+                setWeekRejectionReason(rejectionReason)
+                // Always update cache with API result (source of truth)
+                setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id, rejectionReason }))
+              } else {
+                // Also check entries as fallback
+                const weekEntry = attendanceEntries.find((ts: TimesheetEntry) => {
+                  const tsDate = new Date(ts.date)
+                  const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+                  return ts.userId === selectedUserId &&
+                         tsWeekStart.getTime() === weekStart.getTime() && 
+                         ts.submissionStatus && ts.submissionStatus !== 'DRAFT'
+                })
+                  if (weekEntry) {
+                    const status = weekEntry.submissionStatus || null
+                  const id = weekEntry.submissionId || null
+                  const rejectionReason = weekEntry.rejectionReason || null
+                  setWeekSubmissionStatus(status)
+                  setWeekSubmissionId(id)
+                  setWeekRejectionReason(rejectionReason)
+                  // Cache it
+                  setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id, rejectionReason }))
+                  } else {
+                    setWeekSubmissionStatus(null)
+                  setWeekSubmissionId(null)
+                  // Cache null status
+                  setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status: null, id: null }))
+                }
+              }
+            } else {
+              // Fallback to checking entries
+              const weekEntry = attendanceEntries.find((ts: TimesheetEntry) => {
+                const tsDate = new Date(ts.date)
+                const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+                return ts.userId === selectedUserId &&
+                       tsWeekStart.getTime() === weekStart.getTime() && 
+                       ts.submissionStatus && ts.submissionStatus !== 'DRAFT'
+              })
+              if (weekEntry) {
+                const status = weekEntry.submissionStatus || null
+                const id = weekEntry.submissionId || null
+                const rejectionReason = weekEntry.rejectionReason || null
+                setWeekSubmissionStatus(status)
+                setWeekSubmissionId(id)
+                setWeekRejectionReason(rejectionReason)
+                setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id, rejectionReason }))
+              } else {
+                setWeekSubmissionStatus(null)
+                setWeekSubmissionId(null)
+                setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status: null, id: null }))
+              }
+            }
+          } catch (err) {
+            console.error('Error checking submission status:', err)
+            // Fallback to checking entries
+            const weekEntry = attendanceEntries.find((ts: TimesheetEntry) => {
+              const tsDate = new Date(ts.date)
+              const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+              return ts.userId === selectedUserId &&
+                     tsWeekStart.getTime() === weekStart.getTime() && 
+                     ts.submissionStatus && ts.submissionStatus !== 'DRAFT'
+            })
+            if (weekEntry) {
+              const status = weekEntry.submissionStatus || null
+              const id = weekEntry.submissionId || null
+              setWeekSubmissionStatus(status)
+              setWeekSubmissionId(id)
+              setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id }))
+            } else {
+              setWeekSubmissionStatus(null)
+              setWeekSubmissionId(null)
+              setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status: null, id: null }))
+            }
           }
         } else {
-          setWeekSubmissionStatus(null)
-          setWeekSubmissionId(null)
+          // When not in week view, try to preserve status from cache if we're viewing a day in a submitted week
+          const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+          const weekKey = `${selectedUserId}-${weekStart.toISOString()}`
+          const cachedStatus = submissionStatusCache.get(weekKey)
+          if (cachedStatus) {
+            // Keep the status in state even when not in week view
+            setWeekSubmissionStatus(cachedStatus.status)
+            setWeekSubmissionId(cachedStatus.id)
+            setWeekRejectionReason(cachedStatus.rejectionReason || null)
+          }
         }
       }
     } catch (error) {
@@ -143,12 +288,193 @@ export function AttendanceView({
     loadTimesheets()
   }, [loadTimesheets])
 
-  const handleDateClick = (date: Date) => {
+  // Load rejected change requests and weekly submissions for notifications
+  useEffect(() => {
+    const loadRejectedNotifications = async () => {
+      try {
+        // Load dismissed notifications from localStorage
+        const storedDismissed = localStorage.getItem(`dismissed-change-requests-${selectedUserId}`)
+        const dismissedSet = storedDismissed ? new Set(JSON.parse(storedDismissed)) : new Set()
+        setDismissedNotifications(dismissedSet)
+        
+        // Load dismissed weekly rejections from localStorage
+        const storedWeeklyDismissed = localStorage.getItem(`dismissed-weekly-rejections-${selectedUserId}`)
+        const dismissedWeeklySet = storedWeeklyDismissed ? new Set(JSON.parse(storedWeeklyDismissed)) : new Set()
+        setDismissedWeeklyRejections(dismissedWeeklySet)
+        
+        // Load rejected change requests
+        const changeRequestsResponse = await fetch(`/api/time-change-requests?status=REJECTED&userId=${selectedUserId}`)
+        if (changeRequestsResponse.ok) {
+          const changeRequestsData = await changeRequestsResponse.json()
+          // Filter to only show recent rejections (last 7 days) and not dismissed
+          const recentRejections = Array.isArray(changeRequestsData) ? changeRequestsData.filter((req: any) => {
+            const rejectedAt = req.rejectedAt ? new Date(req.rejectedAt) : null
+            if (!rejectedAt) return false
+            const sevenDaysAgo = new Date()
+            sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+            return rejectedAt >= sevenDaysAgo && !dismissedSet.has(req.id)
+          }) : []
+          setRejectedChangeRequests(recentRejections)
+        }
+        
+        // Load rejected weekly submissions
+        const submissionsResponse = await fetch(`/api/timesheet-submissions?userId=${selectedUserId}&status=REJECTED`)
+        if (submissionsResponse.ok) {
+          const submissionsData = await submissionsResponse.json()
+          const submissions = Array.isArray(submissionsData) ? submissionsData : (submissionsData.data || [])
+          
+          // Filter to only attendance-only submissions (no job entries) and not dismissed
+              const rejectedWeekly = submissions.filter((sub: any) => {
+                // Check if it's attendance-only (no jobId in timeEntries)
+                const hasJobEntries = sub.timeEntries && Array.isArray(sub.timeEntries) && 
+                                     sub.timeEntries.some((te: any) => te.jobId)
+                if (hasJobEntries) return false
+                
+                // Only show recent rejections (last 30 days)
+                const rejectedAt = sub.rejectedAt || sub.updatedAt
+                if (!rejectedAt) return false
+                const thirtyDaysAgo = new Date()
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+                if (new Date(rejectedAt) < thirtyDaysAgo) return false
+                
+                // Check if this specific rejection (ID + rejectedAt timestamp) was dismissed
+                // Use ID + rejectedAt to handle re-rejections of the same submission
+                const rejectionKey = `${sub.id}-${rejectedAt}`
+                if (dismissedWeeklySet.has(rejectionKey)) return false
+                
+                return true
+              })
+          
+          setRejectedWeeklySubmissions(rejectedWeekly)
+        }
+      } catch (error) {
+        console.error('Error loading rejected notifications:', error)
+      }
+    }
+    
+    if (selectedUserId) {
+      loadRejectedNotifications()
+    }
+  }, [selectedUserId, weekSubmissionStatus, weekSubmissionId])
+  
+  // Also reload notifications when timesheets are loaded (in case status changed)
+  useEffect(() => {
+    if (selectedUserId && !isLoading) {
+      // Small delay to ensure database has been updated
+      const timer = setTimeout(() => {
+        const loadRejectedNotifications = async () => {
+          try {
+            // Load dismissed weekly rejections from localStorage
+            const storedWeeklyDismissed = localStorage.getItem(`dismissed-weekly-rejections-${selectedUserId}`)
+            const dismissedWeeklySet = storedWeeklyDismissed ? new Set(JSON.parse(storedWeeklyDismissed)) : new Set()
+            
+            // Load rejected weekly submissions
+            const submissionsResponse = await fetch(`/api/timesheet-submissions?userId=${selectedUserId}&status=REJECTED`)
+            if (submissionsResponse.ok) {
+              const submissionsData = await submissionsResponse.json()
+              const submissions = Array.isArray(submissionsData) ? submissionsData : (submissionsData.data || [])
+              
+              // Filter to only attendance-only submissions (no job entries) and not dismissed
+              const rejectedWeekly = submissions.filter((sub: any) => {
+                // Check if it's attendance-only (no jobId in timeEntries)
+                const hasJobEntries = sub.timeEntries && Array.isArray(sub.timeEntries) && 
+                                     sub.timeEntries.some((te: any) => te.jobId)
+                if (hasJobEntries) return false
+                
+                // Only show recent rejections (last 30 days)
+                const rejectedAt = sub.rejectedAt || sub.updatedAt
+                if (!rejectedAt) return false
+                const thirtyDaysAgo = new Date()
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+                if (new Date(rejectedAt) < thirtyDaysAgo) return false
+                
+                // Check if this specific rejection (ID + rejectedAt timestamp) was dismissed
+                // Use ID + rejectedAt to handle re-rejections of the same submission
+                const rejectionKey = `${sub.id}-${rejectedAt}`
+                if (dismissedWeeklySet.has(rejectionKey)) return false
+                
+                return true
+              })
+              
+              setRejectedWeeklySubmissions(rejectedWeekly)
+            }
+          } catch (error) {
+            console.error('Error reloading rejected notifications:', error)
+          }
+        }
+        loadRejectedNotifications()
+      }, 500)
+      return () => clearTimeout(timer)
+    }
+  }, [selectedUserId, isLoading, weekSubmissionId])
+  
+  // Preserve submission status when switching views
+  // Only clear it if we're switching to a different week
+  useEffect(() => {
+    // When viewMode changes, preserve submission status if we're still in week view
+    // If switching away from week view, keep the status in state (don't clear it)
+    // It will be reloaded when switching back to week view
+  }, [viewMode])
+
+  const handleDateClick = async (date: Date) => {
     // Normalize date to avoid timezone issues - use local date components
     const year = date.getFullYear()
     const month = date.getMonth()
     const day = date.getDate()
     const normalizedDate = new Date(year, month, day, 12, 0, 0, 0)
+    
+    // Check if this date's week is submitted/approved
+    const weekStart = startOfWeek(normalizedDate, { weekStartsOn: 0 })
+    
+    // First check if we have an entry in state for this week
+    const dateEntry = Array.isArray(timesheets) ? timesheets.find(ts => {
+      if (!ts || !ts.date) return false
+      const tsDate = startOfDay(new Date(ts.date))
+      const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+      return ts.userId === selectedUserId &&
+             tsWeekStart.getTime() === weekStart.getTime() && 
+             ts.submissionStatus && (ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED')
+    }) : null
+    
+    if (dateEntry) {
+      toast({
+        title: 'Week Locked',
+        description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+        variant: 'default'
+      })
+      return
+    }
+    
+    // If no entry found in state, check the API directly
+    try {
+      const submissionResponse = await fetch(
+        `/api/timesheet-submissions?userId=${selectedUserId}&weekStart=${weekStart.toISOString()}`
+      )
+      if (submissionResponse.ok) {
+        const submissionData = await submissionResponse.json()
+        const submissions = Array.isArray(submissionData) ? submissionData : (submissionData.data || [])
+        // Find submission for this week (attendance entries only - those without jobId)
+        const weekSubmission = submissions.find((sub: any) => {
+          const subWeekStart = new Date(sub.weekStart)
+          return subWeekStart.getTime() === weekStart.getTime() &&
+                 (!sub.timeEntries || !Array.isArray(sub.timeEntries) ||
+                  !sub.timeEntries.some((te: any) => te.jobId)) // No job entries = attendance only
+        })
+        
+        if (weekSubmission && (weekSubmission.status === 'SUBMITTED' || weekSubmission.status === 'APPROVED')) {
+          toast({
+            title: 'Week Locked',
+            description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+            variant: 'default'
+          })
+          return
+        }
+      }
+    } catch (err) {
+      console.error('Error checking submission status:', err)
+      // Continue if check fails - don't block user
+    }
+    
     setSelectedDate(normalizedDate)
     setSelectedEntry(null)
     setIsModalOpen(false)
@@ -158,6 +484,25 @@ export function AttendanceView({
   // Handler for clicking the day header in day view
   const handleDayHeaderClick = () => {
     if (viewMode === 'day') {
+      // Check if this day's week is submitted
+      const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+      const dayEntry = Array.isArray(timesheets) ? timesheets.find((ts: TimesheetEntry) => {
+        const tsDate = startOfDay(new Date(ts.date))
+        const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+        return ts.userId === selectedUserId &&
+               tsWeekStart.getTime() === weekStart.getTime() && 
+               ts.submissionStatus && (ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED')
+      }) : null
+      
+      if (dayEntry) {
+        toast({
+          title: 'Week Locked',
+          description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+          variant: 'default'
+        })
+        return
+      }
+      
       // In day view, we don't need to set selectedDate - the modal will use currentDate directly
       // Just open the modal
       setSelectedEntry(null)
@@ -229,13 +574,29 @@ export function AttendanceView({
       return
     }
 
+    // Check if already submitted or approved (but allow resubmission if rejected)
+    if (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED') {
+      toast({
+        title: 'Already Submitted',
+        description: weekSubmissionStatus === 'APPROVED' 
+          ? 'This week has already been approved and cannot be modified.'
+          : 'This week has already been submitted for approval. Please wait for approval or rejection.',
+        variant: 'default'
+      })
+      return
+    }
+
     // Show confirmation dialog - ALWAYS show for everyone (admins and non-admins)
-    const confirmed = window.confirm(
-      'Are you sure you want to submit this week for approval?\n\n' +
-      '⚠️ IMPORTANT: Once submitted, you will NOT be able to edit or delete entries for this week until it is approved or rejected.\n\n' +
-      'If rejected, you will be able to make changes and resubmit.\n\n' +
-      'Do you want to continue?'
-    )
+    const confirmationMessage = weekSubmissionStatus === 'REJECTED'
+      ? 'This week was previously rejected. Are you sure you want to resubmit it for approval?\n\n' +
+        '⚠️ IMPORTANT: Once resubmitted, you will NOT be able to edit or delete entries for this week until it is approved or rejected again.\n\n' +
+        'Do you want to continue?'
+      : 'Are you sure you want to submit this week for approval?\n\n' +
+        '⚠️ IMPORTANT: Once submitted, you will NOT be able to edit or delete entries for this week until it is approved or rejected.\n\n' +
+        'If rejected, you will be able to make changes and resubmit.\n\n' +
+        'Do you want to continue?'
+    
+    const confirmed = window.confirm(confirmationMessage)
     
     if (!confirmed) {
       return
@@ -247,34 +608,47 @@ export function AttendanceView({
         isAdmin,
         currentUserId,
         selectedUserId,
-        userIdToSubmit
+        userIdToSubmit,
+        weekSubmissionStatus
       })
       
       const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
       const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
+      
+      // Normalize to UTC start/end of day to match database storage
+      const weekStartUTC = new Date(Date.UTC(
+        weekStart.getUTCFullYear(),
+        weekStart.getUTCMonth(),
+        weekStart.getUTCDate(),
+        0, 0, 0, 0
+      ))
+      const weekEndUTC = new Date(Date.UTC(
+        weekEnd.getUTCFullYear(),
+        weekEnd.getUTCMonth(),
+        weekEnd.getUTCDate(),
+        23, 59, 59, 999
+      ))
+      
+      console.log('[Attendance] Submitting week:', {
+        weekStart: weekStart.toISOString(),
+        weekEnd: weekEnd.toISOString(),
+        weekStartUTC: weekStartUTC.toISOString(),
+        weekEndUTC: weekEndUTC.toISOString()
+      })
       
       // Get all attendance entries for the week (entries with no job entries)
       // Normalize dates to start of day for comparison
       const weekStartNormalized = startOfDay(weekStart)
       const weekEndNormalized = endOfDay(weekEnd)
       
-      const weekTimesheets = timesheets.filter(ts => {
+      const weekTimesheets = Array.isArray(timesheets) ? timesheets.filter(ts => {
         const tsDate = startOfDay(new Date(ts.date))
-        return ts.jobEntries.length === 0 && 
+        // Only include entries for the user being submitted
+        return ts.userId === userIdToSubmit &&
+               ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length === 0 && 
                tsDate >= weekStartNormalized && 
                tsDate <= weekEndNormalized
-      })
-      
-      console.log('Week timesheets found:', {
-        weekStart: weekStartNormalized.toISOString(),
-        weekEnd: weekEndNormalized.toISOString(),
-        count: weekTimesheets.length,
-        timesheets: weekTimesheets.map(ts => ({
-          id: ts.id,
-          date: ts.date,
-          clockInTime: ts.clockInTime
-        }))
-      })
+      }) : []
 
       if (weekTimesheets.length === 0) {
         toast({
@@ -320,9 +694,11 @@ export function AttendanceView({
 
       // Submit the entire week
       console.log('Submitting week:', {
-        userId: selectedUserId,
+        userId: userIdToSubmit,
         weekStart: weekStart.toISOString(),
         weekEnd: weekEnd.toISOString(),
+        weekStartUTC: weekStartUTC.toISOString(),
+        weekEndUTC: weekEndUTC.toISOString(),
         timeEntriesCount: timeEntries.length,
         timeEntries: timeEntries
       })
@@ -334,8 +710,8 @@ export function AttendanceView({
         },
         body: JSON.stringify({
           userId: userIdToSubmit,
-          weekStart: weekStart.toISOString(),
-          weekEnd: weekEnd.toISOString(),
+          weekStart: weekStartUTC.toISOString(),
+          weekEnd: weekEndUTC.toISOString(),
           timeEntries
         }),
       })
@@ -359,18 +735,82 @@ export function AttendanceView({
       }
 
       if (response.ok) {
+        // Extract submission ID and details
+        const submission = responseData.data || responseData
+        const submissionId = submission?.id || null
+        const submissionStatus = submission?.status || 'SUBMITTED'
+        
         toast({
           title: 'Success',
           description: `Week of ${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')} submitted for approval. Your entries are now locked and cannot be edited until approved or rejected.`,
           duration: 5000
         })
+        
         // Update submission status immediately
-        setWeekSubmissionStatus('SUBMITTED')
-        if (responseData.submission?.id) {
-          setWeekSubmissionId(responseData.submission.id)
-        }
+        setWeekSubmissionStatus(submissionStatus)
+        setWeekSubmissionId(submissionId)
+        
+        // Cache the submission status - use the weekStart from the submission if available
+        const submissionWeekStart = submission?.weekStart ? new Date(submission.weekStart) : weekStart
+        const weekKey = `${userIdToSubmit}-${submissionWeekStart.toISOString()}`
+        setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status: submissionStatus, id: submissionId }))
+        
+        // Small delay to ensure database is updated, then reload
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
         // Reload timesheets to reflect the submission and locking
-        loadTimesheets()
+        // Force a full reload by clearing and reloading
+        await loadTimesheets()
+        
+        // Reload rejected notifications in case a new rejection was created
+        const loadRejectedNotifications = async () => {
+          try {
+            const storedWeeklyDismissed = localStorage.getItem(`dismissed-weekly-rejections-${selectedUserId}`)
+            const dismissedWeeklySet = storedWeeklyDismissed ? new Set(JSON.parse(storedWeeklyDismissed)) : new Set()
+            
+            const submissionsResponse = await fetch(`/api/timesheet-submissions?userId=${selectedUserId}&status=REJECTED`)
+            if (submissionsResponse.ok) {
+              const submissionsData = await submissionsResponse.json()
+              const submissions = Array.isArray(submissionsData) ? submissionsData : (submissionsData.data || [])
+              
+              const rejectedWeekly = submissions.filter((sub: any) => {
+                const hasJobEntries = sub.timeEntries && Array.isArray(sub.timeEntries) && 
+                                     sub.timeEntries.some((te: any) => te.jobId)
+                if (hasJobEntries) return false
+                if (dismissedWeeklySet.has(sub.id)) return false
+                const rejectedAt = sub.rejectedAt || sub.updatedAt
+                if (!rejectedAt) return false
+                const thirtyDaysAgo = new Date()
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+                return new Date(rejectedAt) >= thirtyDaysAgo
+              })
+              
+              setRejectedWeeklySubmissions(rejectedWeekly)
+            }
+          } catch (error) {
+            console.error('Error reloading rejected notifications:', error)
+          }
+        }
+        // Small delay to ensure database has been updated
+        setTimeout(() => {
+          loadRejectedNotifications()
+        }, 1000)
+        
+        // Also update all entries in state to mark them as locked
+        setTimesheets(prev => prev.map(ts => {
+          const tsDate = new Date(ts.date)
+          const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+          if (ts.userId === userIdToSubmit && 
+              tsWeekStart.getTime() === weekStart.getTime()) {
+            return {
+              ...ts,
+              submissionStatus: submissionStatus,
+              submissionId: submissionId,
+              isLocked: true
+            }
+          }
+          return ts
+        }))
       } else {
         console.error('Submission error:', {
           status: response.status,
@@ -402,17 +842,7 @@ export function AttendanceView({
 
   // Handler that will open the entry modal using the date passed or default to the current date
   // CRITICAL: Always use the date parameter if provided - that's the date the user clicked on
-  const handleAddEntry = useCallback((date?: Date) => {
-    // Check if week is submitted and locked
-    if (viewMode === 'week' && weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED')) {
-      toast({
-        title: 'Week Locked',
-        description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
-        variant: 'default'
-      })
-      return
-    }
-    
+  const handleAddEntry = useCallback(async (date?: Date) => {
     setIsDayModalOpen(false)
     // If date is provided, use it (from day modal) - normalize to avoid timezone issues
     // Otherwise use currentDateRef
@@ -430,21 +860,126 @@ export function AttendanceView({
       finalDate = new Date(year, month, day, 12, 0, 0, 0)
     }
     
-    // Check if the specific date's entry is locked
-    const dateEntry = timesheets.find(ts => {
-      const tsDate = new Date(ts.date)
-      return tsDate.getTime() === finalDate.getTime()
-    })
-    if (dateEntry?.isLocked) {
+    // Check if this is today - only allow clock in/out for today
+    const today = startOfDay(new Date())
+    const selectedDay = startOfDay(finalDate)
+    const isToday = selectedDay.getTime() === today.getTime()
+    
+    if (!isToday) {
+      // For past days, open modal in "Request Change" mode
+      // First check if week is locked
+      const weekStart = startOfWeek(finalDate, { weekStartsOn: 0 })
+      
+      // Check if week is submitted/approved
+      const dateEntry = Array.isArray(timesheets) ? timesheets.find(ts => {
+        if (!ts || !ts.date) return false
+        const tsDate = startOfDay(new Date(ts.date))
+        const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+        return ts.userId === selectedUserId &&
+               tsWeekStart.getTime() === weekStart.getTime() && 
+               ts.submissionStatus && (ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED')
+      }) : null
+      
+      if (dateEntry) {
+        toast({
+          title: 'Week Locked',
+          description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+          variant: 'default'
+        })
+        return
+      }
+      
+      // Check API if needed
+      try {
+        const submissionResponse = await fetch(
+          `/api/timesheet-submissions?userId=${selectedUserId}&weekStart=${weekStart.toISOString()}`
+        )
+        if (submissionResponse.ok) {
+          const submissionData = await submissionResponse.json()
+          const submissions = Array.isArray(submissionData) ? submissionData : (submissionData.data || [])
+          const weekSubmission = submissions.find((sub: any) => {
+            const subWeekStart = new Date(sub.weekStart)
+            return subWeekStart.getTime() === weekStart.getTime() &&
+                   (!sub.timeEntries || !Array.isArray(sub.timeEntries) ||
+                    !sub.timeEntries.some((te: any) => te.jobId))
+          })
+          
+          if (weekSubmission && (weekSubmission.status === 'SUBMITTED' || weekSubmission.status === 'APPROVED')) {
+            toast({
+              title: 'Week Locked',
+              description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+              variant: 'default'
+            })
+            return
+          }
+        }
+      } catch (err) {
+        console.error('Error checking submission status:', err)
+      }
+      
+      // Open modal for past day - will show "Request Change" option
+      setModalDate(finalDate)
+      setSelectedDate(finalDate)
+      setSelectedEntry(null)
+      setTimeout(() => {
+        setIsModalOpen(true)
+      }, 100)
+      return
+    }
+    
+    // For today, check if week is submitted/approved
+    const weekStart = startOfWeek(finalDate, { weekStartsOn: 0 })
+    
+    // First check if we have an entry in state for this week
+    const dateEntry = Array.isArray(timesheets) ? timesheets.find(ts => {
+      if (!ts || !ts.date) return false
+      const tsDate = startOfDay(new Date(ts.date))
+      const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+      return ts.userId === selectedUserId &&
+             tsWeekStart.getTime() === weekStart.getTime() && 
+             ts.submissionStatus && (ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED')
+    }) : null
+    
+    if (dateEntry) {
       toast({
-        title: 'Entry Locked',
-        description: 'This entry has been submitted for approval and cannot be edited.',
+        title: 'Week Locked',
+        description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
         variant: 'default'
       })
       return
     }
     
-    // Set modalDate and selectedDate, then open modal
+    // If no entry found in state, check the API directly
+    try {
+      const submissionResponse = await fetch(
+        `/api/timesheet-submissions?userId=${selectedUserId}&weekStart=${weekStart.toISOString()}`
+      )
+      if (submissionResponse.ok) {
+        const submissionData = await submissionResponse.json()
+        const submissions = Array.isArray(submissionData) ? submissionData : (submissionData.data || [])
+        // Find submission for this week (attendance entries only - those without jobId)
+        const weekSubmission = submissions.find((sub: any) => {
+          const subWeekStart = new Date(sub.weekStart)
+          return subWeekStart.getTime() === weekStart.getTime() &&
+                 (!sub.timeEntries || !Array.isArray(sub.timeEntries) ||
+                  !sub.timeEntries.some((te: any) => te.jobId)) // No job entries = attendance only
+        })
+        
+        if (weekSubmission && (weekSubmission.status === 'SUBMITTED' || weekSubmission.status === 'APPROVED')) {
+          toast({
+            title: 'Week Locked',
+            description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+            variant: 'default'
+          })
+          return
+        }
+      }
+    } catch (err) {
+      console.error('Error checking submission status:', err)
+      // Continue if check fails - don't block user
+    }
+    
+    // Set modalDate and selectedDate, then open modal (for today - allows clock in/out)
     setModalDate(finalDate)
     setSelectedDate(finalDate)
     setSelectedEntry(null)
@@ -452,18 +987,95 @@ export function AttendanceView({
     setTimeout(() => {
       setIsModalOpen(true)
     }, 100)
-  }, [viewMode, weekSubmissionStatus, timesheets, toast])
+  }, [weekSubmissionStatus, timesheets, selectedUserId, currentDate, toast])
 
-  // Handler for the main "Add Entry" button - uses the same handler
+  // Handler for the main "Add Entry" button - only works for today
   const handleMainAddEntry = useCallback(() => {
+    const today = startOfDay(new Date())
+    const currentDay = startOfDay(currentDateRef.current)
+    
+    if (currentDay.getTime() !== today.getTime()) {
+      toast({
+        title: 'Clock In/Out Restricted',
+        description: 'You can only clock in or clock out for today. For past days, please use "Request Change" from the day view.',
+        variant: 'default'
+      })
+      return
+    }
+    
     handleAddEntry() // Will read latest currentDate from state setter
-  }, [handleAddEntry])
+  }, [handleAddEntry, toast])
 
-  const handleEditEntry = (entry: TimesheetEntry) => {
+  const handleEditEntry = async (entry: TimesheetEntry) => {
+    // Check if entry is locked
+    const isLocked = entry.isLocked || entry.submissionStatus === 'SUBMITTED' || entry.submissionStatus === 'APPROVED'
+    
+    if (isLocked) {
+      toast({
+        title: 'Entry Locked',
+        description: 'This entry has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+        variant: 'default'
+      })
+      return
+    }
+    
+    // Check if the week is locked - check API if needed
+    const entryDate = new Date(entry.date)
+    const weekStart = startOfWeek(entryDate, { weekStartsOn: 0 })
+    
+    // First check if we have an entry in state for this week
+    const weekEntry = Array.isArray(timesheets) ? timesheets.find(ts => {
+      if (!ts || !ts.date) return false
+      const tsDate = startOfDay(new Date(ts.date))
+      const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+      return ts.userId === selectedUserId &&
+             tsWeekStart.getTime() === weekStart.getTime() && 
+             ts.submissionStatus && (ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED')
+    }) : null
+    
+    if (weekEntry) {
+      toast({
+        title: 'Week Locked',
+        description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+        variant: 'default'
+      })
+      return
+    }
+    
+    // If no entry found in state, check the API directly
+    try {
+      const submissionResponse = await fetch(
+        `/api/timesheet-submissions?userId=${selectedUserId}&weekStart=${weekStart.toISOString()}`
+      )
+      if (submissionResponse.ok) {
+        const submissionData = await submissionResponse.json()
+        const submissions = Array.isArray(submissionData) ? submissionData : (submissionData.data || [])
+        // Find submission for this week (attendance entries only - those without jobId)
+        const weekSubmission = submissions.find((sub: any) => {
+          const subWeekStart = new Date(sub.weekStart)
+          return subWeekStart.getTime() === weekStart.getTime() &&
+                 (!sub.timeEntries || !Array.isArray(sub.timeEntries) ||
+                  !sub.timeEntries.some((te: any) => te.jobId)) // No job entries = attendance only
+        })
+        
+        if (weekSubmission && (weekSubmission.status === 'SUBMITTED' || weekSubmission.status === 'APPROVED')) {
+          toast({
+            title: 'Week Locked',
+            description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+            variant: 'default'
+          })
+          return
+        }
+      }
+    } catch (err) {
+      console.error('Error checking submission status:', err)
+      // Continue if check fails - don't block user
+    }
+    
     setIsDayModalOpen(false)
-    const entryDate = startOfDay(new Date(entry.date))
-    setSelectedDate(entryDate)
-    setModalDate(entryDate)
+    const normalizedEntryDate = startOfDay(entryDate)
+    setSelectedDate(normalizedEntryDate)
+    setModalDate(normalizedEntryDate)
     setSelectedEntry(entry)
     setTimeout(() => {
       setIsModalOpen(true)
@@ -506,10 +1118,10 @@ export function AttendanceView({
   }
 
   const getTimesheetsForDate = (date: Date): TimesheetEntry[] => {
-    return timesheets.filter(ts => {
+    return Array.isArray(timesheets) ? timesheets.filter(ts => {
       const tsDate = new Date(ts.date)
       return isSameDay(tsDate, date)
-    })
+    }) : []
   }
 
   const calculateDayTotal = (date: Date): number => {
@@ -532,52 +1144,83 @@ export function AttendanceView({
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
 
     return (
-      <div className="overflow-x-auto -mx-6 px-6 sm:mx-0 sm:px-0 pb-2">
-        <div className="grid grid-cols-7 gap-2 min-w-[700px] sm:min-w-0">
-          {/* Header */}
-          {weekDays.map((day, idx) => (
-            <div key={idx} className="text-center font-semibold text-gray-700 py-2 sm:py-3 border-b border-gray-300 text-xs sm:text-sm sticky top-0 bg-white z-10">
-              <div className="text-xs sm:text-sm font-bold">{format(day, 'EEE')}</div>
-              <div className="text-xs font-normal text-gray-500 mt-0.5">{format(day, 'MMM d')}</div>
-            </div>
-          ))}
+      <div className="grid grid-cols-1 sm:grid-cols-7 gap-2">
+        {/* Header */}
+        {weekDays.map((day, idx) => (
+          <div key={idx} className="hidden sm:block text-center font-semibold text-gray-700 py-2 border-b">
+            {format(day, 'EEE')}
+            <div className="text-sm font-normal text-gray-500">{format(day, 'MMM d')}</div>
+          </div>
+        ))}
 
-          {/* Days */}
-          {weekDays.map((day, idx) => {
-            const dayTimesheets = getTimesheetsForDate(day)
-            const dayTotal = calculateDayTotal(day)
-            const isToday = isSameDay(day, new Date())
+        {/* Days */}
+        {weekDays.map((day, idx) => {
+          const dayTimesheets = getTimesheetsForDate(day)
+          const dayTotal = calculateDayTotal(day)
+          const isToday = isSameDay(day, new Date())
 
-            return (
-              <div
-                key={idx}
-                className={`min-h-[180px] sm:min-h-[220px] border-2 rounded-lg p-2 sm:p-3 cursor-pointer transition-all ${
-                  isToday 
-                    ? 'border-blue-500 bg-blue-50/40 shadow-md' 
-                    : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/20 hover:shadow-sm'
-                }`}
-                onClick={() => handleDateClick(day)}
-              >
-                <div className="text-xs sm:text-sm font-bold text-gray-700 mb-2 sm:mb-3 flex items-center justify-between">
-                  <span>{format(day, 'EEE d')}</span>
-                  {isToday && (
-                    <span className="text-[10px] sm:text-xs bg-blue-500 text-white px-1.5 py-0.5 rounded-full font-semibold">Today</span>
-                  )}
-                </div>
+          // Check if week is submitted/approved - grey out entire day card
+          const isWeekLocked = weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'
+          
+          return (
+            <div
+              key={idx}
+              className={`min-h-[200px] border-2 rounded-lg p-2 transition-colors ${
+                isWeekLocked
+                  ? 'border-gray-300 bg-gray-100 opacity-60 cursor-not-allowed'
+                  : isToday 
+                    ? 'border-blue-500 bg-blue-50/40 cursor-pointer' 
+                    : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50/20 cursor-pointer'
+              }`}
+              onClick={() => {
+                // Check if week is submitted/approved
+                if (isWeekLocked) {
+                  toast({
+                    title: 'Week Locked',
+                    description: 'This week has been submitted for approval and cannot be edited. Please wait for approval or rejection.',
+                    variant: 'default'
+                  })
+                  return
+                }
                 
-                <div className="space-y-1.5 sm:space-y-2 flex-1">
-                  {dayTimesheets.length === 0 ? (
-                    <div className="text-[10px] sm:text-xs text-gray-400 italic text-center py-2">
-                      No entries
-                    </div>
-                  ) : (
-                    dayTimesheets.map((ts) => (
+                handleDateClick(day)
+              }}
+            >
+              <div className="text-xs font-medium text-gray-600 mb-2">
+                {format(day, 'd')}
+              </div>
+              
+              <div className="space-y-1">
+                {dayTimesheets.length === 0 ? (
+                  <div className="text-xs text-gray-400 italic text-center py-2">
+                    No entries
+                  </div>
+                ) : (
+                  dayTimesheets.map((ts) => {
+                    // Lock if week is submitted OR individual entry is locked
+                    const isLocked = isWeekLocked || ts.isLocked || ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED'
+                    return (
                       <div
                         key={ts.id}
-                        onClick={(e) => handleEntryClick(ts, e)}
-                        className="text-xs p-2 sm:p-2.5 bg-blue-100 border-2 border-blue-300 rounded-md hover:bg-blue-200 active:bg-blue-300 transition-all touch-manipulation min-h-[48px] sm:min-h-[52px] flex flex-col justify-center shadow-sm hover:shadow-md cursor-pointer"
+                        onClick={(e) => {
+                          if (!isLocked) {
+                            handleEntryClick(ts, e)
+                          } else {
+                            e.stopPropagation()
+                            toast({
+                              title: 'Entry Locked',
+                              description: 'This entry has been submitted for approval and cannot be edited.',
+                              variant: 'default'
+                            })
+                          }
+                        }}
+                        className={`text-xs p-1.5 border rounded transition-colors ${
+                          isLocked
+                            ? 'bg-gray-100 border-gray-300 opacity-60 cursor-not-allowed'
+                            : 'bg-blue-100 border-blue-200 hover:bg-blue-200 cursor-pointer'
+                        }`}
                       >
-                        <div className="font-bold text-blue-900 text-xs sm:text-sm leading-tight">
+                        <div className="font-medium text-blue-800">
                           {(() => {
                             const clockIn = new Date(ts.clockInTime)
                             const clockOut = ts.clockOutTime ? new Date(ts.clockOutTime) : null
@@ -588,24 +1231,29 @@ export function AttendanceView({
                           })()}
                         </div>
                         {ts.totalHours && (
-                          <div className="text-blue-700 font-semibold text-[10px] sm:text-xs mt-0.5">{ts.totalHours.toFixed(2)}h</div>
+                          <div className="text-blue-600">{ts.totalHours.toFixed(2)}h</div>
+                        )}
+                        {isLocked && (
+                          <div className="text-xs text-yellow-700 mt-1 font-medium">
+                            {ts.submissionStatus === 'APPROVED' ? '✓ Approved' : 'Submitted'}
+                          </div>
                         )}
                       </div>
-                    ))
-                  )}
-                </div>
-
-                {dayTotal > 0 && (
-                  <div className="mt-2 sm:mt-3 pt-2 border-t-2 border-gray-300">
-                    <div className="text-xs sm:text-sm font-bold text-blue-700 text-center">
-                      Total: {dayTotal.toFixed(2)}h
-                    </div>
-                  </div>
+                    )
+                  })
                 )}
               </div>
-            )
-          })}
-        </div>
+
+              {dayTotal > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-300">
+                  <div className="text-xs font-bold text-blue-700 text-center">
+                    {dayTotal.toFixed(2)}h
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     )
   }
@@ -813,6 +1461,125 @@ export function AttendanceView({
 
   return (
     <div className="space-y-6">
+      {/* Weekly Submission Rejection Notifications */}
+      {rejectedWeeklySubmissions.length > 0 && (
+        <div className="space-y-2">
+          {rejectedWeeklySubmissions.map((submission) => (
+            <div
+              key={submission.id}
+              className="p-4 bg-red-50 border-2 border-red-300 rounded-lg shadow-md"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 flex-1">
+                  <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-semibold text-red-900 mb-1">
+                      ⚠️ Weekly Submission Rejected
+                    </div>
+                    <div className="text-sm text-red-800 mb-2">
+                      <div className="mb-1">
+                        <span className="font-medium">Week:</span>{' '}
+                        {format(new Date(submission.weekStart), 'MMM d')} - {format(new Date(submission.weekEnd), 'MMM d, yyyy')}
+                      </div>
+                      {submission.rejectionReason && (
+                        <div className="mt-2 p-2 bg-red-100 rounded border border-red-200">
+                          <span className="font-medium">Rejection Reason:</span>{' '}
+                          {submission.rejectionReason}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    // Use submission ID + rejectedAt timestamp as the dismissal key
+                    // This allows the same submission to show again if re-rejected with a new timestamp
+                    const rejectionKey = submission.rejectedAt 
+                      ? `${submission.id}-${submission.rejectedAt}`
+                      : `${submission.id}-${new Date().toISOString()}`
+                    
+                    // Save to localStorage to persist dismissal
+                    const newDismissed = new Set(dismissedWeeklyRejections)
+                    newDismissed.add(rejectionKey)
+                    setDismissedWeeklyRejections(newDismissed)
+                    localStorage.setItem(`dismissed-weekly-rejections-${selectedUserId}`, JSON.stringify(Array.from(newDismissed)))
+                    // Remove from display
+                    setRejectedWeeklySubmissions(prev => prev.filter(s => {
+                      const sRejectionKey = s.rejectedAt 
+                        ? `${s.id}-${s.rejectedAt}`
+                        : `${s.id}-${new Date().toISOString()}`
+                      return sRejectionKey !== rejectionKey
+                    }))
+                  }}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-100 flex-shrink-0"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {/* Rejected Change Requests Notifications */}
+      {rejectedChangeRequests.length > 0 && (
+        <div className="space-y-2">
+          {rejectedChangeRequests.map((request) => (
+            <div
+              key={request.id}
+              className="p-4 bg-red-50 border-2 border-red-300 rounded-lg shadow-md"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 flex-1">
+                  <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <div className="font-semibold text-red-900 mb-1">
+                      ⚠️ Attendance Change Request Rejected
+                    </div>
+                    <div className="text-sm text-red-800 mb-2">
+                      <div className="mb-1">
+                        <span className="font-medium">Date:</span>{' '}
+                        {format(new Date(request.date), 'MMM d, yyyy')}
+                      </div>
+                      <div className="mb-1">
+                        <span className="font-medium">Requested Time:</span>{' '}
+                        {format(new Date(request.requestedClockInTime), 'h:mm a')}
+                        {request.requestedClockOutTime && 
+                          ` - ${format(new Date(request.requestedClockOutTime), 'h:mm a')}`
+                        }
+                      </div>
+                      {request.rejectionReason && (
+                        <div className="mt-2 p-2 bg-red-100 rounded border border-red-200">
+                          <span className="font-medium">Rejection Reason:</span>{' '}
+                          {request.rejectionReason}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    // Save to localStorage to persist dismissal
+                    const newDismissed = new Set(dismissedNotifications)
+                    newDismissed.add(request.id)
+                    setDismissedNotifications(newDismissed)
+                    localStorage.setItem(`dismissed-change-requests-${selectedUserId}`, JSON.stringify(Array.from(newDismissed)))
+                    // Remove from display
+                    setRejectedChangeRequests(prev => prev.filter(r => r.id !== request.id))
+                  }}
+                  className="text-red-600 hover:text-red-700 hover:bg-red-100 flex-shrink-0"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <Card>
         <CardHeader>
           <div className="flex flex-col gap-4">
@@ -838,8 +1605,12 @@ export function AttendanceView({
 
                 <Button
                   onClick={handleMainAddEntry}
-                  disabled={viewMode === 'week' && weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED')}
-                  className="bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-4 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-blue-600"
+                  disabled={weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'}
+                  className={`font-semibold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-4 py-2 rounded-lg ${
+                    weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'
+                      ? 'bg-gray-400 cursor-not-allowed opacity-60'
+                      : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white'
+                  }`}
                   size="sm"
                 >
                   <Plus className="h-4 w-4 sm:mr-2" />
@@ -920,7 +1691,7 @@ export function AttendanceView({
                         </>
                       )
                     : viewMode === 'week'
-                    ? `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d')} - ${format(endOfWeek(currentDate, { weekStartsOn: 0 }), 'MMM d, yyyy')}`
+                    ? `${format(startOfWeek(currentDate, { weekStartsOn: 0 }), 'M/d')} - ${format(endOfWeek(currentDate, { weekStartsOn: 0 }), 'M/d')}`
                     : (
                         <>
                           <span className="sm:hidden">{format(currentDate, 'MMM yyyy')}</span>
@@ -931,23 +1702,7 @@ export function AttendanceView({
                 </div>
                 {/* Submit for Approval button - show in week view, next to date */}
                 {viewMode === 'week' && (
-                  <div className="flex items-center gap-2">
-                    {weekSubmissionStatus && (
-                      <div className={`px-2 sm:px-3 py-1 rounded-md text-xs sm:text-sm font-semibold ${
-                        weekSubmissionStatus === 'SUBMITTED' 
-                          ? 'bg-yellow-100 text-yellow-800 border border-yellow-300'
-                          : weekSubmissionStatus === 'APPROVED'
-                          ? 'bg-green-100 text-green-800 border border-green-300'
-                          : weekSubmissionStatus === 'REJECTED'
-                          ? 'bg-red-100 text-red-800 border border-red-300'
-                          : 'bg-gray-100 text-gray-800 border border-gray-300'
-                      }`}>
-                        {weekSubmissionStatus === 'SUBMITTED' ? 'Submitted' :
-                         weekSubmissionStatus === 'APPROVED' ? 'Approved' :
-                         weekSubmissionStatus === 'REJECTED' ? 'Rejected' :
-                         weekSubmissionStatus}
-                      </div>
-                    )}
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                     <Button
                       onClick={handleSubmitWeekForApproval}
                       disabled={isSubmitting || !selectedUserId || (weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'))}
@@ -958,6 +1713,12 @@ export function AttendanceView({
                         <>
                           <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 mr-2 animate-spin" />
                           <span className="font-semibold">Submitting...</span>
+                        </>
+                      ) : weekSubmissionStatus === 'REJECTED' ? (
+                        <>
+                          <Send className="h-4 w-4 sm:h-5 sm:w-5 mr-2" />
+                          <span className="hidden sm:inline font-semibold">Resubmit for Approval</span>
+                          <span className="sm:hidden font-semibold">Resubmit</span>
                         </>
                       ) : weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED' ? (
                         <>
@@ -1009,6 +1770,7 @@ export function AttendanceView({
         jobs={[]}
         laborCodes={[]}
         getCurrentDate={getCurrentDate}
+        mode="clock"
         key={viewMode === 'day' ? `day-modal-${currentDate.getTime()}` : `day-modal-${selectedDate?.getTime() || 'none'}`}
       />
 

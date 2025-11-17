@@ -366,6 +366,13 @@ export function TimeChangeApprovals() {
                   {selectedRequest.reason}
                 </div>
               </div>
+              
+              {selectedRequest.status === 'REJECTED' && selectedRequest.rejectionReason && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-red-900 mb-2 block">Rejection Reason:</Label>
+                  <p className="text-sm text-red-800">{selectedRequest.rejectionReason}</p>
+                </div>
+              )}
 
               <div>
                 <Label>Submitted</Label>

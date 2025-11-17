@@ -97,29 +97,46 @@ export async function POST(request: NextRequest) {
     })
 
     // Permission check: Users can only submit their own timesheets (unless admin)
-    // Convert both to strings for comparison to handle any type mismatches
-    const validatedUserIdStr = String(validatedData.userId)
-    const dbUserIdStr = String(user.id)
+    const { authorizeOwnResource } = await import('@/lib/auth/authorization')
     
-    if (validatedUserIdStr !== dbUserIdStr && session.user.role !== 'ADMIN') {
+    if (!authorizeOwnResource(session.user, 'create', 'timesheet_submission', user.id)) {
       console.error('POST /api/timesheet-submissions - Permission denied:', {
-        validatedUserId: validatedUserIdStr,
-        dbUserId: dbUserIdStr,
-        sessionUserRole: session.user.role
+        validatedUserId: validatedData.userId,
+        dbUserId: user.id,
+        sessionUserRole: session.user.role,
       })
       return NextResponse.json(
-        { error: 'Forbidden: You can only submit your own timesheets' },
+        {
+          success: false,
+          error: 'Forbidden: You can only submit your own timesheets',
+        },
         { status: 403 }
       )
     }
 
-    // Check if timesheet submission already exists for this week
-    const existingSubmission = await prisma.timesheetSubmission.findUnique({
+    // Determine if this is an attendance-only or job-only submission
+    // IMPORTANT: This determines which type of submission we're creating/checking
+    // ATTENDANCE submissions have no jobId in timeEntries
+    // TIME submissions have at least one jobId in timeEntries
+    const hasJobEntries = validatedData.timeEntries.some((te: any) => te.jobId)
+    const isAttendanceSubmission = !hasJobEntries
+    const submissionType = isAttendanceSubmission ? 'ATTENDANCE' : 'TIME'
+    
+    console.log('POST /api/timesheet-submissions - Submission type determination:', {
+      hasJobEntries,
+      isAttendanceSubmission,
+      submissionType,
+      timeEntriesCount: validatedData.timeEntries.length
+    })
+    
+    // Check if timesheet submission already exists for this week and type
+    // IMPORTANT: Use composite unique constraint with type to allow separate ATTENDANCE and TIME submissions
+    // Use findFirst instead of findUnique to work around Prisma client recognition issues
+    const existingSubmission = await prisma.timesheetSubmission.findFirst({
       where: {
-        userId_weekStart: {
-          userId: validatedData.userId,
-          weekStart: validatedData.weekStart
-        }
+        userId: validatedData.userId,
+        weekStart: validatedData.weekStart,
+        type: submissionType
       }
     })
     
@@ -167,15 +184,23 @@ export async function POST(request: NextRequest) {
           submittedAt: submission.submittedAt
         })
       } else {
-        // Create new submission
+        // Create new submission with the determined type
+        // IMPORTANT: Include type field to use composite unique constraint
+        console.log('POST /api/timesheet-submissions - Creating new submission with type:', submissionType)
         submission = await tx.timesheetSubmission.create({
           data: {
             userId: validatedData.userId,
             weekStart: validatedData.weekStart,
             weekEnd: validatedData.weekEnd,
+            type: submissionType, // Include type field
             status: 'SUBMITTED',
             submittedAt: new Date()
           }
+        })
+        console.log('POST /api/timesheet-submissions - Created submission:', {
+          id: submission.id,
+          type: submission.type,
+          status: submission.status
         })
       }
 
@@ -233,18 +258,53 @@ export async function POST(request: NextRequest) {
       return submission
     })
 
-    return NextResponse.json(result, { status: 201 })
-  } catch (error) {
+    // Fetch the complete submission with all relations for the response
+    const completeSubmission = await prisma.timesheetSubmission.findUnique({
+      where: { id: result.id },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true
+          }
+        }
+      }
+    })
+
+    console.log('POST /api/timesheet-submissions - Returning submission:', {
+      id: completeSubmission?.id,
+      userId: completeSubmission?.userId,
+      weekStart: completeSubmission?.weekStart,
+      status: completeSubmission?.status
+    })
+
+    return NextResponse.json(
+      {
+        success: true,
+        data: completeSubmission || result,
+      },
+      { status: 201 }
+    )
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       console.error('Validation error:', JSON.stringify(error.errors, null, 2))
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        {
+          success: false,
+          error: 'Validation error',
+          details: error.errors,
+        },
         { status: 400 }
       )
     }
     console.error('Error creating timesheet submission:', error)
     return NextResponse.json(
-      { error: 'Failed to create timesheet submission', message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        error: error.message || 'Failed to create timesheet submission',
+        details: error instanceof Error ? error.message : String(error),
+      },
       { status: 500 }
     )
   }
@@ -261,12 +321,37 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
     const status = searchParams.get('status')
-    const weekStart = searchParams.get('weekStart')
+    const weekStartParam = searchParams.get('weekStart')
 
     const where: any = {}
     if (userId) where.userId = userId
     if (status) where.status = status
-    if (weekStart) where.weekStart = new Date(weekStart)
+    if (weekStartParam) {
+      // Match exact week start date
+      const weekStartDate = new Date(weekStartParam)
+      // Normalize to start of day for comparison (UTC)
+      const weekStartUTC = new Date(Date.UTC(
+        weekStartDate.getUTCFullYear(),
+        weekStartDate.getUTCMonth(),
+        weekStartDate.getUTCDate(),
+        0, 0, 0, 0
+      ))
+      const weekStartEndUTC = new Date(Date.UTC(
+        weekStartDate.getUTCFullYear(),
+        weekStartDate.getUTCMonth(),
+        weekStartDate.getUTCDate(),
+        23, 59, 59, 999
+      ))
+      where.weekStart = {
+        gte: weekStartUTC,
+        lte: weekStartEndUTC
+      }
+      console.log('[GET /api/timesheet-submissions] WeekStart filter:', {
+        param: weekStartParam,
+        weekStartUTC: weekStartUTC.toISOString(),
+        weekStartEndUTC: weekStartEndUTC.toISOString()
+      })
+    }
 
     const submissions = await prisma.timesheetSubmission.findMany({
       where,
@@ -315,41 +400,99 @@ export async function GET(request: NextRequest) {
       orderBy: { weekStart: 'desc' }
     })
 
-    // For each submission, fetch Timesheet records for attendance entries
-    // Attendance entries are in Timesheet table, not TimeEntry
+    // For each submission, determine if it's attendance-only or job-only
+    // Attendance entries are in Timesheet table (no job entries)
+    // Job entries are in TimeEntry table (with jobId)
     const submissionsWithTimesheets = await Promise.all(
       submissions.map(async (submission) => {
-        // Fetch Timesheet records for this week and user
-        const timesheets = await prisma.timesheet.findMany({
-          where: {
+        // Check if this submission has job entries (TimeEntry records with jobId)
+        const hasJobEntries = submission.timeEntries && submission.timeEntries.length > 0 && 
+                             submission.timeEntries.some((te: any) => te.jobId)
+        
+        // Only fetch timesheets for attendance-only submissions
+        let timesheets: any[] = []
+        let totalHours = 0
+        
+        if (!hasJobEntries) {
+          // This is an attendance-only submission
+          // Fetch Timesheet records for this week and user (no job entries)
+          // Normalize dates to start/end of day for proper comparison
+          const weekStartDate = new Date(submission.weekStart)
+          weekStartDate.setHours(0, 0, 0, 0)
+          const weekEndDate = new Date(submission.weekEnd)
+          weekEndDate.setHours(23, 59, 59, 999)
+          
+          console.log(`[GET /api/timesheet-submissions] Fetching timesheets for attendance submission ${submission.id}:`, {
             userId: submission.userId,
-            date: {
-              gte: submission.weekStart,
-              lte: submission.weekEnd
+            weekStart: submission.weekStart,
+            weekEnd: submission.weekEnd,
+            weekStartDate: weekStartDate.toISOString(),
+            weekEndDate: weekEndDate.toISOString()
+          })
+          
+          // Use a more reliable query that checks for timesheets with no job entries
+          const allTimesheets = await prisma.timesheet.findMany({
+            where: {
+              userId: submission.userId,
+              date: {
+                gte: weekStartDate,
+                lte: weekEndDate
+              }
             },
-            jobEntries: {
-              none: {} // No job entries = attendance only
+            include: {
+              jobEntries: true
+            },
+            orderBy: {
+              date: 'asc'
             }
-          },
-          orderBy: {
-            date: 'asc'
+          })
+          
+          console.log(`[GET /api/timesheet-submissions] Found ${allTimesheets.length} total timesheets for week range`)
+          
+          // Filter to only include timesheets with no job entries (attendance-only)
+          timesheets = allTimesheets.filter(ts => {
+            const hasNoJobEntries = !ts.jobEntries || ts.jobEntries.length === 0
+            if (!hasNoJobEntries) {
+              console.log(`[GET /api/timesheet-submissions] Excluding timesheet ${ts.id} - has ${ts.jobEntries.length} job entries`)
+            }
+            return hasNoJobEntries
+          })
+          
+          console.log(`[GET /api/timesheet-submissions] Attendance submission ${submission.id}: Found ${timesheets.length} attendance timesheets out of ${allTimesheets.length} total`)
+          
+          // Log timesheet dates for debugging
+          if (timesheets.length > 0) {
+            console.log(`[GET /api/timesheet-submissions] Timesheet dates:`, timesheets.map(ts => ({
+              id: ts.id,
+              date: ts.date,
+              clockIn: ts.clockInTime,
+              clockOut: ts.clockOutTime
+            })))
+          } else {
+            console.log(`[GET /api/timesheet-submissions] WARNING: No attendance timesheets found for submission ${submission.id}`)
           }
-        })
 
-        // Calculate total hours from timesheets
-        const totalHours = timesheets.reduce((sum, ts) => {
-          if (ts.totalHours) return sum + ts.totalHours
-          if (ts.clockOutTime) {
-            const hours = (new Date(ts.clockOutTime).getTime() - new Date(ts.clockInTime).getTime()) / (1000 * 60 * 60)
-            return sum + hours
-          }
-          return sum
-        }, 0)
+          // Calculate total hours from timesheets
+          totalHours = timesheets.reduce((sum, ts) => {
+            if (ts.totalHours) return sum + ts.totalHours
+            if (ts.clockOutTime) {
+              const hours = (new Date(ts.clockOutTime).getTime() - new Date(ts.clockInTime).getTime()) / (1000 * 60 * 60)
+              return sum + hours
+            }
+            return sum
+          }, 0)
+        } else {
+          // This is a job-only submission
+          // Calculate total hours from timeEntries
+          totalHours = submission.timeEntries.reduce((sum: number, entry: any) => {
+            return sum + (entry.regularHours || 0) + (entry.overtimeHours || 0)
+          }, 0)
+        }
 
         return {
           ...submission,
-          timesheets, // Add timesheets to submission
-          totalHours // Add calculated total hours
+          timesheets, // Only populated for attendance-only submissions
+          totalHours // Calculated total hours
         }
       })
     )
@@ -370,11 +513,17 @@ export async function GET(request: NextRequest) {
       totalHours: submission.totalHours || 0
     }))
 
-    return NextResponse.json(submissionsResponse)
-  } catch (error) {
+    return NextResponse.json({
+      success: true,
+      data: submissionsResponse,
+    })
+  } catch (error: any) {
     console.error('Error fetching timesheet submissions:', error)
     return NextResponse.json(
-      { error: 'Failed to fetch timesheet submissions' },
+      {
+        success: false,
+        error: error.message || 'Failed to fetch timesheet submissions',
+      },
       { status: 500 }
     )
   }

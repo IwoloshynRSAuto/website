@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { authorize } from '@/lib/auth/authorization'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 const createUserSchema = z.object({
@@ -15,8 +16,18 @@ const createUserSchema = z.object({
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!session) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    if (!authorize(session.user, 'read', 'user')) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden: Insufficient permissions' },
+        { status: 403 }
+      )
     }
 
     const { searchParams } = new URL(request.url)
@@ -47,11 +58,17 @@ export async function GET(request: NextRequest) {
       wage: user.wage ? Number(user.wage) : null
     }))
 
-    return NextResponse.json(usersResponse)
-  } catch (error) {
+    return NextResponse.json({
+      success: true,
+      data: usersResponse,
+    })
+  } catch (error: any) {
     console.error('Error fetching users:', error)
     return NextResponse.json(
-      { error: 'Failed to fetch users' },
+      {
+        success: false,
+        error: error.message || 'Failed to fetch users',
+      },
       { status: 500 }
     )
   }
@@ -60,8 +77,18 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    if (!session || session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!session) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    if (!authorize(session.user, 'create', 'user')) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden: Insufficient permissions' },
+        { status: 403 }
+      )
     }
 
     const body = await request.json()
@@ -113,17 +140,30 @@ export async function POST(request: NextRequest) {
       wage: user.wage ? Number(user.wage) : null
     }
 
-    return NextResponse.json(userResponse, { status: 201 })
-  } catch (error) {
+    return NextResponse.json(
+      {
+        success: true,
+        data: userResponse,
+      },
+      { status: 201 }
+    )
+  } catch (error: any) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        {
+          success: false,
+          error: 'Validation error',
+          details: error.errors,
+        },
         { status: 400 }
       )
     }
     console.error('Error creating user:', error)
     return NextResponse.json(
-      { error: 'Failed to create user' },
+      {
+        success: false,
+        error: error.message || 'Failed to create user',
+      },
       { status: 500 }
     )
   }

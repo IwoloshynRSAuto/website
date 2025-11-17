@@ -1,23 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { QuoteService } from '@/lib/quotes/service'
+import { updateQuoteSchema } from '@/lib/quotes/schemas'
 import { prisma } from '@/lib/prisma'
-import { z } from 'zod'
-import { unlink } from 'fs/promises'
-import { join } from 'path'
-import { existsSync } from 'fs'
-
-const updateQuoteSchema = z.object({
-  title: z.string().min(1).optional(),
-  description: z.string().optional().nullable(),
-  status: z.enum(['DRAFT', 'PENDING', 'APPROVED', 'REJECTED', 'COMPLETED']).optional(),
-  isActive: z.boolean().optional(),
-  amount: z.number().optional(),
-  lastFollowUp: z.string().optional().nullable(),
-  quoteFile: z.string().optional().nullable(),
-  bomId: z.string().optional(), // Link BOM to quote
-  // Add other quote fields as needed
-})
 
 // GET single quote
 export async function GET(
@@ -62,14 +48,36 @@ export async function GET(
             },
           },
         },
+        fileRecords: {
+          orderBy: { createdAt: 'desc' },
+        },
+        revisions: {
+          orderBy: { revisionNumber: 'desc' },
+          take: 10,
+          include: {
+            createdBy: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
       },
     })
 
     if (!quote) {
-      return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
+      return NextResponse.json(
+        { success: false, error: 'Quote not found' },
+        { status: 404 }
+      )
     }
 
-    return NextResponse.json(quote)
+    return NextResponse.json({
+      success: true,
+      data: quote,
+    })
   } catch (error) {
     console.error('Error fetching quote:', error)
     return NextResponse.json(
@@ -87,7 +95,10 @@ export async function PATCH(
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     // Handle params - could be a Promise in Next.js 15+
@@ -97,77 +108,30 @@ export async function PATCH(
     const body = await request.json()
     const validated = updateQuoteSchema.partial().parse(body)
 
-    const updateData: any = {}
-    if (validated.title) updateData.title = validated.title
-    if (validated.description !== undefined) updateData.description = validated.description
-    if (validated.status) updateData.status = validated.status
-    if (validated.isActive !== undefined) updateData.isActive = validated.isActive
-    if (validated.amount !== undefined) updateData.amount = validated.amount
-    if (validated.lastFollowUp !== undefined) {
-      updateData.lastFollowUp = validated.lastFollowUp ? new Date(validated.lastFollowUp) : null
-    }
-    
-    // Handle BOM linking
-    if (validated.bomId !== undefined) {
-      // Connect the BOM to the quote via the relation
-      updateData.linkedBOMs = {
-        connect: { id: validated.bomId },
-      }
-    }
-    
-    // Handle quote file deletion - remove physical file from storage
-    if (validated.quoteFile !== undefined) {
-      if (validated.quoteFile === '' || validated.quoteFile === null) {
-        // Get current quote to find the existing file
-        const currentQuote = await prisma.quote.findUnique({
-          where: { id },
-          select: { quoteFile: true }
-        })
-        
-        // Delete the physical file if it exists
-        if (currentQuote?.quoteFile) {
-          try {
-            const storageDir = join(process.cwd(), 'storage', 'quotes')
-            const filePath = join(storageDir, currentQuote.quoteFile)
-            
-            // Security: Verify the path is within storage/quotes directory
-            if (filePath.startsWith(storageDir) && existsSync(filePath)) {
-              await unlink(filePath)
-              console.log('Deleted quote file:', filePath)
-            }
-          } catch (fileError) {
-            // Log error but don't fail the request if file deletion fails
-            console.error('Error deleting quote file from storage:', fileError)
-          }
-        }
-        
-        updateData.quoteFile = null
-      } else {
-        updateData.quoteFile = validated.quoteFile
-      }
-    }
+    // Use QuoteService to update quote
+    const quote = await QuoteService.updateQuote(id, validated, session.user.id)
 
-    const quote = await prisma.quote.update({
-      where: { id },
-      data: updateData,
-      include: {
-        customer: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
+    return NextResponse.json({
+      success: true,
+      data: quote,
     })
-
-    return NextResponse.json(quote)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 })
+  } catch (error: any) {
+    if (error instanceof Error && error.name === 'ZodError') {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Validation error',
+          details: error.message,
+        },
+        { status: 400 }
+      )
     }
     console.error('Error updating quote:', error)
     return NextResponse.json(
-      { error: 'Failed to update quote' },
+      {
+        success: false,
+        error: error.message || 'Failed to update quote',
+      },
       { status: 500 }
     )
   }
@@ -181,43 +145,62 @@ export async function DELETE(
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const resolvedParams = params instanceof Promise ? await params : params
     const { id } = resolvedParams
 
-    // Get quote to check for file before deletion
+    // Get quote with file records
     const quote = await prisma.quote.findUnique({
       where: { id },
-      select: { quoteFile: true }
+      include: {
+        fileRecords: true,
+      },
     })
 
-    // Delete the quote file if it exists
-    if (quote?.quoteFile) {
+    if (!quote) {
+      return NextResponse.json(
+        { success: false, error: 'Quote not found' },
+        { status: 404 }
+      )
+    }
+
+    // Delete all associated files using storage adapter
+    const { getStorage } = await import('@/lib/storage')
+    const storage = await getStorage()
+
+    for (const fileRecord of quote.fileRecords) {
       try {
-        const storageDir = join(process.cwd(), 'storage', 'quotes')
-        const filePath = join(storageDir, quote.quoteFile)
-        
-        if (filePath.startsWith(storageDir) && existsSync(filePath)) {
-          await unlink(filePath)
-          console.log('Deleted quote file:', filePath)
-        }
+        await storage.delete(fileRecord.storagePath)
+        await prisma.fileRecord.delete({
+          where: { id: fileRecord.id },
+        })
       } catch (fileError) {
-        console.error('Error deleting quote file from storage:', fileError)
+        console.error('Error deleting file:', fileError)
+        // Continue with quote deletion even if file deletion fails
       }
     }
 
-    // Delete the quote
+    // Delete the quote (cascade will handle related records)
     await prisma.quote.delete({
       where: { id },
     })
 
-    return NextResponse.json({ message: 'Quote deleted successfully' })
-  } catch (error) {
+    return NextResponse.json({
+      success: true,
+      message: 'Quote deleted successfully',
+    })
+  } catch (error: any) {
     console.error('Error deleting quote:', error)
     return NextResponse.json(
-      { error: 'Failed to delete quote' },
+      {
+        success: false,
+        error: error.message || 'Failed to delete quote',
+      },
       { status: 500 }
     )
   }

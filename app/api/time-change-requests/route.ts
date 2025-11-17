@@ -52,6 +52,68 @@ export async function POST(request: NextRequest) {
     const [year, month, day] = validatedData.date.split('-').map(Number)
     const dateForDb = new Date(year, month - 1, day, 12, 0, 0, 0)
 
+    // Check for overlaps with existing entries (excluding the timesheet being modified if it exists)
+    const startOfDay = new Date(year, month - 1, day, 0, 0, 0, 0)
+    const endOfDay = new Date(year, month - 1, day, 23, 59, 59, 999)
+
+    const existingEntries = await prisma.timesheet.findMany({
+      where: {
+        userId: user.id,
+        date: {
+          gte: startOfDay,
+          lte: endOfDay
+        },
+        id: validatedData.timesheetId ? { not: validatedData.timesheetId } : undefined
+      },
+      include: {
+        jobEntries: true
+      }
+    })
+
+    // Check if this would be a job-only timesheet (midnight clock-in, no clock-out)
+    const clockInLocal = new Date(roundedClockIn.getFullYear(), roundedClockIn.getMonth(), roundedClockIn.getDate(),
+                                  roundedClockIn.getHours(), roundedClockIn.getMinutes(), roundedClockIn.getSeconds())
+    const isJobOnlyTimesheet = clockInLocal.getHours() === 0 && 
+                                clockInLocal.getMinutes() === 0 && 
+                                !roundedClockOut
+
+    if (!isJobOnlyTimesheet) {
+      // Check for overlaps with existing attendance entries
+      const newIn = roundedClockIn
+      const newOut = roundedClockOut || new Date(year, month - 1, day, 23, 59, 59, 999)
+
+      const hasOverlap = existingEntries.some(entry => {
+        // Skip job-only timesheets
+        const entryIn = new Date(entry.clockInTime)
+        const entryInLocal = new Date(entryIn.getFullYear(), entryIn.getMonth(), entryIn.getDate(), 
+                                      entryIn.getHours(), entryIn.getMinutes(), entryIn.getSeconds())
+        const isEntryJobOnly = entryInLocal.getHours() === 0 && 
+                               entryInLocal.getMinutes() === 0 && 
+                               !entry.clockOutTime
+
+        if (isEntryJobOnly) {
+          return false // Job-only timesheets don't count as overlaps
+        }
+
+        const existingIn = entryIn
+        const existingOut = entry.clockOutTime ? new Date(entry.clockOutTime) : new Date(year, month - 1, day, 23, 59, 59, 999)
+
+        // Overlap occurs if: newIn < existingOut && newOut > existingIn
+        return newIn < existingOut && newOut > existingIn
+      })
+
+      if (hasOverlap) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'This requested time change would overlap with an existing entry. Please adjust the times.',
+            details: 'Time entries cannot overlap on the same date.',
+          },
+          { status: 400 }
+        )
+      }
+    }
+
     // Get original timesheet values if it exists
     let timesheet = null
     let originalClockIn: Date | null = null

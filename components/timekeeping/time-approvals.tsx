@@ -80,20 +80,41 @@ export function TimeApprovals() {
       const response = await fetch('/api/timesheet-submissions')
       if (response.ok) {
         const data = await response.json()
+        // Handle both array and object responses
+        const submissionsData = Array.isArray(data) ? data : (data.data || data.submissions || [])
         // Filter for time submissions (submissions with timeEntries that have jobId)
         // Attendance submissions have timesheets but no job-related timeEntries
-        const timeSubmissions = data
-          .filter((sub: any) => {
-            // Time submissions have timeEntries with jobId
-            const hasJobEntries = sub.timeEntries && sub.timeEntries.some((te: any) => te.jobId)
-            return hasJobEntries
-          })
-          .map((sub: any) => {
-            // Calculate total hours from timeEntries
-            const totalHours = sub.timeEntries?.reduce((sum: number, entry: any) => 
-              sum + (entry.regularHours || 0) + (entry.overtimeHours || 0), 0) || 0
-            return { ...sub, totalHours }
-          })
+        const timeSubmissions = Array.isArray(submissionsData)
+          ? submissionsData
+              .filter((sub: any) => {
+                // Time submissions have timeEntries with jobId OR type === 'TIME'
+                const hasJobEntries = sub.timeEntries && Array.isArray(sub.timeEntries) && sub.timeEntries.some((te: any) => te.jobId)
+                const isTimeType = sub.type === 'TIME'
+                return hasJobEntries || isTimeType
+              })
+              .map((sub: any) => {
+                // Calculate total hours from timeEntries
+                const totalHours = Array.isArray(sub.timeEntries) 
+                  ? sub.timeEntries.reduce((sum: number, entry: any) => 
+                      sum + (entry.regularHours || 0) + (entry.overtimeHours || 0), 0) 
+                  : 0
+                // Sort time entries by date (oldest first - Sunday on top)
+                const sortedTimeEntries = Array.isArray(sub.timeEntries)
+                  ? [...sub.timeEntries].sort((a: any, b: any) => {
+                      const dateA = new Date(a.date).getTime()
+                      const dateB = new Date(b.date).getTime()
+                      return dateA - dateB // Oldest first
+                    })
+                  : sub.timeEntries || []
+                return { ...sub, totalHours, timeEntries: sortedTimeEntries }
+              })
+              // Sort submissions by weekStart (oldest first - Sunday 11/9 on top)
+              .sort((a: any, b: any) => {
+                const weekStartA = new Date(a.weekStart).getTime()
+                const weekStartB = new Date(b.weekStart).getTime()
+                return weekStartA - weekStartB // Oldest first
+              })
+          : []
         setSubmissions(timeSubmissions)
       }
     } catch (error) {
@@ -250,7 +271,14 @@ export function TimeApprovals() {
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Calendar className="h-4 w-4 text-gray-500" />
-                          {format(new Date(submission.weekStart), 'MMM d')} - {format(new Date(submission.weekEnd), 'MMM d, yyyy')}
+                          {(() => {
+                            const start = new Date(submission.weekStart)
+                            const end = new Date(submission.weekEnd)
+                            // Use UTC date components to avoid timezone shifts
+                            const startDate = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
+                            const endDate = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+                            return `${format(startDate, 'M/d')} - ${format(endDate, 'M/d')}`
+                          })()}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -336,7 +364,14 @@ export function TimeApprovals() {
                 <div>
                   <Label className="text-sm font-semibold">Date Range</Label>
                   <p>
-                    {format(new Date(selectedSubmission.weekStart), 'MMM d')} - {format(new Date(selectedSubmission.weekEnd), 'MMM d, yyyy')}
+                    {(() => {
+                      const start = new Date(selectedSubmission.weekStart)
+                      const end = new Date(selectedSubmission.weekEnd)
+                      // Use UTC date components to avoid timezone shifts
+                      const startDate = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()))
+                      const endDate = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()))
+                      return `${format(startDate, 'M/d')} - ${format(endDate, 'M/d')} (Sunday - Saturday)`
+                    })()}
                   </p>
                 </div>
                 <div>
@@ -348,6 +383,14 @@ export function TimeApprovals() {
                   <div>{getStatusBadge(selectedSubmission.status)}</div>
                 </div>
               </div>
+              
+              {selectedSubmission.status === 'REJECTED' && selectedSubmission.rejectionReason && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <Label className="text-sm font-semibold text-red-900 mb-2 block">Rejection Reason:</Label>
+                  <p className="text-sm text-red-800">{selectedSubmission.rejectionReason}</p>
+                </div>
+              )}
+              
               <div>
                 <Label className="text-sm font-semibold mb-2 block">Time Entries</Label>
                 <div className="border rounded-lg overflow-hidden">

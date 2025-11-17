@@ -1,149 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
-import { z } from 'zod'
-
-const createJobSchema = z.object({
-  type: z.enum(['QUOTE', 'JOB']).default('JOB'),
-  jobNumber: z.string().optional().nullable(),
-  title: z.string().min(1, 'Title is required'),
-  description: z.string().optional().nullable(),
-  status: z.string().optional(),
-  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).default('MEDIUM'),
-  estimatedHours: z.number().optional().nullable(),
-  startDate: z.string().optional().nullable().transform((val) => val ? new Date(val) : undefined),
-  endDate: z.string().optional().nullable().transform((val) => val ? new Date(val) : undefined),
-  assignedToId: z.string().optional().nullable(),
-  // New fields
-  customerId: z.string().optional().nullable(),
-  quoteId: z.string().optional().nullable(),
-  quotedAmount: z.number().optional().nullable(),
-  workCode: z.string().optional().nullable(),
-  estimatedCost: z.number().optional().nullable(),
-  dueTodayPercent: z.number().optional().nullable(),
-  fileLink: z.string().optional().nullable(),
-})
+import { JobService } from '@/lib/jobs/service'
+import { createJobSchema, jobFilterSchema } from '@/lib/jobs/schemas'
 
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
-    
-    // Get the user from database
-    let user = null
-    if (session?.user?.email) {
-      user = await prisma.user.findUnique({
-        where: { email: session.user.email }
-      })
-    }
-    
-    // Fallback: use first admin user if current user not found
-    if (!user) {
-      user = await prisma.user.findFirst({
-        where: { role: 'ADMIN' }
-      })
-    }
-    
-    // If still no user, use any user
-    if (!user) {
-      user = await prisma.user.findFirst()
-    }
-
-    if (!user) {
-      return NextResponse.json({ error: 'No users found in database. Please create a user first.' }, { status: 404 })
+    if (!session) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
     const body = await request.json()
     const validatedData = createJobSchema.parse(body)
 
-    // Auto-generate job number if not provided
-    let jobNumber = validatedData.jobNumber?.trim() || ''
-    
-    if (!jobNumber) {
-      const prefix = validatedData.type === 'QUOTE' ? 'Q' : 'E'
-      
-      // Find all jobs with the same prefix
-      const allJobs = await prisma.job.findMany({
-        where: {
-          jobNumber: {
-            startsWith: prefix
-          }
-        },
-        select: {
-          jobNumber: true
-        }
-      })
-
-      // Extract numbers and find the highest
-      const numbers = allJobs.map(job => {
-        const num = parseInt(job.jobNumber.substring(1))
-        return isNaN(num) ? 0 : num
-      })
-
-      const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 1000
-      jobNumber = `${prefix}${maxNumber + 1}`
-    }
-
-    // Check if job number already exists
-    const existingJob = await prisma.job.findUnique({
-      where: { jobNumber }
-    })
-
-    if (existingJob) {
-      return NextResponse.json(
-        { error: 'Job number already exists' },
-        { status: 400 }
-      )
-    }
-
-    // Create the job
-    const job = await prisma.job.create({
-      data: {
-        jobNumber: jobNumber,
-        title: validatedData.title,
-        description: validatedData.description || null,
-        type: validatedData.type,
-        status: validatedData.status || (validatedData.type === 'QUOTE' ? 'QUOTE' : 'ACTIVE'),
-        priority: validatedData.priority,
-        estimatedHours: validatedData.estimatedHours || null,
-        customerId: validatedData.customerId || null,
-        quoteId: validatedData.quoteId || null,
-        estimatedCost: validatedData.quotedAmount || validatedData.estimatedCost || null,
-        assignedToId: validatedData.assignedToId || null,
-        workCode: validatedData.workCode || null,
-        dueTodayPercent: validatedData.dueTodayPercent || null,
-        fileLink: validatedData.fileLink || null,
-        // Set start date to today if not provided (only for jobs, not quotes)
-        startDate: validatedData.type === 'JOB' ? (validatedData.startDate || new Date()) : validatedData.startDate,
-        endDate: validatedData.endDate || null,
-        createdById: user.id,
-      },
-      include: {
-        assignedTo: true,
-        createdBy: true,
-      }
-    })
+    // Use JobService to create job
+    const job = await JobService.createJob(validatedData, session.user.id)
 
     // Convert Decimal fields to numbers for client compatibility
     const jobResponse = {
       ...job,
       estimatedHours: job.estimatedHours ? Number(job.estimatedHours) : null,
       actualHours: job.actualHours ? Number(job.actualHours) : null,
+      estimatedCost: job.estimatedCost ? Number(job.estimatedCost) : null,
     }
 
-    return NextResponse.json(jobResponse, { status: 201 })
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      console.error('Validation error:', error.errors)
+    return NextResponse.json(
+      {
+        success: true,
+        data: jobResponse,
+      },
+      { status: 201 }
+    )
+  } catch (error: any) {
+    if (error instanceof Error && error.name === 'ZodError') {
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        {
+          success: false,
+          error: 'Validation error',
+          details: error.message,
+        },
         { status: 400 }
       )
     }
-
     console.error('Error creating job:', error)
     return NextResponse.json(
-      { error: 'Internal server error', details: error instanceof Error ? error.message : 'Unknown error' },
+      {
+        success: false,
+        error: error.message || 'Failed to create job',
+      },
       { status: 500 }
     )
   }
@@ -151,53 +59,30 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Bypass authentication for testing
-    // const session = await getServerSession(authOptions)
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
-
-    const { searchParams } = new URL(request.url)
-    const status = searchParams.get('status')
-    const assignedToId = searchParams.get('assignedToId')
-
-    const where: any = {}
-    if (status) where.status = status
-    if (assignedToId) where.assignedToId = assignedToId
-    
-    // Exclude COMPLETED jobs/quotes by default
-    if (!status) {
-      where.status = { not: 'COMPLETED' }
+    const session = await getServerSession(authOptions)
+    if (!session) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
     }
 
-    const jobs = await prisma.job.findMany({
-      where,
-      include: {
-        assignedTo: true,
-        createdBy: true,
-        customer: true,
-        quotedLabor: {
-          include: {
-            laborCode: true
-          }
-        },
-        timeEntries: {
-          include: {
-            laborCode: true
-          }
-        },
-        _count: {
-          select: {
-            timeEntries: true
-          }
-        }
-      },
-      // Show highest job numbers first (e.g., 3940, then downwards)
-      orderBy: { jobNumber: 'desc' }
+    const { searchParams } = new URL(request.url)
+    const filters = jobFilterSchema.parse({
+      status: searchParams.get('status') || undefined,
+      type: searchParams.get('type') || undefined,
+      assignedToId: searchParams.get('assignedToId') || undefined,
+      customerId: searchParams.get('customerId') || undefined,
+      search: searchParams.get('search') || undefined,
+      priority: searchParams.get('priority') || undefined,
+      startDate: searchParams.get('startDate') || undefined,
+      endDate: searchParams.get('endDate') || undefined,
     })
 
+    const jobs = await JobService.getJobs(filters)
+
     // Convert Decimal fields to numbers for client compatibility
-    const jobsResponse = jobs.map(job => ({
+    const jobsResponse = jobs.map((job) => ({
       ...job,
       estimatedHours: job.estimatedHours ? Number(job.estimatedHours) : null,
       actualHours: job.actualHours ? Number(job.actualHours) : null,
@@ -205,11 +90,17 @@ export async function GET(request: NextRequest) {
       dueTodayPercent: job.dueTodayPercent ? Number(job.dueTodayPercent) : null,
     }))
 
-    return NextResponse.json(jobsResponse)
-  } catch (error) {
+    return NextResponse.json({
+      success: true,
+      data: jobsResponse,
+    })
+  } catch (error: any) {
     console.error('Error fetching jobs:', error)
     return NextResponse.json(
-      { error: 'Internal server error' },
+      {
+        success: false,
+        error: error.message || 'Failed to fetch jobs',
+      },
       { status: 500 }
     )
   }

@@ -1,0 +1,384 @@
+/**
+ * Quotes service layer - business logic for quotes
+ * Server-only code
+ */
+
+import { prisma } from '@/lib/prisma'
+import { getStorage } from '@/lib/storage'
+import { CreateQuoteInput, UpdateQuoteInput, QuoteFilter } from './schemas'
+import { z } from 'zod'
+
+export class QuoteService {
+  /**
+   * Create a new quote from a BOM
+   */
+  static async createQuote(data: CreateQuoteInput, userId: string) {
+    // Get the BOM
+    const bom = await prisma.bOM.findUnique({
+      where: { id: data.bomId },
+      include: {
+        parts: true,
+      },
+    })
+
+    if (!bom) {
+      throw new Error('BOM not found')
+    }
+
+    // Calculate quote totals
+    const totalCost = bom.parts.reduce((sum, part) => {
+      return sum + Number(part.purchasePrice) * part.quantity
+    }, 0)
+    const totalCustomerPrice = bom.parts.reduce((sum, part) => {
+      return sum + Number(part.customerPrice)
+    }, 0)
+
+    // Generate quote number
+    const lastQuote = await prisma.quote.findFirst({
+      orderBy: { createdAt: 'desc' },
+      where: {
+        quoteNumber: { startsWith: 'Q' },
+      },
+    })
+    let quoteNumber = 'Q0001'
+    if (lastQuote) {
+      const lastNum = parseInt(lastQuote.quoteNumber.replace('Q', ''), 10)
+      if (!isNaN(lastNum)) {
+        quoteNumber = `Q${String(lastNum + 1).padStart(4, '0')}`
+      }
+    }
+
+    // Create quote
+    const quote = await prisma.quote.create({
+      data: {
+        quoteNumber,
+        title: data.title || `${bom.name} - Quote`,
+        description: data.description || `Quote generated from BOM: ${bom.name}`,
+        customerId: data.customerId || null,
+        amount: totalCustomerPrice,
+        status: 'DRAFT',
+        quoteType: (data as any).quoteType || 'PROJECT',
+        estimatedHours: data.estimatedHours || null,
+        hourlyRate: data.hourlyRate || null,
+        paymentTerms: (data as any).paymentTerms || null,
+        validUntil: (data as any).validUntil ? new Date((data as any).validUntil) : null,
+        linkedBOMs: {
+          connect: { id: data.bomId },
+        },
+      },
+      include: {
+        linkedBOMs: true,
+        customer: true,
+      },
+    })
+
+    // Link BOM to quote
+    await prisma.bOM.update({
+      where: { id: data.bomId },
+      data: {
+        linkedQuoteId: quote.id,
+      },
+    })
+
+    // Create initial revision
+    await this.createRevision(quote.id, userId, quote)
+
+    return quote
+  }
+
+  /**
+   * Update a quote
+   */
+  static async updateQuote(id: string, data: UpdateQuoteInput, userId: string) {
+    const existingQuote = await prisma.quote.findUnique({
+      where: { id },
+      include: {
+        linkedBOMs: true,
+        customer: true,
+      },
+    })
+
+    if (!existingQuote) {
+      throw new Error('Quote not found')
+    }
+
+    const updateData: any = {}
+    if (data.title !== undefined) updateData.title = data.title
+    if (data.description !== undefined) updateData.description = data.description
+    if (data.status !== undefined) updateData.status = data.status
+    if (data.amount !== undefined) updateData.amount = data.amount
+    if (data.lastFollowUp !== undefined) {
+      updateData.lastFollowUp = data.lastFollowUp ? new Date(data.lastFollowUp) : null
+    }
+    if (data.paymentTerms !== undefined) updateData.paymentTerms = data.paymentTerms
+    if (data.validUntil !== undefined) {
+      updateData.validUntil = data.validUntil ? new Date(data.validUntil) : null
+    }
+    if (data.estimatedHours !== undefined) updateData.estimatedHours = data.estimatedHours
+    if (data.hourlyRate !== undefined) updateData.hourlyRate = data.hourlyRate
+    if (data.laborCost !== undefined) updateData.laborCost = data.laborCost
+    if (data.materialCost !== undefined) updateData.materialCost = data.materialCost
+    if (data.overheadCost !== undefined) updateData.overheadCost = data.overheadCost
+    if (data.profitMargin !== undefined) updateData.profitMargin = data.profitMargin
+
+    const updatedQuote = await prisma.quote.update({
+      where: { id },
+      data: updateData,
+      include: {
+        linkedBOMs: true,
+        customer: true,
+        fileRecords: true,
+      },
+    })
+
+    // Create revision if significant changes
+    if (data.status || data.amount || data.title) {
+      await this.createRevision(updatedQuote.id, userId, updatedQuote)
+    }
+
+    return updatedQuote
+  }
+
+  /**
+   * Create a quote revision snapshot
+   */
+  static async createRevision(quoteId: string, userId: string, quoteData?: any) {
+    const quote = quoteData || await prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        linkedBOMs: {
+          include: {
+            parts: true,
+          },
+        },
+        customer: true,
+      },
+    })
+
+    if (!quote) {
+      throw new Error('Quote not found')
+    }
+
+    // Get current revision count
+    const lastRevision = await prisma.quoteRevision.findFirst({
+      where: { quoteId },
+      orderBy: { revisionNumber: 'desc' },
+    })
+
+    const revisionNumber = lastRevision ? lastRevision.revisionNumber + 1 : 1
+
+    // Create revision snapshot
+    await prisma.quoteRevision.create({
+      data: {
+        quoteId,
+        revisionNumber,
+        createdById: userId,
+        data: {
+          quoteNumber: quote.quoteNumber,
+          title: quote.title,
+          description: quote.description,
+          status: quote.status,
+          amount: quote.amount,
+          customerId: quote.customerId,
+          customerName: quote.customer?.name,
+          estimatedHours: quote.estimatedHours,
+          hourlyRate: quote.hourlyRate,
+          laborCost: quote.laborCost,
+          materialCost: quote.materialCost,
+          overheadCost: quote.overheadCost,
+          profitMargin: quote.profitMargin,
+          paymentTerms: quote.paymentTerms,
+          validUntil: quote.validUntil,
+          bomParts: quote.linkedBOMs?.[0]?.parts?.map((part: any) => ({
+            partNumber: part.partNumber,
+            quantity: part.quantity,
+            purchasePrice: part.purchasePrice,
+            customerPrice: part.customerPrice,
+          })) || [],
+        },
+      },
+    })
+
+    return { revisionNumber }
+  }
+
+  /**
+   * Get quotes with filters
+   */
+  static async getQuotes(filters: QuoteFilter = {}) {
+    const where: any = {}
+
+    if (filters.status) {
+      where.status = filters.status
+    }
+
+    if (filters.customerId) {
+      where.customerId = filters.customerId
+    }
+
+    if (filters.search) {
+      where.OR = [
+        { quoteNumber: { contains: filters.search, mode: 'insensitive' } },
+        { title: { contains: filters.search, mode: 'insensitive' } },
+        { customer: { name: { contains: filters.search, mode: 'insensitive' } } },
+      ]
+    }
+
+    if (filters.startDate || filters.endDate) {
+      where.createdAt = {}
+      if (filters.startDate) {
+        where.createdAt.gte = new Date(filters.startDate)
+      }
+      if (filters.endDate) {
+        where.createdAt.lte = new Date(filters.endDate)
+      }
+    }
+
+    return await prisma.quote.findMany({
+      where,
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
+          },
+        },
+        linkedBOMs: {
+          include: {
+            parts: {
+              select: {
+                id: true,
+                quantity: true,
+                purchasePrice: true,
+                customerPrice: true,
+              },
+            },
+          },
+        },
+        fileRecords: {
+          select: {
+            id: true,
+            fileName: true,
+            fileType: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        _count: {
+          select: {
+            fileRecords: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
+
+  /**
+   * Upload file to quote using storage adapter
+   */
+  static async uploadFile(
+    quoteId: string,
+    file: File,
+    userId: string
+  ): Promise<{ fileRecordId: string; storagePath: string }> {
+    const quote = await prisma.quote.findUnique({
+      where: { id: quoteId },
+    })
+
+    if (!quote) {
+      throw new Error('Quote not found')
+    }
+
+    // Validate file type
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ]
+    const allowedExtensions = ['.pdf', '.doc', '.docx']
+    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
+
+    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
+      throw new Error('Invalid file type. Only PDF and Word documents are allowed.')
+    }
+
+    // Validate file size (max 10MB)
+    const maxSize = 10 * 1024 * 1024
+    if (file.size > maxSize) {
+      throw new Error('File size exceeds 10MB limit')
+    }
+
+    // Generate storage path
+    const timestamp = Date.now()
+    const sanitizedQuoteNumber = quote.quoteNumber.replace(/[^a-zA-Z0-9]/g, '-')
+    const fileExt = fileExtension.startsWith('.') ? fileExtension.substring(1) : 'pdf'
+    const filename = `quote-${sanitizedQuoteNumber}-${timestamp}.${fileExt}`
+    const storagePath = `quotes/${filename}`
+
+    // Upload to storage
+    const storage = getStorage()
+    const bytes = await file.arrayBuffer()
+    const buffer = Buffer.from(bytes)
+    await storage.upload(storagePath, buffer, file.type || 'application/pdf')
+
+    // Get public URL if available
+    const publicUrl = storage.getPublicUrl(storagePath)
+
+    // Create FileRecord
+    const fileRecord = await prisma.fileRecord.create({
+      data: {
+        storagePath,
+        fileUrl: publicUrl,
+        fileName: file.name,
+        fileType: file.type || 'application/pdf',
+        fileSize: file.size,
+        createdById: userId,
+        linkedQuoteId: quoteId,
+        metadata: {
+          uploadedAt: new Date().toISOString(),
+          quoteNumber: quote.quoteNumber,
+        },
+      },
+    })
+
+    return {
+      fileRecordId: fileRecord.id,
+      storagePath,
+    }
+  }
+
+  /**
+   * Delete a file from quote
+   */
+  static async deleteFile(fileRecordId: string, userId: string) {
+    const fileRecord = await prisma.fileRecord.findUnique({
+      where: { id: fileRecordId },
+      include: {
+        createdBy: true,
+      },
+    })
+
+    if (!fileRecord) {
+      throw new Error('File not found')
+    }
+
+    // Check permissions (user must be file creator or admin)
+    if (fileRecord.createdById !== userId && fileRecord.createdBy.role !== 'ADMIN') {
+      throw new Error('Unauthorized to delete this file')
+    }
+
+    // Delete from storage
+    const storage = getStorage()
+    await storage.delete(fileRecord.storagePath)
+
+    // Delete FileRecord
+    await prisma.fileRecord.delete({
+      where: { id: fileRecordId },
+    })
+
+    return { success: true }
+  }
+}
+

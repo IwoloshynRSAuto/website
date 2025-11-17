@@ -29,6 +29,15 @@ model User {
   timeChangeRequests   TimeChangeRequest[]      @relation("TimeChangeRequests")
   approvedTimeChanges  TimeChangeRequest[]      @relation("TimeChangeApprovals")
   rejectedTimeChanges  TimeChangeRequest[]      @relation("TimeChangeRejections")
+  fileRecords          FileRecord[]             @relation("FileRecords")
+  quoteRevisions       QuoteRevision[]          @relation("QuoteRevisionCreator")
+  timeOffRequests      TimeOffRequest[]         @relation("TimeOffRequests")
+  approvedTimeOff      TimeOffRequest[]         @relation("TimeOffApprovals")
+  rejectedTimeOff      TimeOffRequest[]         @relation("TimeOffRejections")
+  expenseReports       ExpenseReport[]          @relation("ExpenseReports")
+  approvedExpenses      ExpenseReport[]          @relation("ExpenseApprovals")
+  rejectedExpenses      ExpenseReport[]          @relation("ExpenseRejections")
+  serviceReports       ServiceReport[]          @relation("ServiceReports")
 
   @@map("users")
 }
@@ -69,6 +78,11 @@ model Job {
   createdBy       User                     @relation("JobCreator", fields: [createdById], references: [id])
   assignedTo      User?                    @relation("JobAssignee", fields: [assignedToId], references: [id])
   timeEntries     TimeEntry[]
+  fileRecords     FileRecord[]             @relation("JobFiles")
+  milestones      JobMilestone[]           @relation("JobMilestones")
+  expenseReports   ExpenseReport[]          @relation("JobExpenses")
+  serviceReports   ServiceReport[]          @relation("JobServiceReports")
+  purchaseOrders   PurchaseOrder[]          @relation("JobPurchaseOrders")
 
   @@map("jobs")
 }
@@ -117,6 +131,7 @@ model TimesheetSubmission {
   userId          String
   weekStart       DateTime
   weekEnd         DateTime
+  type            String      @default("TIME") // "ATTENDANCE" or "TIME"
   status          String      @default("DRAFT")
   submittedAt     DateTime?
   approvedAt      DateTime?
@@ -131,7 +146,8 @@ model TimesheetSubmission {
   approvedBy      User?       @relation("TimesheetApprovals", fields: [approvedById], references: [id])
   user            User        @relation(fields: [userId], references: [id])
 
-  @@unique([userId, weekStart])
+  @@unique([userId, weekStart, type], name: "userId_weekStart_type_key")
+  @@index([userId, weekStart], name: "userId_weekStart_idx")
   @@map("timesheet_submissions")
 }
 
@@ -152,15 +168,16 @@ model LaborCode {
 }
 
 model Quote {
-  id                   String    @id @default(cuid())
-  quoteNumber          String    @unique
+  id                   String       @id @default(cuid())
+  quoteNumber          String       @unique
   title                String
   description          String?
   customerId           String?
-  amount               Float     @default(0)
+  amount               Float        @default(0)
   validUntil           DateTime?
-  status               String    @default("DRAFT")
-  isActive             Boolean   @default(true)
+  status               String       @default("DRAFT")
+  quoteType            String       @default("PROJECT") // PROJECT, PART_SALE
+  isActive             Boolean      @default(true)
   paymentTerms         String?
   estimatedHours       Float?
   hourlyRate           Float?
@@ -173,11 +190,13 @@ model Quote {
   customerContactPhone String?
   lastFollowUp         DateTime?
   quoteFile            String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  linkedBOMs           BOM[]     @relation("QuoteToBOM")
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  linkedBOMs           BOM[]        @relation("QuoteToBOM")
   job                  Job?
-  customer             Customer? @relation(fields: [customerId], references: [id])
+  customer             Customer?       @relation(fields: [customerId], references: [id])
+  fileRecords          FileRecord[]     @relation("QuoteFiles")
+  revisions            QuoteRevision[]  @relation("QuoteRevisions")
 
   @@map("quotes")
 }
@@ -272,6 +291,8 @@ model Part {
   packageParts     PackagePart[]
   relatedPartsB    PartRelation[] @relation("PartB")
   relatedPartsA    PartRelation[] @relation("PartA")
+  vendorPrices     VendorPartPrice[]
+  purchaseOrderItems PurchaseOrderItem[]
 
   @@map("parts")
 }
@@ -369,45 +390,45 @@ enum BOMStatus {
 }
 
 model Timesheet {
-  id           String     @id @default(cuid())
-  userId       String
-  date         DateTime
-  clockInTime  DateTime
-  clockOutTime DateTime?
-  totalHours   Float?
-  status       String     @default("in-progress") // in-progress, completed, needs-review
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
-  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  jobEntries   JobEntry[]
+  id             String              @id @default(cuid())
+  userId         String
+  date           DateTime
+  clockInTime    DateTime
+  clockOutTime   DateTime?
+  totalHours     Float?
+  status         String              @default("in-progress") // in-progress, completed, needs-review
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobEntries     JobEntry[]
   changeRequests TimeChangeRequest[]
 
   @@map("timesheets")
 }
 
 model TimeChangeRequest {
-  id                String    @id @default(cuid())
-  timesheetId       String?
-  userId            String
-  date              DateTime
-  originalClockInTime DateTime
-  originalClockOutTime DateTime?
-  requestedClockInTime DateTime
+  id                    String     @id @default(cuid())
+  timesheetId           String?
+  userId                String
+  date                  DateTime
+  originalClockInTime   DateTime
+  originalClockOutTime  DateTime?
+  requestedClockInTime  DateTime
   requestedClockOutTime DateTime?
-  reason            String
-  status            String    @default("PENDING") // PENDING, APPROVED, REJECTED
-  submittedAt      DateTime  @default(now())
-  approvedAt        DateTime?
-  approvedById      String?
-  rejectedAt        DateTime?
-  rejectedById      String?
-  rejectionReason   String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  timesheet         Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
-  user              User      @relation("TimeChangeRequests", fields: [userId], references: [id], onDelete: Cascade)
-  approvedBy        User?     @relation("TimeChangeApprovals", fields: [approvedById], references: [id])
-  rejectedBy        User?     @relation("TimeChangeRejections", fields: [rejectedById], references: [id])
+  reason                String
+  status                String     @default("PENDING") // PENDING, APPROVED, REJECTED
+  submittedAt           DateTime   @default(now())
+  approvedAt            DateTime?
+  approvedById          String?
+  rejectedAt            DateTime?
+  rejectedById          String?
+  rejectionReason       String?
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  timesheet             Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  user                  User       @relation("TimeChangeRequests", fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy            User?      @relation("TimeChangeApprovals", fields: [approvedById], references: [id])
+  rejectedBy            User?      @relation("TimeChangeRejections", fields: [rejectedById], references: [id])
 
   @@map("time_change_requests")
 }
@@ -425,4 +446,242 @@ model JobEntry {
   timesheet    Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
 
   @@map("job_entries")
+}
+
+model FileRecord {
+  id            String   @id @default(cuid())
+  storagePath   String // Path in storage (e.g., 'quotes/quote-Q0001.pdf')
+  fileUrl       String? // Public URL or signed URL
+  fileName      String // Original filename
+  fileType      String // MIME type (e.g., 'application/pdf')
+  fileSize      Int? // File size in bytes
+  metadata      Json? // Additional metadata (JSON)
+  createdById   String
+  linkedJobId        String?
+  linkedQuoteId      String?
+  linkedServiceReportId String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  createdBy          User     @relation("FileRecords", fields: [createdById], references: [id])
+  linkedJob          Job?     @relation("JobFiles", fields: [linkedJobId], references: [id], onDelete: SetNull)
+  linkedQuote        Quote?   @relation("QuoteFiles", fields: [linkedQuoteId], references: [id], onDelete: SetNull)
+  linkedServiceReport ServiceReport? @relation("ServiceReportAttachments", fields: [linkedServiceReportId], references: [id], onDelete: SetNull)
+  expenseReceipt     ExpenseReport? @relation("ExpenseReceipts")
+
+  @@index([linkedJobId])
+  @@index([linkedQuoteId])
+  @@index([linkedServiceReportId])
+  @@index([createdById])
+  @@index([fileType])
+  @@map("file_records")
+}
+
+model QuoteRevision {
+  id             String   @id @default(cuid())
+  quoteId        String
+  revisionNumber Int
+  data           Json     // Snapshot of quote data at this revision
+  createdById    String
+  createdAt      DateTime @default(now())
+  quote          Quote    @relation("QuoteRevisions", fields: [quoteId], references: [id], onDelete: Cascade)
+  createdBy      User     @relation("QuoteRevisionCreator", fields: [createdById], references: [id])
+
+  @@unique([quoteId, revisionNumber])
+  @@index([quoteId])
+  @@index([createdById])
+  @@map("quote_revisions")
+}
+
+model JobMilestone {
+  id                String    @id @default(cuid())
+  jobId             String
+  name              String
+  description       String?
+  milestoneType     String    // ENGINEERING, PANEL_BUILD, FAT, SAT, COMMISSIONING, OTHER
+  scheduledStartDate DateTime?
+  scheduledEndDate   DateTime?
+  actualStartDate    DateTime?
+  actualEndDate      DateTime?
+  status            String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
+  billingPercentage Float?    // Percentage of total job value
+  isBillingTrigger  Boolean   @default(false) // Triggers invoice when completed
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  job               Job       @relation("JobMilestones", fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([jobId])
+  @@index([status])
+  @@index([milestoneType])
+  @@map("job_milestones")
+}
+
+model TimeOffRequest {
+  id              String    @id @default(cuid())
+  userId          String
+  startDate       DateTime
+  endDate         DateTime
+  requestType     String    // VACATION, SICK, PERSONAL, UNPAID, OTHER
+  reason          String?
+  hours           Float?
+  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  submittedAt     DateTime  @default(now())
+  approvedAt      DateTime?
+  approvedById    String?
+  rejectedAt      DateTime?
+  rejectedById    String?
+  rejectionReason String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation("TimeOffRequests", fields: [userId], references: [id], onDelete: Cascade)
+  approvedBy      User?     @relation("TimeOffApprovals", fields: [approvedById], references: [id])
+  rejectedBy      User?     @relation("TimeOffRejections", fields: [rejectedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([requestType])
+  @@index([startDate])
+  @@map("time_off_requests")
+}
+
+model ExpenseReport {
+  id              String    @id @default(cuid())
+  userId          String
+  reportDate      DateTime
+  description     String
+  amount          Float
+  category        String    // TRAVEL, MEALS, SUPPLIES, EQUIPMENT, OTHER
+  jobId           String?
+  receiptFileId   String?   @unique
+  status          String    @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, PAID
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  approvedById    String?
+  rejectedAt      DateTime?
+  rejectedById    String?
+  rejectionReason String?
+  paidAt          DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  user            User      @relation("ExpenseReports", fields: [userId], references: [id], onDelete: Cascade)
+  job             Job?      @relation("JobExpenses", fields: [jobId], references: [id], onDelete: SetNull)
+  receiptFile     FileRecord? @relation("ExpenseReceipts", fields: [receiptFileId], references: [id], onDelete: SetNull)
+  approvedBy      User?     @relation("ExpenseApprovals", fields: [approvedById], references: [id])
+  rejectedBy      User?     @relation("ExpenseRejections", fields: [rejectedById], references: [id])
+
+  @@index([userId])
+  @@index([status])
+  @@index([category])
+  @@index([jobId])
+  @@index([reportDate])
+  @@map("expense_reports")
+}
+
+model ServiceReport {
+  id              String    @id @default(cuid())
+  jobId           String
+  userId          String
+  reportDate      DateTime
+  serviceType     String    // INSTALLATION, MAINTENANCE, REPAIR, COMMISSIONING, TRAINING, OTHER
+  description     String
+  hoursWorked     Float?
+  customerNotes   String?
+  internalNotes   String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  job             Job       @relation("JobServiceReports", fields: [jobId], references: [id], onDelete: Cascade)
+  user            User      @relation("ServiceReports", fields: [userId], references: [id], onDelete: Cascade)
+  attachments     FileRecord[] @relation("ServiceReportAttachments")
+
+  @@index([jobId])
+  @@index([userId])
+  @@index([reportDate])
+  @@index([serviceType])
+  @@map("service_reports")
+}
+
+model Vendor {
+  id          String             @id @default(cuid())
+  name        String             @unique
+  contactName String?
+  email       String?
+  phone       String?
+  address     String?
+  website     String?
+  category    String?            // ELECTRONICS, MECHANICAL, SOFTWARE, SUPPLIES, SERVICES, OTHER
+  notes       String?
+  isActive    Boolean            @default(true)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  partPrices  VendorPartPrice[]
+  purchaseOrders PurchaseOrder[]
+
+  @@index([name])
+  @@index([category])
+  @@index([isActive])
+  @@map("vendors")
+}
+
+model VendorPartPrice {
+  id                  String    @id @default(cuid())
+  vendorId            String
+  partId              String
+  price               Float
+  leadTimeDays        Int?
+  effectiveDate       DateTime  @default(now())
+  minimumOrderQuantity Int?
+  notes               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  vendor              Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  part                Part      @relation(fields: [partId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, partId, effectiveDate])
+  @@index([vendorId])
+  @@index([partId])
+  @@index([effectiveDate])
+  @@map("vendor_part_prices")
+}
+
+model PurchaseOrder {
+  id              String    @id @default(cuid())
+  poNumber        String    @unique
+  vendorId        String
+  jobId           String?
+  status          String    @default("DRAFT") // DRAFT, SENT, RECEIVED, PARTIALLY_RECEIVED, COMPLETED, CANCELLED
+  orderDate       DateTime  @default(now())
+  expectedDate    DateTime?
+  receivedDate    DateTime?
+  totalAmount     Float?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  vendor          Vendor    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  job             Job?      @relation("JobPurchaseOrders", fields: [jobId], references: [id], onDelete: SetNull)
+  items           PurchaseOrderItem[]
+
+  @@index([vendorId])
+  @@index([jobId])
+  @@index([status])
+  @@index([orderDate])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  partId          String?
+  description     String
+  quantity        Int
+  unitPrice       Float
+  totalPrice      Float
+  receivedQuantity Int          @default(0)
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  part            Part?         @relation(fields: [partId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseOrderId])
+  @@index([partId])
+  @@map("purchase_order_items")
 }
