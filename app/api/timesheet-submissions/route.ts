@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { startOfWeek, endOfWeek } from 'date-fns'
 import { getWeekBoundariesUTC, normalizeWeekStartToUTC, normalizeWeekEndToUTC } from '@/lib/utils/date-utils'
@@ -67,14 +68,68 @@ export async function POST(request: NextRequest) {
     }
 
     // Verify user exists and get database user ID
-    let user = await prisma.user.findUnique({
-      where: { id: session.user.id }
-    })
+    // Handle missing managerId column
+    let user
+    try {
+      user = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          position: true,
+          wage: true,
+          phone: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true
+          // Explicitly exclude managerId
+        }
+      })
+    } catch (dbError: any) {
+      const errorMsg = String(dbError?.message || dbError?.code || '')
+      if (errorMsg.includes('managerId') && errorMsg.includes('does not exist')) {
+        // Use raw SQL to fetch user without managerId
+        const userResults = await prisma.$queryRaw(
+          Prisma.sql`SELECT id, email, name, role, position, wage, phone, "isActive", "createdAt", "updatedAt" FROM users WHERE id = ${session.user.id}`
+        ) as any[]
+        user = userResults?.[0] || null
+      } else {
+        throw dbError
+      }
+    }
 
     if (!user && session.user.email) {
-      user = await prisma.user.findUnique({
-        where: { email: session.user.email }
-      })
+      try {
+        user = await prisma.user.findUnique({
+          where: { email: session.user.email },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            position: true,
+            wage: true,
+            phone: true,
+            isActive: true,
+            createdAt: true,
+            updatedAt: true
+            // Explicitly exclude managerId
+          }
+        })
+      } catch (dbError: any) {
+        const errorMsg = String(dbError?.message || dbError?.code || '')
+        if (errorMsg.includes('managerId') && errorMsg.includes('does not exist')) {
+          // Use raw SQL to fetch user without managerId
+          const userResults = await prisma.$queryRaw(
+            Prisma.sql`SELECT id, email, name, role, position, wage, phone, "isActive", "createdAt", "updatedAt" FROM users WHERE email = ${session.user.email}`
+          ) as any[]
+          user = userResults?.[0] || null
+        } else {
+          throw dbError
+        }
+      }
     }
 
     if (!user) {

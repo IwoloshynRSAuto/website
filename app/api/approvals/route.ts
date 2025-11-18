@@ -26,15 +26,24 @@ export async function GET(request: NextRequest) {
     }
 
     const subordinateIds = user.directReports.map(r => r.id)
+    const isAdmin = authorize(session.user, 'approve', 'time_off_request')
 
-    // If admin, get all pending approvals; otherwise only from subordinates
-    const whereClause = authorize(session.user, 'approve', 'time_off_request')
-      ? { status: 'PENDING' }
-      : { userId: { in: subordinateIds }, status: 'PENDING' }
+    // If admin, get all approvals; otherwise only from subordinates
+    const timeOffWhere = isAdmin
+      ? {}
+      : { userId: { in: subordinateIds } }
+    
+    const expenseWhere = isAdmin
+      ? {}
+      : { userId: { in: subordinateIds } }
+    
+    const timeChangeWhere = isAdmin
+      ? {}
+      : { userId: { in: subordinateIds } }
 
     const [timeOffRequests, expenseReports, timeChangeRequests] = await Promise.all([
       prisma.timeOffRequest.findMany({
-        where: whereClause,
+        where: timeOffWhere,
         include: {
           user: {
             select: {
@@ -43,13 +52,23 @@ export async function GET(request: NextRequest) {
               email: true,
             },
           },
+          approvedBy: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          rejectedBy: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
         orderBy: { submittedAt: 'desc' },
       }),
       prisma.expenseReport.findMany({
-        where: authorize(session.user, 'approve', 'expense_report')
-          ? { status: 'SUBMITTED' }
-          : { userId: { in: subordinateIds }, status: 'SUBMITTED' },
+        where: expenseWhere,
         include: {
           user: {
             select: {
@@ -65,11 +84,31 @@ export async function GET(request: NextRequest) {
               title: true,
             },
           },
+          receiptFile: {
+            select: {
+              id: true,
+              fileName: true,
+              fileUrl: true,
+              storagePath: true,
+            },
+          },
+          approvedBy: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          rejectedBy: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
         },
         orderBy: { submittedAt: 'desc' },
       }),
       prisma.timeChangeRequest.findMany({
-        where: whereClause,
+        where: timeChangeWhere,
         include: {
           user: {
             select: {

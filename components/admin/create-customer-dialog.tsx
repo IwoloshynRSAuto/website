@@ -56,41 +56,66 @@ export function CreateCustomerDialog({ isOpen: controlledIsOpen, onClose }: Crea
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Validate name
+    if (!formData.name || formData.name.trim() === '') {
+      toast.error('Customer name is required')
+      return
+    }
+
     setIsLoading(true)
 
     try {
+      // Build payload - validate email if provided
+      const emailValue = formData.email?.trim() || ''
+      if (emailValue && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
+        toast.error('Please enter a valid email address or leave it empty')
+        setIsLoading(false)
+        return
+      }
+
+      const payload = {
+        name: formData.name.trim(),
+        email: emailValue || null,
+        phone: formData.phone?.trim() || null,
+        isActive: formData.isActive,
+        fileLink: formData.fileLink?.trim() || null
+      }
+
+      console.log('[CreateCustomerDialog] Creating customer with payload:', payload)
+
       const response = await fetch('/api/customers', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-            body: JSON.stringify({
-              name: formData.name,
-              email: formData.email || null,
-              phone: formData.phone || null,
-              isActive: formData.isActive,
-              fileLink: formData.fileLink || null
-            }),
+        body: JSON.stringify(payload),
       })
 
-      if (response.ok) {
+      const data = await response.json()
+
+      if (response.ok && data.success) {
         toast.success('Customer created successfully')
         setIsOpen(false)
-            setFormData({
-              name: '',
-              email: '',
-              phone: '',
-              isActive: true,
-              fileLink: ''
-            })
+        setFormData({
+          name: '',
+          email: '',
+          phone: '',
+          isActive: true,
+          fileLink: ''
+        })
         router.refresh()
       } else {
-        const error = await response.json()
-        toast.error(error.error || 'Failed to create customer')
+        console.error('[CreateCustomerDialog] API Error:', data)
+        const errorMessage = data.details 
+          ? `Validation error: ${JSON.stringify(data.details)}` 
+          : data.error || 'Failed to create customer'
+        toast.error(errorMessage)
       }
     } catch (error) {
-      console.error('Error creating customer:', error)
-      toast.error('An error occurred while creating the customer')
+      console.error('[CreateCustomerDialog] Error creating customer:', error)
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred while creating the customer'
+      toast.error(errorMessage)
     } finally {
       setIsLoading(false)
     }

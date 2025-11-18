@@ -1,0 +1,23 @@
+# Scripts to Keep (Referenced in package.json or documentation)
+
+## Package.json Scripts (Keep)
+- setup.js
+- clear-database.js
+- selective-cleanup.js
+- import-quotes-and-projects.js
+- export-data.js
+- import-data.js
+- make-admin.js
+
+## Documentation Referenced (Keep)
+- backfill-file-records.js (mentioned in QUICK_START.md)
+- storage-migrate.js (mentioned in VERIFICATION_CHECKLIST.md)
+
+## SQL Migrations (Keep - may be needed)
+- create-missing-tables.sql
+- manual-migration-employee-hierarchy.sql
+- migrate-add-geolocation.sql
+
+## All others can be removed (one-time imports/tests/migrations)
+
+

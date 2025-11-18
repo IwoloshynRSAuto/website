@@ -39,6 +39,7 @@ export function CustomersTable({ customers, isAdmin = false, headerButtons }: Cu
     }
     
     try {
+      console.log('[CustomersTable] Opening folder:', filePath)
       const response = await fetch('/api/open-folder', {
         method: 'POST',
         headers: {
@@ -49,21 +50,22 @@ export function CustomersTable({ customers, isAdmin = false, headerButtons }: Cu
       
       const data = await response.json()
       
-      if (response.ok) {
+      if (response.ok && data.success) {
         toast.success('Opening folder in File Explorer...')
       } else {
-        console.error('Failed to open folder:', data.error)
-        
+        console.error('[CustomersTable] Failed to open folder:', data)
+        // If path doesn't exist or can't be opened, copy to clipboard as fallback
         try {
           await navigator.clipboard.writeText(filePath)
           toast.success(`Path copied to clipboard: ${filePath}`)
         } catch (clipboardError) {
-          toast.error(`Failed to open folder. Path: ${filePath}`)
+          toast.error(data.error || `Failed to open folder. Path: ${filePath}`)
         }
       }
     } catch (error) {
-      console.error('Error opening folder:', error)
-      toast.error('Failed to open folder')
+      console.error('[CustomersTable] Error opening folder:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to open folder'
+      toast.error(errorMessage)
     }
   }
 
@@ -73,20 +75,24 @@ export function CustomersTable({ customers, isAdmin = false, headerButtons }: Cu
     }
 
     try {
+      console.log('[CustomersTable] Deleting customer:', customer.id)
       const response = await fetch(`/api/customers/${customer.id}`, {
         method: 'DELETE'
       })
 
-      if (response.ok) {
+      const data = await response.json()
+
+      if (response.ok && data.success) {
         toast.success('Customer deleted successfully')
         router.refresh()
       } else {
-        const error = await response.json()
-        toast.error(error.error || 'Failed to delete customer')
+        console.error('[CustomersTable] Delete error:', data)
+        toast.error(data.error || 'Failed to delete customer')
       }
     } catch (error) {
-      console.error('Error deleting customer:', error)
-      toast.error('An error occurred while deleting the customer')
+      console.error('[CustomersTable] Error deleting customer:', error)
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred while deleting the customer'
+      toast.error(errorMessage)
     }
   }
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Calendar, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2, AlertCircle, X } from 'lucide-react'
+import { Calendar, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2, AlertCircle, X, LogIn, LogOut } from 'lucide-react'
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, isSameMonth, addDays, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth } from 'date-fns'
 import { getWeekBoundariesUTC } from '@/lib/utils/date-utils'
 import { TimeEntryModal } from './time-entry-modal'
@@ -59,9 +59,11 @@ export function AttendanceView({
   const [selectedEntry, setSelectedEntry] = useState<TimesheetEntry | null>(null)
   const [selectedUserId, setSelectedUserId] = useState<string>(currentUserId)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isClocking, setIsClocking] = useState(false)
   const [weekSubmissionStatus, setWeekSubmissionStatus] = useState<string | null>(null)
   const [weekSubmissionId, setWeekSubmissionId] = useState<string | null>(null)
   const [weekRejectionReason, setWeekRejectionReason] = useState<string | null>(null)
+  const [todayAttendance, setTodayAttendance] = useState<TimesheetEntry | null>(null)
   // Store submission status per week (weekStart -> status)
   const [submissionStatusCache, setSubmissionStatusCache] = useState<Map<string, { status: string | null, id: string | null, rejectionReason?: string | null }>>(new Map())
   // Store the date to use for the modal - set before opening
@@ -109,25 +111,118 @@ export function AttendanceView({
         endDate.setHours(23, 59, 59, 999)
       } else if (viewMode === 'week') {
         startDate = startOfWeek(currentDate, { weekStartsOn: 0 })
+        startDate.setHours(0, 0, 0, 0)
         endDate = endOfWeek(currentDate, { weekStartsOn: 0 })
+        endDate.setHours(23, 59, 59, 999)
       } else {
         startDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
         endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
       }
 
+      console.log('[AttendanceView] Fetching timesheets:', {
+        selectedUserId,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        viewMode,
+        currentDate: currentDate.toISOString()
+      })
+
       const response = await fetch(
         `/api/timesheets?userId=${selectedUserId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
       )
       
-      if (response.ok) {
-        const data = await response.json()
-        // Ensure we have an array - handle both array and object responses
-        const timesheetsData = Array.isArray(data) ? data : (data.data || data.timesheets || [])
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('[AttendanceView] API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData
+        })
+        throw new Error(errorData.error || `Failed to fetch timesheets: ${response.status}`)
+      }
+      
+      const responseData = await response.json()
+      // API returns { success: true, data: [...] }
+      const timesheetsData = responseData.success && responseData.data 
+        ? responseData.data 
+        : Array.isArray(responseData) 
+          ? responseData 
+          : (responseData.data || responseData.timesheets || [])
+      
+      console.log('[AttendanceView] API Response:', {
+          success: responseData.success,
+          total: timesheetsData.length,
+          sample: timesheetsData.slice(0, 3).map((ts: any) => ({
+            id: ts.id,
+            date: ts.date,
+            clockInTime: ts.clockInTime,
+            clockOutTime: ts.clockOutTime,
+            jobEntriesCount: ts.jobEntries?.length || 0,
+            hasJobEntries: ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length > 0
+          }))
+        })
+        
         // Filter to only show clock in/out entries (entries with no job entries)
+        // Also exclude job-only entries (midnight clock-in with no clock-out)
         const attendanceEntries = Array.isArray(timesheetsData) 
-          ? timesheetsData.filter((ts: TimesheetEntry) => ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length === 0)
+          ? timesheetsData.filter((ts: TimesheetEntry) => {
+              // Check if this entry has job entries
+              // jobEntries can be null, undefined, or an array
+              const jobEntries = ts.jobEntries
+              const hasJobEntries = jobEntries && Array.isArray(jobEntries) && jobEntries.length > 0
+              
+              // If it has job entries, it's a time entry, not attendance
+              if (hasJobEntries) {
+                return false
+              }
+              
+              // Exclude job-only entries (midnight clock-in with no clock-out)
+              // These are containers for job entries, not actual attendance
+              try {
+                const clockIn = new Date(ts.clockInTime)
+                if (isNaN(clockIn.getTime())) {
+                  console.warn('[AttendanceView] Invalid clockInTime:', ts.id, ts.clockInTime)
+                  return false
+                }
+                
+                const isMidnight = clockIn.getHours() === 0 && clockIn.getMinutes() === 0
+                const isJobOnly = isMidnight && !ts.clockOutTime
+                
+                if (isJobOnly) {
+                  return false
+                }
+              } catch (error) {
+                console.error('[AttendanceView] Error parsing clockInTime:', ts.id, error)
+                return false
+              }
+              
+              // This is a valid attendance entry
+              return true
+            })
           : []
+        
+        console.log('[AttendanceView] Filtered attendance entries:', {
+          count: attendanceEntries.length,
+          entries: attendanceEntries.map(ts => ({
+            id: ts.id,
+            date: ts.date,
+            clockInTime: ts.clockInTime,
+            clockOutTime: ts.clockOutTime,
+            userId: ts.userId
+          }))
+        })
         setTimesheets(attendanceEntries)
+        
+        // Force a re-render check
+        console.log('[AttendanceView] State updated, timesheets count:', attendanceEntries.length)
+        
+        // Find today's attendance for clock in/out button
+        const today = startOfDay(new Date())
+        const todayEntry = attendanceEntries.find((ts: TimesheetEntry) => {
+          const tsDate = startOfDay(new Date(ts.date))
+          return ts.userId === selectedUserId && tsDate.getTime() === today.getTime()
+        })
+        setTodayAttendance(todayEntry || null)
         
         // Check submission status for the current week (if in week view)
         // IMPORTANT: Only check status for entries belonging to the selected user
@@ -270,7 +365,6 @@ export function AttendanceView({
             setWeekRejectionReason(cachedStatus.rejectionReason || null)
           }
         }
-      }
     } catch (error) {
       console.error('Error loading timesheets:', error)
       toast({
@@ -295,12 +389,12 @@ export function AttendanceView({
       try {
         // Load dismissed notifications from localStorage
         const storedDismissed = localStorage.getItem(`dismissed-change-requests-${selectedUserId}`)
-        const dismissedSet = storedDismissed ? new Set(JSON.parse(storedDismissed)) : new Set()
+        const dismissedSet = storedDismissed ? new Set<string>(JSON.parse(storedDismissed)) : new Set<string>()
         setDismissedNotifications(dismissedSet)
         
         // Load dismissed weekly rejections from localStorage
         const storedWeeklyDismissed = localStorage.getItem(`dismissed-weekly-rejections-${selectedUserId}`)
-        const dismissedWeeklySet = storedWeeklyDismissed ? new Set(JSON.parse(storedWeeklyDismissed)) : new Set()
+        const dismissedWeeklySet = storedWeeklyDismissed ? new Set<string>(JSON.parse(storedWeeklyDismissed)) : new Set<string>()
         setDismissedWeeklyRejections(dismissedWeeklySet)
         
         // Load rejected change requests
@@ -755,7 +849,7 @@ export function AttendanceView({
         
         toast({
           title: 'Success',
-          description: `Week of ${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')} submitted for approval. Your entries are now locked and cannot be edited until approved or rejected.`,
+          description: `Week of ${format(currentWeekStart, 'MMM d')} - ${format(currentWeekEnd, 'MMM d, yyyy')} submitted for approval. Your entries are now locked and cannot be edited until approved or rejected.`,
           duration: 5000
         })
         
@@ -1002,12 +1096,264 @@ export function AttendanceView({
     }, 100)
   }, [weekSubmissionStatus, timesheets, selectedUserId, currentDate, toast])
 
-  // Handler for the main "Add Entry" button - only works for today
-  const handleMainAddEntry = useCallback(() => {
+  // Get current location for geotagging - improved accuracy with weighted averaging
+  const getCurrentLocation = (): Promise<{ lat: number; lon: number; accuracy: number } | null> => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(null)
+        return
+      }
+
+      const positions: GeolocationPosition[] = []
+      let watchId: number | null = null
+      const minReadings = 8 // Minimum readings before calculating average
+      const maxReadings = 15 // Maximum readings to collect
+      const minAccuracy = 5 // Target accuracy in meters (very high accuracy)
+      const maxWaitTime = 30000 // Maximum 30 seconds total
+      const stabilizationTime = 2000 // Wait 2 seconds after last reading to ensure stability
+
+      const options = {
+        enableHighAccuracy: true,  // Use GPS for better accuracy
+        timeout: 30000,            // Increased timeout for GPS fix
+        maximumAge: 0,             // Force fresh reading, don't use cache
+      }
+
+      let lastReadingTime = 0
+      let stabilizationTimer: NodeJS.Timeout | null = null
+
+      // Helper function to calculate weighted average
+      const calculateWeightedAverage = (positions: GeolocationPosition[]) => {
+        if (positions.length === 0) return null
+
+        // Filter out outliers - remove positions that are too far from the median
+        const lats = positions.map(p => p.coords.latitude).sort((a, b) => a - b)
+        const lons = positions.map(p => p.coords.longitude).sort((a, b) => a - b)
+        const medianLat = lats[Math.floor(lats.length / 2)]
+        const medianLon = lons[Math.floor(lons.length / 2)]
+
+        // Calculate distance from median for each position
+        const filtered = positions.filter(pos => {
+          const latDiff = Math.abs(pos.coords.latitude - medianLat) * 111000 // Convert to meters
+          const lonDiff = Math.abs(pos.coords.longitude - medianLon) * 111000 * Math.cos(medianLat * Math.PI / 180)
+          const distance = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff)
+          return distance < 50 // Filter out readings more than 50m from median
+        })
+
+        if (filtered.length === 0) {
+          // If all filtered out, use original positions
+          filtered.push(...positions)
+        }
+
+        // Calculate weighted average (inverse of accuracy = weight)
+        let totalWeight = 0
+        let weightedLat = 0
+        let weightedLon = 0
+        let minAccuracy = Infinity
+
+        filtered.forEach(pos => {
+          const accuracy = pos.coords.accuracy || 100 // Default to 100m if no accuracy
+          const weight = 1 / (accuracy * accuracy) // Square inverse for better weighting
+          totalWeight += weight
+          weightedLat += pos.coords.latitude * weight
+          weightedLon += pos.coords.longitude * weight
+          if (accuracy < minAccuracy) {
+            minAccuracy = accuracy
+          }
+        })
+
+        return {
+          lat: weightedLat / totalWeight,
+          lon: weightedLon / totalWeight,
+          accuracy: minAccuracy
+        }
+      }
+
+      // Use watchPosition to get multiple readings
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          positions.push(position)
+          lastReadingTime = Date.now()
+
+          // Clear existing stabilization timer
+          if (stabilizationTimer) {
+            clearTimeout(stabilizationTimer)
+          }
+
+          // Check if we have enough readings and good accuracy
+          const currentBest = positions.reduce((best, pos) => 
+            (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+            null as GeolocationPosition | null
+          )
+
+          if (currentBest && currentBest.coords.accuracy < minAccuracy && positions.length >= minReadings) {
+            // We have a very accurate reading and enough samples
+            if (watchId !== null) {
+              navigator.geolocation.clearWatch(watchId)
+            }
+            const result = calculateWeightedAverage(positions)
+            if (result) {
+              resolve(result)
+            } else {
+              resolve({
+                lat: currentBest.coords.latitude,
+                lon: currentBest.coords.longitude,
+                accuracy: currentBest.coords.accuracy || 0,
+              })
+            }
+            return
+          }
+
+          // If we have enough readings, wait for stabilization
+          if (positions.length >= minReadings) {
+            stabilizationTimer = setTimeout(() => {
+              if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId)
+              }
+              const result = calculateWeightedAverage(positions)
+              if (result) {
+                resolve(result)
+              } else if (positions.length > 0) {
+                const best = positions.reduce((best, pos) => 
+                  (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+                  null as GeolocationPosition | null
+                )
+                if (best) {
+                  resolve({
+                    lat: best.coords.latitude,
+                    lon: best.coords.longitude,
+                    accuracy: best.coords.accuracy || 0,
+                  })
+                }
+              }
+            }, stabilizationTime)
+          }
+
+          // Stop if we have too many readings
+          if (positions.length >= maxReadings) {
+            if (watchId !== null) {
+              navigator.geolocation.clearWatch(watchId)
+            }
+            if (stabilizationTimer) {
+              clearTimeout(stabilizationTimer)
+            }
+            const result = calculateWeightedAverage(positions)
+            if (result) {
+              resolve(result)
+            } else if (positions.length > 0) {
+              const best = positions.reduce((best, pos) => 
+                (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+                null as GeolocationPosition | null
+              )
+              if (best) {
+                resolve({
+                  lat: best.coords.latitude,
+                  lon: best.coords.longitude,
+                  accuracy: best.coords.accuracy || 0,
+                })
+              }
+            }
+          }
+        },
+        (error) => {
+          if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId)
+          }
+          if (stabilizationTimer) {
+            clearTimeout(stabilizationTimer)
+          }
+          // If we got at least one reading, use weighted average
+          if (positions.length > 0) {
+            const result = calculateWeightedAverage(positions)
+            if (result) {
+              resolve(result)
+            } else {
+              const best = positions.reduce((best, pos) => 
+                (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+                null as GeolocationPosition | null
+              )
+              if (best) {
+                resolve({
+                  lat: best.coords.latitude,
+                  lon: best.coords.longitude,
+                  accuracy: best.coords.accuracy || 0,
+                })
+              } else {
+                resolve(null)
+              }
+            }
+          } else {
+            // Fallback to getCurrentPosition if watchPosition fails
+            navigator.geolocation.getCurrentPosition(
+              (position) => {
+                resolve({
+                  lat: position.coords.latitude,
+                  lon: position.coords.longitude,
+                  accuracy: position.coords.accuracy || 0,
+                })
+              },
+              () => {
+                resolve(null)
+              },
+              options
+            )
+          }
+        },
+        options
+      )
+
+      // Fallback timeout - if we don't get a good reading in time, use weighted average
+      setTimeout(() => {
+        if (watchId !== null) {
+          navigator.geolocation.clearWatch(watchId)
+        }
+        if (stabilizationTimer) {
+          clearTimeout(stabilizationTimer)
+        }
+        if (positions.length > 0) {
+          const result = calculateWeightedAverage(positions)
+          if (result) {
+            resolve(result)
+          } else {
+            const best = positions.reduce((best, pos) => 
+              (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+              null as GeolocationPosition | null
+            )
+            if (best) {
+              resolve({
+                lat: best.coords.latitude,
+                lon: best.coords.longitude,
+                accuracy: best.coords.accuracy || 0,
+              })
+            } else {
+              resolve(null)
+            }
+          }
+        } else {
+          // Final fallback
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              resolve({
+                lat: position.coords.latitude,
+                lon: position.coords.longitude,
+                accuracy: position.coords.accuracy || 0,
+              })
+            },
+            () => {
+              resolve(null)
+            },
+            options
+          )
+        }
+      }, maxWaitTime)
+    })
+  }
+
+  // Handler for "Clock In Now" button - only works for today
+  const handleClockInNow = useCallback(async () => {
     const today = startOfDay(new Date())
-    const currentDay = startOfDay(currentDateRef.current)
+    const isToday = startOfDay(currentDateRef.current).getTime() === today.getTime()
     
-    if (currentDay.getTime() !== today.getTime()) {
+    if (!isToday) {
       toast({
         title: 'Clock In/Out Restricted',
         description: 'You can only clock in or clock out for today. For past days, please use "Request Change" from the day view.',
@@ -1015,9 +1361,91 @@ export function AttendanceView({
       })
       return
     }
+
+    // Check if week is submitted/approved
+    const weekStart = startOfWeek(today, { weekStartsOn: 0 })
+    const weekEntry = Array.isArray(timesheets) ? timesheets.find(ts => {
+      if (!ts || !ts.date) return false
+      const tsDate = startOfDay(new Date(ts.date))
+      const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
+      return ts.userId === selectedUserId &&
+             tsWeekStart.getTime() === weekStart.getTime() && 
+             ts.submissionStatus && (ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED')
+    }) : null
     
-    handleAddEntry() // Will read latest currentDate from state setter
-  }, [handleAddEntry, toast])
+    if (weekEntry) {
+      toast({
+        title: 'Week Locked',
+        description: 'This week has been submitted for approval and cannot be edited.',
+        variant: 'default'
+      })
+      return
+    }
+
+    setIsClocking(true)
+    try {
+      const now = new Date()
+      const isClockedIn = todayAttendance && !todayAttendance.clockOutTime
+
+      if (isClockedIn && todayAttendance) {
+        // Clock Out - get location
+        const location = await getCurrentLocation()
+        const response = await fetch(`/api/timesheets/${todayAttendance.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clockOutTime: now.toISOString(),
+            clockOutGeoLat: location?.lat ?? null,
+            clockOutGeoLon: location?.lon ?? null,
+            clockOutGeoAccuracy: location?.accuracy ?? null,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || 'Failed to clock out')
+        }
+        toast({
+          title: 'Success',
+          description: 'Clocked out successfully',
+        })
+        await loadTimesheets()
+      } else {
+        // Clock In - get location
+        const location = await getCurrentLocation()
+        const response = await fetch('/api/timesheets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: selectedUserId,
+            date: today.toISOString(),
+            clockInTime: now.toISOString(),
+            geoLat: location?.lat ?? null,
+            geoLon: location?.lon ?? null,
+            geoAccuracy: location?.accuracy ?? null,
+          }),
+        })
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}))
+          throw new Error(errorData.error || 'Failed to clock in')
+        }
+        toast({
+          title: 'Success',
+          description: 'Clocked in successfully',
+        })
+        await loadTimesheets()
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to clock in/out',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsClocking(false)
+    }
+  }, [selectedUserId, todayAttendance, timesheets, toast, loadTimesheets])
 
   const handleEditEntry = async (entry: TimesheetEntry) => {
     // Check if entry is locked
@@ -1131,10 +1559,62 @@ export function AttendanceView({
   }
 
   const getTimesheetsForDate = (date: Date): TimesheetEntry[] => {
-    return Array.isArray(timesheets) ? timesheets.filter(ts => {
-      const tsDate = new Date(ts.date)
-      return isSameDay(tsDate, date)
-    }) : []
+    if (!Array.isArray(timesheets) || timesheets.length === 0) {
+      console.log('[AttendanceView] getTimesheetsForDate: No timesheets available', {
+        timesheetsLength: timesheets.length,
+        timesheetsType: typeof timesheets,
+        isArray: Array.isArray(timesheets)
+      })
+      return []
+    }
+    
+    const targetDateStr = format(date, 'yyyy-MM-dd')
+    console.log('[AttendanceView] getTimesheetsForDate: Looking for date', {
+      targetDate: targetDateStr,
+      totalTimesheets: timesheets.length,
+      sampleDates: timesheets.slice(0, 3).map(ts => ({
+        id: ts.id,
+        date: ts.date,
+        dateType: typeof ts.date
+      }))
+    })
+    
+    const matching = timesheets.filter(ts => {
+      if (!ts || !ts.date) {
+        console.warn('[AttendanceView] Missing date in timesheet:', ts?.id)
+        return false
+      }
+      try {
+        // Convert date string to Date object
+        const tsDate = new Date(ts.date as string)
+        if (isNaN(tsDate.getTime())) {
+          console.warn('[AttendanceView] Invalid date in timesheet:', ts.id, ts.date)
+          return false
+        }
+        const tsDateStr = format(tsDate, 'yyyy-MM-dd')
+        const matches = tsDateStr === targetDateStr
+        if (matches) {
+          console.log('[AttendanceView] Found matching timesheet:', {
+            id: ts.id,
+            tsDateStr,
+            targetDateStr,
+            clockInTime: ts.clockInTime
+          })
+        }
+        return matches
+      } catch (error) {
+        console.error('[AttendanceView] Error comparing dates:', ts.id, error, ts.date)
+        return false
+      }
+    })
+    
+    console.log('[AttendanceView] getTimesheetsForDate: Found matches', {
+      targetDate: targetDateStr,
+      matches: matching.length,
+      matchIds: matching.map(m => m.id)
+    })
+    
+    return matching
   }
 
   const calculateDayTotal = (date: Date): number => {
@@ -1155,6 +1635,19 @@ export function AttendanceView({
     const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
     const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
+    
+    console.log('[AttendanceView] renderWeekView:', {
+      currentDate: currentDate.toISOString(),
+      weekStart: weekStart.toISOString(),
+      weekEnd: weekEnd.toISOString(),
+      weekDays: weekDays.map(d => format(d, 'yyyy-MM-dd')),
+      timesheetsCount: timesheets.length,
+      timesheetsDates: timesheets.slice(0, 5).map(ts => ({
+        id: ts.id,
+        date: ts.date,
+        dateFormatted: ts.date ? format(new Date(ts.date as string), 'yyyy-MM-dd') : 'invalid'
+      }))
+    })
 
     return (
       <div className="grid grid-cols-1 sm:grid-cols-7 gap-2">
@@ -1616,20 +2109,51 @@ export function AttendanceView({
                   </select>
                 )}
 
-                <Button
-                  onClick={handleMainAddEntry}
-                  disabled={weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'}
-                  className={`font-semibold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-4 py-2 rounded-lg ${
-                    weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'
-                      ? 'bg-gray-400 cursor-not-allowed opacity-60'
-                      : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white'
-                  }`}
-                  size="sm"
-                >
-                  <Plus className="h-4 w-4 sm:mr-2" />
-                  <span className="hidden sm:inline">Add Attendance</span>
-                  <span className="sm:hidden">Add</span>
-                </Button>
+                {/* Clock In Now button - only for today */}
+                {(() => {
+                  const today = startOfDay(new Date())
+                  const currentDay = startOfDay(currentDate)
+                  const isToday = currentDay.getTime() === today.getTime()
+                  const isClockedIn = todayAttendance && !todayAttendance.clockOutTime
+                  
+                  if (isToday) {
+                    return (
+                      <Button
+                        onClick={handleClockInNow}
+                        disabled={isClocking || weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'}
+                        className={`font-semibold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-4 py-2 rounded-lg ${
+                          weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'
+                            ? 'bg-gray-400 cursor-not-allowed opacity-60'
+                            : isClockedIn
+                              ? 'bg-orange-600 hover:bg-orange-700 active:bg-orange-800 text-white'
+                              : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white'
+                        }`}
+                        size="sm"
+                      >
+                        {isClocking ? (
+                          <>
+                            <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
+                            <span className="hidden sm:inline">Processing...</span>
+                            <span className="sm:hidden">...</span>
+                          </>
+                        ) : isClockedIn ? (
+                          <>
+                            <LogOut className="h-4 w-4 sm:mr-2" />
+                            <span className="hidden sm:inline">Clock Out Now</span>
+                            <span className="sm:hidden">Out</span>
+                          </>
+                        ) : (
+                          <>
+                            <LogIn className="h-4 w-4 sm:mr-2" />
+                            <span className="hidden sm:inline">Clock In Now</span>
+                            <span className="sm:hidden">In</span>
+                          </>
+                        )}
+                      </Button>
+                    )
+                  }
+                  return null
+                })()}
               </div>
             </div>
 
@@ -1666,7 +2190,7 @@ export function AttendanceView({
                     else if (viewMode === 'week') navigateWeek('prev')
                     else navigateMonth('prev')
                   }}
-                  className="flex-1 sm:flex-initial border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-semibold text-gray-700 hover:text-blue-700 transition-all duration-200 min-h-[44px] rounded-lg shadow-sm hover:shadow-md"
+                  className="flex-1 sm:flex-initial bg-white border-2 border-gray-400 hover:border-blue-600 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2"
                 >
                   <ChevronLeft className="h-4 w-4 sm:mr-1" />
                   <span className="ml-1 hidden sm:inline">Prev</span>
@@ -1675,7 +2199,7 @@ export function AttendanceView({
                   variant="outline"
                   size="sm"
                   onClick={goToToday}
-                  className="flex-1 sm:flex-initial border-2 border-blue-300 bg-blue-50 hover:bg-blue-100 active:bg-blue-200 font-semibold text-blue-700 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-sm hover:shadow-md"
+                  className="flex-1 sm:flex-initial bg-blue-500 border-2 border-blue-600 hover:bg-blue-600 active:bg-blue-700 font-bold text-white hover:text-white transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2"
                 >
                   Today
                 </Button>
@@ -1687,7 +2211,7 @@ export function AttendanceView({
                     else if (viewMode === 'week') navigateWeek('next')
                     else navigateMonth('next')
                   }}
-                  className="flex-1 sm:flex-initial border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-semibold text-gray-700 hover:text-blue-700 transition-all duration-200 min-h-[44px] rounded-lg shadow-sm hover:shadow-md"
+                  className="flex-1 sm:flex-initial bg-white border-2 border-gray-400 hover:border-blue-600 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2"
                 >
                   <span className="mr-1 hidden sm:inline">Next</span>
                   <ChevronRight className="h-4 w-4" />
@@ -1718,7 +2242,7 @@ export function AttendanceView({
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                     <Button
                       onClick={handleSubmitWeekForApproval}
-                      disabled={isSubmitting || !selectedUserId || (weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'))}
+                      disabled={isSubmitting || !selectedUserId || (weekSubmissionStatus ? (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED') : false)}
                       className="bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm sm:text-base font-bold shadow-lg hover:shadow-xl active:shadow-inner transition-all duration-200 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap disabled:hover:bg-orange-500"
                       size="sm"
                     >

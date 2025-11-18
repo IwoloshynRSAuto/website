@@ -149,7 +149,7 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/jobs/:id - Delete job entry
+// DELETE /api/jobs/:id - Delete job (project) or job entry
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
@@ -157,41 +157,141 @@ export async function DELETE(
   try {
     const session = await getServerSession(authOptions)
     if (!session?.user?.id) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      console.error('[DELETE /api/jobs/[id]] Unauthorized request')
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
     // Handle Next.js 15 async params
     const resolvedParams = await Promise.resolve(params)
-    const jobEntryId = resolvedParams.id
+    const id = resolvedParams.id
 
-    if (!jobEntryId) {
-      return NextResponse.json({ error: 'Job entry ID is required' }, { status: 400 })
+    if (!id) {
+      return NextResponse.json({ success: false, error: 'ID is required' }, { status: 400 })
     }
 
+    console.log('[DELETE /api/jobs/[id]] Attempting to delete:', id)
+
+    // First, try to find it as a Job (project)
+    const job = await prisma.job.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            timeEntries: true,
+            milestones: true,
+            deliverables: true,
+            expenseReports: true,
+            serviceReports: true,
+            purchaseOrders: true,
+            billingMilestones: true,
+          }
+        }
+      }
+    })
+
+    if (job) {
+      // This is a Job (project) deletion
+      // Check authorization - only admins or job creator can delete
+      if (job.createdById !== session.user.id && session.user.role !== 'ADMIN') {
+        console.warn('[DELETE /api/jobs/[id]] Forbidden - user is not creator or admin')
+        return NextResponse.json({ 
+          success: false, 
+          error: 'You do not have permission to delete this job' 
+        }, { status: 403 })
+      }
+
+      // Count related records for response
+      const deletedTimeEntries = job._count.timeEntries
+
+      console.log('[DELETE /api/jobs/[id]] Deleting job with related data:', {
+        jobId: id,
+        jobNumber: job.jobNumber,
+        timeEntries: job._count.timeEntries,
+        milestones: job._count.milestones,
+        deliverables: job._count.deliverables,
+      })
+
+      // Delete the job - cascading deletes will handle related records
+      // (milestones, deliverables, etc. have onDelete: Cascade)
+      // Time entries have onDelete: Restrict, so we need to handle them
+      
+      // Delete time entries first (they have onDelete: Restrict)
+      if (job._count.timeEntries > 0) {
+        await prisma.timeEntry.deleteMany({
+          where: { jobId: id }
+        })
+      }
+
+      // Delete the job (cascading will handle milestones, deliverables, etc.)
+      await prisma.job.delete({
+        where: { id }
+      })
+
+      console.log('[DELETE /api/jobs/[id]] Job deleted successfully:', id)
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Job deleted successfully',
+        deletedTimeEntries 
+      })
+    }
+
+    // If not a Job, try JobEntry (timesheet entry)
     const jobEntry = await prisma.jobEntry.findUnique({
-      where: { id: jobEntryId },
+      where: { id },
       include: {
         timesheet: true
       }
     })
 
-    if (!jobEntry) {
-      return NextResponse.json({ error: 'Job entry not found' }, { status: 404 })
+    if (jobEntry) {
+      // Only allow users to delete jobs in their own timesheets (unless admin)
+      if (jobEntry.timesheet.userId !== session.user.id && session.user.role !== 'ADMIN') {
+        console.warn('[DELETE /api/jobs/[id]] Forbidden - user cannot delete this job entry')
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Forbidden' 
+        }, { status: 403 })
+      }
+
+      // Delete the job entry
+      await prisma.jobEntry.delete({
+        where: { id }
+      })
+
+      console.log('[DELETE /api/jobs/[id]] Job entry deleted successfully:', id)
+
+      return NextResponse.json({ 
+        success: true, 
+        message: 'Job entry deleted successfully' 
+      })
     }
 
-    // Only allow users to delete jobs in their own timesheets (unless admin)
-    if (jobEntry.timesheet.userId !== session.user.id && session.user.role !== 'ADMIN') {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
-
-    // Delete the job entry
-    await prisma.jobEntry.delete({
-      where: { id: jobEntryId }
+    // Not found
+    console.warn('[DELETE /api/jobs/[id]] Not found:', id)
+    return NextResponse.json({ 
+      success: false, 
+      error: 'Job or job entry not found' 
+    }, { status: 404 })
+  } catch (error: any) {
+    console.error('[DELETE /api/jobs/[id]] Error deleting:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+      name: error.name,
     })
+    
+    // Handle foreign key constraint errors
+    if (error.code === 'P2003') {
+      return NextResponse.json({ 
+        success: false, 
+        error: 'Cannot delete job because it has related records that cannot be automatically removed' 
+      }, { status: 400 })
+    }
 
-    return NextResponse.json({ success: true, message: 'Job entry deleted successfully' })
-  } catch (error) {
-    console.error('Error deleting job entry:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ 
+      success: false, 
+      error: error.message || 'Internal server error' 
+    }, { status: 500 })
   }
 }

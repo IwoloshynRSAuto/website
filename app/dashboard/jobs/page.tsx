@@ -31,6 +31,14 @@ export default async function JobsPage() {
         }
       },
       customer: true,
+      quote: {
+        select: {
+          id: true,
+          quoteNumber: true,
+          title: true,
+          status: true,
+        }
+      },
       _count: {
         select: {
           timeEntries: true
@@ -189,11 +197,11 @@ export default async function JobsPage() {
             jobs={jobsResponse}
             quotes={quotesData}
             headerButtons={
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <MultiSOPButton 
                   sops={[SOPS.CREATE_QUOTE, SOPS.CONVERT_QUOTE]}
-                  variant="outline"
-                  className="border-gray-300 hover:bg-gray-50"
+                  variant="default"
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-6"
                 />
                 <CreateJobButton />
               </div>

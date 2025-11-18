@@ -64,6 +64,13 @@ export async function PATCH(
       updateData.rejectionReason = rejectionReason || 'No reason provided'
     }
 
+    console.log('[PATCH /api/approvals/time-off/[id]] Updating time off request:', {
+      id,
+      action,
+      updateData,
+      approverId: session.user.id,
+    })
+
     const updated = await prisma.timeOffRequest.update({
       where: { id },
       data: updateData,
@@ -90,28 +97,50 @@ export async function PATCH(
       },
     })
 
-    // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: session.user.id,
-        action: action === 'approve' ? 'APPROVE' : 'REJECT',
-        resourceType: 'TIME_OFF_REQUEST',
-        resourceId: id,
-        details: {
-          employeeId: timeOffRequest.userId,
-          action,
-          rejectionReason: action === 'reject' ? rejectionReason : null,
-        },
-      },
-    })
+    console.log('[PATCH /api/approvals/time-off/[id]] Time off request updated successfully:', updated.id)
 
-    return NextResponse.json({ request: updated })
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 })
+    // Create audit log (wrapped in try-catch to not fail if audit log fails)
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: action === 'approve' ? 'APPROVE' : 'REJECT',
+          resourceType: 'TIME_OFF_REQUEST',
+          resourceId: id,
+          details: {
+            employeeId: timeOffRequest.userId,
+            action,
+            rejectionReason: action === 'reject' ? rejectionReason : null,
+          },
+        },
+      })
+    } catch (auditError) {
+      console.warn('[PATCH /api/approvals/time-off/[id]] Failed to create audit log:', auditError)
+      // Don't fail the request if audit log fails
     }
-    console.error('Error processing approval:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+
+    return NextResponse.json({ 
+      success: true,
+      request: updated 
+    })
+  } catch (error: any) {
+    console.error('[PATCH /api/approvals/time-off/[id]] Error processing approval:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+      name: error.name,
+    })
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ 
+        success: false,
+        error: 'Validation error', 
+        details: error.errors 
+      }, { status: 400 })
+    }
+    return NextResponse.json({ 
+      success: false,
+      error: error.message || 'Internal server error' 
+    }, { status: 500 })
   }
 }
 

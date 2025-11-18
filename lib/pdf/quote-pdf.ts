@@ -1,5 +1,6 @@
 /**
  * PDF generation for quotes using PDFKit
+ * Using dynamic import to avoid build-time issues with fontkit/pdfkit
  */
 
 import { getStorage } from '@/lib/storage'
@@ -39,10 +40,14 @@ export async function generateQuotePDF(options: QuotePDFOptions): Promise<string
     throw new Error('Quote not found')
   }
 
-  // Dynamically import PDFKit to avoid build errors when not installed
-  let PDFDocument
+  // Dynamically import PDFKit to avoid build errors with fontkit/pdfkit
+  // Using Function constructor to prevent Turbopack from analyzing at build time
+  let PDFDocument: any
   try {
-    PDFDocument = (await import('pdfkit')).default
+    // Use Function constructor to prevent static analysis - Turbopack won't analyze this
+    const importPdfkit = new Function('return import("pdfkit")')
+    const pdfkitModule = await importPdfkit()
+    PDFDocument = pdfkitModule.default || pdfkitModule
   } catch (error: any) {
     if (error.code === 'MODULE_NOT_FOUND' || error.message?.includes('Cannot find module')) {
       throw new Error(
@@ -53,7 +58,7 @@ export async function generateQuotePDF(options: QuotePDFOptions): Promise<string
   }
 
   // Create PDF document
-  const doc = new PDFDocument({
+  const doc = new (PDFDocument as any)({
     size: 'LETTER',
     margins: {
       top: 50,
@@ -64,7 +69,7 @@ export async function generateQuotePDF(options: QuotePDFOptions): Promise<string
   })
 
   const chunks: Buffer[] = []
-  doc.on('data', (chunk) => chunks.push(chunk))
+  doc.on('data', (chunk: Buffer) => chunks.push(chunk))
 
   // Wait for PDF to finish
   const pdfPromise = new Promise<Buffer>((resolve, reject) => {
@@ -118,7 +123,7 @@ export async function generateQuotePDF(options: QuotePDFOptions): Promise<string
 /**
  * Add quote content to PDF document
  */
-function addQuoteContent(doc: PDFDocument, quote: any) {
+function addQuoteContent(doc: any, quote: any) {
   // Header
   doc.fontSize(24).text('QUOTE', { align: 'center' })
   doc.moveDown()

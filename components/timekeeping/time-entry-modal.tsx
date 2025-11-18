@@ -365,23 +365,247 @@ export function TimeEntryModal({
         return
       }
 
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-            accuracy: position.coords.accuracy || 0,
-          })
-        },
-        () => {
-          // User denied or error - don't block, just return null
-          resolve(null)
-        },
-        {
-          timeout: 5000,
-          enableHighAccuracy: false,
+      const positions: GeolocationPosition[] = []
+      let watchId: number | null = null
+      const minReadings = 8 // Minimum readings before calculating average
+      const maxReadings = 15 // Maximum readings to collect
+      const minAccuracy = 5 // Target accuracy in meters (very high accuracy)
+      const maxWaitTime = 30000 // Maximum 30 seconds total
+      const stabilizationTime = 2000 // Wait 2 seconds after last reading to ensure stability
+
+      const options = {
+        enableHighAccuracy: true,  // Use GPS for better accuracy
+        timeout: 30000,            // Increased timeout for GPS fix
+        maximumAge: 0,             // Force fresh reading, don't use cache
+      }
+
+      let lastReadingTime = 0
+      let stabilizationTimer: NodeJS.Timeout | null = null
+
+      // Helper function to calculate weighted average
+      const calculateWeightedAverage = (positions: GeolocationPosition[]) => {
+        if (positions.length === 0) return null
+
+        // Filter out outliers - remove positions that are too far from the median
+        const lats = positions.map(p => p.coords.latitude).sort((a, b) => a - b)
+        const lons = positions.map(p => p.coords.longitude).sort((a, b) => a - b)
+        const medianLat = lats[Math.floor(lats.length / 2)]
+        const medianLon = lons[Math.floor(lons.length / 2)]
+
+        // Calculate distance from median for each position
+        const filtered = positions.filter(pos => {
+          const latDiff = Math.abs(pos.coords.latitude - medianLat) * 111000 // Convert to meters
+          const lonDiff = Math.abs(pos.coords.longitude - medianLon) * 111000 * Math.cos(medianLat * Math.PI / 180)
+          const distance = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff)
+          return distance < 50 // Filter out readings more than 50m from median
+        })
+
+        if (filtered.length === 0) {
+          // If all filtered out, use original positions
+          filtered.push(...positions)
         }
+
+        // Calculate weighted average (inverse of accuracy = weight)
+        let totalWeight = 0
+        let weightedLat = 0
+        let weightedLon = 0
+        let minAccuracy = Infinity
+
+        filtered.forEach(pos => {
+          const accuracy = pos.coords.accuracy || 100 // Default to 100m if no accuracy
+          const weight = 1 / (accuracy * accuracy) // Square inverse for better weighting
+          totalWeight += weight
+          weightedLat += pos.coords.latitude * weight
+          weightedLon += pos.coords.longitude * weight
+          if (accuracy < minAccuracy) {
+            minAccuracy = accuracy
+          }
+        })
+
+        return {
+          lat: weightedLat / totalWeight,
+          lon: weightedLon / totalWeight,
+          accuracy: minAccuracy
+        }
+      }
+
+      // Use watchPosition to get multiple readings
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          positions.push(position)
+          lastReadingTime = Date.now()
+
+          // Clear existing stabilization timer
+          if (stabilizationTimer) {
+            clearTimeout(stabilizationTimer)
+          }
+
+          // Check if we have enough readings and good accuracy
+          const currentBest = positions.reduce((best, pos) => 
+            (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+            null as GeolocationPosition | null
+          )
+
+          if (currentBest && currentBest.coords.accuracy < minAccuracy && positions.length >= minReadings) {
+            // We have a very accurate reading and enough samples
+            if (watchId !== null) {
+              navigator.geolocation.clearWatch(watchId)
+            }
+            const result = calculateWeightedAverage(positions)
+            if (result) {
+              resolve(result)
+            } else {
+              resolve({
+                lat: currentBest.coords.latitude,
+                lon: currentBest.coords.longitude,
+                accuracy: currentBest.coords.accuracy || 0,
+              })
+            }
+            return
+          }
+
+          // If we have enough readings, wait for stabilization
+          if (positions.length >= minReadings) {
+            stabilizationTimer = setTimeout(() => {
+              if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId)
+              }
+              const result = calculateWeightedAverage(positions)
+              if (result) {
+                resolve(result)
+              } else if (positions.length > 0) {
+                const best = positions.reduce((best, pos) => 
+                  (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+                  null as GeolocationPosition | null
+                )
+                if (best) {
+                  resolve({
+                    lat: best.coords.latitude,
+                    lon: best.coords.longitude,
+                    accuracy: best.coords.accuracy || 0,
+                  })
+                }
+              }
+            }, stabilizationTime)
+          }
+
+          // Stop if we have too many readings
+          if (positions.length >= maxReadings) {
+            if (watchId !== null) {
+              navigator.geolocation.clearWatch(watchId)
+            }
+            if (stabilizationTimer) {
+              clearTimeout(stabilizationTimer)
+            }
+            const result = calculateWeightedAverage(positions)
+            if (result) {
+              resolve(result)
+            } else if (positions.length > 0) {
+              const best = positions.reduce((best, pos) => 
+                (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+                null as GeolocationPosition | null
+              )
+              if (best) {
+                resolve({
+                  lat: best.coords.latitude,
+                  lon: best.coords.longitude,
+                  accuracy: best.coords.accuracy || 0,
+                })
+              }
+            }
+          }
+        },
+        (error) => {
+          if (watchId !== null) {
+            navigator.geolocation.clearWatch(watchId)
+          }
+          if (stabilizationTimer) {
+            clearTimeout(stabilizationTimer)
+          }
+          // If we got at least one reading, use weighted average
+          if (positions.length > 0) {
+            const result = calculateWeightedAverage(positions)
+            if (result) {
+              resolve(result)
+            } else {
+              const best = positions.reduce((best, pos) => 
+                (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+                null as GeolocationPosition | null
+              )
+              if (best) {
+                resolve({
+                  lat: best.coords.latitude,
+                  lon: best.coords.longitude,
+                  accuracy: best.coords.accuracy || 0,
+                })
+              } else {
+                resolve(null)
+              }
+            }
+          } else {
+            // Fallback to getCurrentPosition if watchPosition fails
+            navigator.geolocation.getCurrentPosition(
+              (position) => {
+                resolve({
+                  lat: position.coords.latitude,
+                  lon: position.coords.longitude,
+                  accuracy: position.coords.accuracy || 0,
+                })
+              },
+              () => {
+                resolve(null)
+              },
+              options
+            )
+          }
+        },
+        options
       )
+
+      // Fallback timeout - if we don't get a good reading in time, use weighted average
+      setTimeout(() => {
+        if (watchId !== null) {
+          navigator.geolocation.clearWatch(watchId)
+        }
+        if (stabilizationTimer) {
+          clearTimeout(stabilizationTimer)
+        }
+        if (positions.length > 0) {
+          const result = calculateWeightedAverage(positions)
+          if (result) {
+            resolve(result)
+          } else {
+            const best = positions.reduce((best, pos) => 
+              (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+              null as GeolocationPosition | null
+            )
+            if (best) {
+              resolve({
+                lat: best.coords.latitude,
+                lon: best.coords.longitude,
+                accuracy: best.coords.accuracy || 0,
+              })
+            } else {
+              resolve(null)
+            }
+          }
+        } else {
+          // Final fallback
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              resolve({
+                lat: position.coords.latitude,
+                lon: position.coords.longitude,
+                accuracy: position.coords.accuracy || 0,
+              })
+            },
+            () => {
+              resolve(null)
+            },
+            options
+          )
+        }
+      }, maxWaitTime)
     })
   }
 
@@ -1566,24 +1790,40 @@ export function TimeEntryModal({
                     // Parse error response
                     let errorMessage = 'Failed to submit change request'
                     let errorDetails = ''
+                    let errorData: any = {}
                     
                     try {
-                      const error = await response.json()
-                      errorMessage = error.error || error.message || errorMessage
-                      errorDetails = error.details ? ` ${error.details}` : ''
+                      const errorText = await response.text()
+                      console.error('[Time Entry Modal] Raw error response:', errorText)
+                      
+                      if (errorText) {
+                        try {
+                          errorData = JSON.parse(errorText)
+                          errorMessage = errorData.error || errorData.message || errorMessage
+                          errorDetails = errorData.details ? ` ${errorData.details}` : ''
+                        } catch (parseError) {
+                          // If JSON parsing fails, use the text as the error message
+                          errorMessage = errorText || `Request failed: ${response.status} ${response.statusText}`
+                        }
+                      } else {
+                        errorMessage = `Request failed: ${response.status} ${response.statusText}`
+                      }
                     } catch (parseError) {
-                      // If JSON parsing fails, use status text
+                      // If text parsing fails, use status text
+                      console.error('[Time Entry Modal] Failed to parse error response:', parseError)
                       errorMessage = `Request failed: ${response.status} ${response.statusText}`
                     }
                     
-                    const fullErrorMessage = `${errorMessage}${errorDetails}`
+                    const fullErrorMessage = `${errorMessage}${errorDetails}`.trim()
                     const isOverlapError = fullErrorMessage.toLowerCase().includes('overlap') || 
                                           fullErrorMessage.toLowerCase().includes('overlapping')
                     
                     console.error('[Time Entry Modal] Error submitting change request:', {
                       status: response.status,
+                      statusText: response.statusText,
                       errorMessage,
                       errorDetails,
+                      errorData,
                       isOverlapError,
                       fullErrorMessage
                     })

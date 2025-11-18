@@ -36,11 +36,18 @@ interface Job {
   inLDrive: boolean
   fileLink: string | null
   relatedQuoteId: string | null
+  createdFromQuoteId: string | null
   convertedAt: Date | null
   createdAt: Date
   updatedAt: Date
   assignedTo: {
     name: string | null
+  } | null
+  quote?: {
+    id: string
+    quoteNumber: string
+    title: string
+    status: string
   } | null
   quotedLabor?: Array<{
     id: string
@@ -104,6 +111,7 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
   // Filter and sort state
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
   const [typeFilter, setTypeFilter] = useState<string>('ALL')
+  const [quoteFilter, setQuoteFilter] = useState<string>('ALL') // Filter for jobs from quotes
   const [sortBy, setSortBy] = useState<string>('createdAt')
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
   
@@ -432,6 +440,37 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
           <span className="text-gray-400 text-xs">-</span>
         )
       )
+    },
+    {
+      key: 'quote',
+      label: 'Source Quote',
+      sortable: true,
+      width: 'w-20',
+      render: (value: any, job: Job) => {
+        if (job.quote) {
+          return (
+            <div className="text-xs">
+              <div className="font-medium text-blue-600">{job.quote.quoteNumber}</div>
+              <Badge className={`text-xs mt-0.5 ${
+                job.quote.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
+                job.quote.status === 'DRAFT' ? 'bg-gray-100 text-gray-800' :
+                job.quote.status === 'CANCELLED' ? 'bg-red-100 text-red-800' :
+                'bg-gray-100 text-gray-800'
+              }`}>
+                {job.quote.status}
+              </Badge>
+            </div>
+          )
+        }
+        if (job.createdFromQuoteId) {
+          return (
+            <div className="text-xs text-gray-500">
+              Quote ID: {job.createdFromQuoteId.substring(0, 8)}...
+            </div>
+          )
+        }
+        return <span className="text-gray-400 text-xs">-</span>
+      }
     }
   ]
 
@@ -464,7 +503,16 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
     }
     
     const matchesType = typeFilter === 'ALL' || job.type === typeFilter
-    return matchesStatus && matchesType
+    
+    // Filter by quote source
+    let matchesQuote = true
+    if (quoteFilter === 'FROM_QUOTE') {
+      matchesQuote = !!(job.quote || job.createdFromQuoteId || job.relatedQuoteId)
+    } else if (quoteFilter === 'NO_QUOTE') {
+      matchesQuote = !job.quote && !job.createdFromQuoteId && !job.relatedQuoteId
+    }
+    
+    return matchesStatus && matchesType && matchesQuote
   })
 
   // Sort jobs
@@ -488,6 +536,10 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
       case 'status':
         aValue = a.status || ''
         bValue = b.status || ''
+        break
+      case 'quote':
+        aValue = a.quote?.quoteNumber || a.createdFromQuoteId || ''
+        bValue = b.quote?.quoteNumber || b.createdFromQuoteId || ''
         break
       case 'jobNumber':
         aValue = a.jobNumber || ''
@@ -562,6 +614,20 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
               </div>
 
               <div className="flex items-center gap-2">
+                <Label htmlFor="quote-filter" className="text-sm font-medium text-gray-700">Quote:</Label>
+                <Select value={quoteFilter} onValueChange={setQuoteFilter}>
+                  <SelectTrigger id="quote-filter" className="h-9 w-[140px]">
+                    <SelectValue placeholder="All" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="ALL">All Jobs</SelectItem>
+                    <SelectItem value="FROM_QUOTE">From Quote</SelectItem>
+                    <SelectItem value="NO_QUOTE">Not From Quote</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center gap-2">
                 <ArrowUpDown className="h-4 w-4 text-gray-500" />
                 <Label htmlFor="sort-by" className="text-sm font-medium text-gray-700">Sort By:</Label>
                 <Select value={sortBy} onValueChange={setSortBy}>
@@ -576,6 +642,7 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
                     <SelectItem value="jobNumber">Job Number</SelectItem>
                     <SelectItem value="title">Title</SelectItem>
                     <SelectItem value="customer">Customer</SelectItem>
+                    <SelectItem value="quote">Source Quote</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

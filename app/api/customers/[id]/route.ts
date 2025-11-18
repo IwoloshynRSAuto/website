@@ -12,11 +12,14 @@ export async function GET(
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      console.error('[GET /api/customers/[id]] Unauthorized request')
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
     const resolvedParams = params instanceof Promise ? await params : params
     const { id: customerId } = resolvedParams
+
+    console.log('[GET /api/customers/[id]] Fetching customer:', customerId)
 
     const customer = await prisma.customer.findUnique({
       where: { id: customerId },
@@ -37,17 +40,26 @@ export async function GET(
     })
 
     if (!customer) {
+      console.warn('[GET /api/customers/[id]] Customer not found:', customerId)
       return NextResponse.json(
-        { error: 'Customer not found' },
+        { success: false, error: 'Customer not found' },
         { status: 404 }
       )
     }
 
-    return NextResponse.json(customer)
-  } catch (error) {
-    console.error('Error fetching customer:', error)
+    return NextResponse.json({
+      success: true,
+      data: customer,
+    })
+  } catch (error: any) {
+    console.error('[GET /api/customers/[id]] Error fetching customer:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+      name: error.name,
+    })
     return NextResponse.json(
-      { error: 'Failed to fetch customer' },
+      { success: false, error: error.message || 'Failed to fetch customer' },
       { status: 500 }
     )
   }
@@ -60,14 +72,27 @@ export async function PUT(
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      console.error('[PUT /api/customers/[id]] Unauthorized request')
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
     const resolvedParams = params instanceof Promise ? await params : params
     const { id: customerId } = resolvedParams
 
     const body = await request.json()
-    const validatedData = updateCustomerSchema.parse(body)
+    console.log('[PUT /api/customers/[id]] Request body:', { customerId, body })
+
+    // Pre-process body to convert empty strings to null for optional fields
+    const processedBody = {
+      ...body,
+      email: body.email === '' || body.email === null ? null : body.email,
+      phone: body.phone === '' || body.phone === null ? null : body.phone,
+      address: body.address === '' || body.address === null ? null : body.address,
+      fileLink: body.fileLink === '' || body.fileLink === null ? null : body.fileLink,
+    }
+
+    const validatedData = updateCustomerSchema.parse(processedBody)
+    console.log('[PUT /api/customers/[id]] Validated data:', validatedData)
 
     // Check if customer exists
     const existingCustomer = await prisma.customer.findUnique({
@@ -75,8 +100,9 @@ export async function PUT(
     })
 
     if (!existingCustomer) {
+      console.warn('[PUT /api/customers/[id]] Customer not found:', customerId)
       return NextResponse.json(
-        { error: 'Customer not found' },
+        { success: false, error: 'Customer not found' },
         { status: 404 }
       )
     }
@@ -88,8 +114,9 @@ export async function PUT(
       })
 
       if (duplicateCustomer) {
+        console.warn('[PUT /api/customers/[id]] Duplicate customer name:', validatedData.name)
         return NextResponse.json(
-          { error: 'Customer with this name already exists' },
+          { success: false, error: 'Customer with this name already exists' },
           { status: 400 }
         )
       }
@@ -97,40 +124,53 @@ export async function PUT(
 
     // Prepare update data - handle empty strings and nulls
     const updateData: any = {
-      name: validatedData.name,
-      isActive: validatedData.isActive ?? true,
+      name: validatedData.name.trim(),
+      isActive: validatedData.isActive ?? existingCustomer.isActive,
     }
     
-    // Handle optional fields - convert empty strings to null
+    // Handle optional fields - convert empty strings to null and trim
     if (validatedData.email !== undefined) {
-      updateData.email = validatedData.email === '' || validatedData.email === null ? null : validatedData.email
+      updateData.email = validatedData.email && validatedData.email.trim() !== '' ? validatedData.email.trim() : null
     }
     if (validatedData.phone !== undefined) {
-      updateData.phone = validatedData.phone === '' || validatedData.phone === null ? null : validatedData.phone
+      updateData.phone = validatedData.phone && validatedData.phone.trim() !== '' ? validatedData.phone.trim() : null
     }
     if (validatedData.address !== undefined) {
-      updateData.address = validatedData.address === '' || validatedData.address === null ? null : validatedData.address
+      updateData.address = validatedData.address && validatedData.address.trim() !== '' ? validatedData.address.trim() : null
     }
     if (validatedData.fileLink !== undefined) {
-      updateData.fileLink = validatedData.fileLink === '' || validatedData.fileLink === null ? null : validatedData.fileLink
+      updateData.fileLink = validatedData.fileLink && validatedData.fileLink.trim() !== '' ? validatedData.fileLink.trim() : null
     }
+
+    console.log('[PUT /api/customers/[id]] Updating customer with data:', updateData)
 
     const updatedCustomer = await prisma.customer.update({
       where: { id: customerId },
       data: updateData
     })
 
-    return NextResponse.json(updatedCustomer)
-  } catch (error) {
-    console.error('Error updating customer:', error)
+    console.log('[PUT /api/customers/[id]] Customer updated successfully:', customerId)
+
+    return NextResponse.json({
+      success: true,
+      data: updatedCustomer,
+    })
+  } catch (error: any) {
+    console.error('[PUT /api/customers/[id]] Error updating customer:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+      name: error.name,
+    })
     if (error instanceof z.ZodError) {
+      console.error('[PUT /api/customers/[id]] Validation errors:', error.errors)
       return NextResponse.json(
-        { error: 'Validation error', details: error.errors },
+        { success: false, error: 'Validation error', details: error.errors },
         { status: 400 }
       )
     }
     return NextResponse.json(
-      { error: 'Failed to update customer' },
+      { success: false, error: error.message || 'Failed to update customer' },
       { status: 500 }
     )
   }
@@ -143,11 +183,14 @@ export async function DELETE(
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      console.error('[DELETE /api/customers/[id]] Unauthorized request')
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
     }
 
     const resolvedParams = params instanceof Promise ? await params : params
     const { id: customerId } = resolvedParams
+
+    console.log('[DELETE /api/customers/[id]] Deleting customer:', customerId)
 
     // Check if customer exists
     const existingCustomer = await prisma.customer.findUnique({
@@ -160,16 +203,21 @@ export async function DELETE(
     })
 
     if (!existingCustomer) {
+      console.warn('[DELETE /api/customers/[id]] Customer not found:', customerId)
       return NextResponse.json(
-        { error: 'Customer not found' },
+        { success: false, error: 'Customer not found' },
         { status: 404 }
       )
     }
 
     // Check if customer has associated jobs
     if (existingCustomer._count.jobs > 0) {
+      console.warn('[DELETE /api/customers/[id]] Customer has associated jobs:', {
+        customerId,
+        jobsCount: existingCustomer._count.jobs,
+      })
       return NextResponse.json(
-        { error: 'Cannot delete customer with associated jobs. Please reassign or delete the jobs first.' },
+        { success: false, error: 'Cannot delete customer with associated jobs. Please reassign or delete the jobs first.' },
         { status: 400 }
       )
     }
@@ -178,11 +226,21 @@ export async function DELETE(
       where: { id: customerId }
     })
 
-    return NextResponse.json({ message: 'Customer deleted successfully' })
-  } catch (error) {
-    console.error('Error deleting customer:', error)
+    console.log('[DELETE /api/customers/[id]] Customer deleted successfully:', customerId)
+
+    return NextResponse.json({ 
+      success: true,
+      message: 'Customer deleted successfully' 
+    })
+  } catch (error: any) {
+    console.error('[DELETE /api/customers/[id]] Error deleting customer:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack,
+      name: error.name,
+    })
     return NextResponse.json(
-      { error: 'Failed to delete customer' },
+      { success: false, error: error.message || 'Failed to delete customer' },
       { status: 500 }
     )
   }

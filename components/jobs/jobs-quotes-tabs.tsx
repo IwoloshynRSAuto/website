@@ -109,17 +109,26 @@ export function JobsQuotesTabs({ jobs, quotes, headerButtons }: JobsQuotesTabsPr
 
   return (
     <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'all' | 'jobs' | 'quotes')} className="w-full">
-      <TabsList className="grid w-full grid-cols-3 mb-6">
-        <TabsTrigger value="all" className="flex items-center gap-2">
-          <Wrench className="h-4 w-4" />
+      <TabsList className="grid w-full grid-cols-3 mb-6 gap-2 bg-transparent p-0 h-auto">
+        <TabsTrigger 
+          value="all" 
+          className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
+        >
+          <Wrench className="h-5 w-5" />
           All ({allItems.length})
         </TabsTrigger>
-        <TabsTrigger value="jobs" className="flex items-center gap-2">
-          <Wrench className="h-4 w-4" />
+        <TabsTrigger 
+          value="jobs" 
+          className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
+        >
+          <Wrench className="h-5 w-5" />
           Jobs ({jobOnlyItems.length})
         </TabsTrigger>
-        <TabsTrigger value="quotes" className="flex items-center gap-2">
-          <FileText className="h-4 w-4" />
+        <TabsTrigger 
+          value="quotes" 
+          className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
+        >
+          <FileText className="h-5 w-5" />
           Quotes ({quoteJobItems.length + quotesForView.length})
         </TabsTrigger>
       </TabsList>

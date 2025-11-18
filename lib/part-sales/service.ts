@@ -128,49 +128,49 @@ export class PartSaleService {
     }
 
     try {
-      return await prisma.quote.findMany({
-        where,
-        include: {
-          customer: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-            },
+    return await prisma.quote.findMany({
+      where,
+      include: {
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
           },
-          linkedBOMs: {
-            include: {
-              parts: {
-                include: {
+        },
+        linkedBOMs: {
+          include: {
+            parts: {
+              include: {
                   originalPart: {
-                    select: {
-                      id: true,
-                      partNumber: true,
-                      manufacturer: true,
-                      description: true,
-                      purchasePrice: true,
-                    },
+                  select: {
+                    id: true,
+                    partNumber: true,
+                    manufacturer: true,
+                    description: true,
+                    purchasePrice: true,
                   },
                 },
               },
             },
           },
-          fileRecords: {
-            orderBy: { createdAt: 'desc' },
-          },
-          revisions: {
-            orderBy: { revisionNumber: 'desc' },
-            take: 10,
-          },
-          _count: {
-            select: {
-              fileRecords: true,
-              revisions: true,
-            },
+        },
+        fileRecords: {
+          orderBy: { createdAt: 'desc' },
+        },
+        revisions: {
+          orderBy: { revisionNumber: 'desc' },
+          take: 10,
+        },
+        _count: {
+          select: {
+            fileRecords: true,
+            revisions: true,
           },
         },
-        orderBy: { quoteNumber: 'desc' },
-      })
+      },
+      orderBy: { quoteNumber: 'desc' },
+    })
     } catch (error: any) {
       // If fileRecords or revisions tables don't exist, fetch without them
       console.warn('Error fetching with fileRecords/revisions, falling back to basic query:', error?.message)

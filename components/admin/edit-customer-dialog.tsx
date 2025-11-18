@@ -69,35 +69,60 @@ export function EditCustomerDialog({ customer, isOpen, onClose }: EditCustomerDi
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Validate name
+    if (!formData.name || formData.name.trim() === '') {
+      toast.error('Customer name is required')
+      return
+    }
+
     setIsLoading(true)
 
     try {
+      // Build payload - validate email if provided
+      const emailValue = formData.email?.trim() || ''
+      if (emailValue && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailValue)) {
+        toast.error('Please enter a valid email address or leave it empty')
+        setIsLoading(false)
+        return
+      }
+
+      const payload = {
+        name: formData.name.trim(),
+        email: emailValue || null,
+        phone: formData.phone?.trim() || null,
+        address: formData.address?.trim() || null,
+        isActive: formData.isActive,
+        fileLink: formData.fileLink?.trim() || null
+      }
+
+      console.log('[EditCustomerDialog] Updating customer with payload:', payload)
+
       const response = await fetch(`/api/customers/${customer.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
-            body: JSON.stringify({
-              name: formData.name,
-              email: formData.email || null,
-              phone: formData.phone || null,
-              address: formData.address || null,
-              isActive: formData.isActive,
-              fileLink: formData.fileLink || null
-            }),
+        body: JSON.stringify(payload),
       })
 
-      if (response.ok) {
+      const data = await response.json()
+
+      if (response.ok && data.success) {
         toast.success('Customer updated successfully')
         onClose()
         router.refresh()
       } else {
-        const error = await response.json()
-        toast.error(error.error || 'Failed to update customer')
+        console.error('[EditCustomerDialog] API Error:', data)
+        const errorMessage = data.details 
+          ? `Validation error: ${JSON.stringify(data.details)}` 
+          : data.error || 'Failed to update customer'
+        toast.error(errorMessage)
       }
     } catch (error) {
-      console.error('Error updating customer:', error)
-      toast.error('An error occurred while updating the customer')
+      console.error('[EditCustomerDialog] Error updating customer:', error)
+      const errorMessage = error instanceof Error ? error.message : 'An error occurred while updating the customer'
+      toast.error(errorMessage)
     } finally {
       setIsLoading(false)
     }

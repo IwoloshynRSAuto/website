@@ -8,89 +8,90 @@ datasource db {
 }
 
 model User {
-  id                   String                   @id @default(cuid())
-  email                String                   @unique
-  name                 String?
-  role                 String                   @default("USER")
-  isActive             Boolean                  @default(true)
-  position             String?
-  wage                 Decimal?
-  phone                String?
-  managerId            String?
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
-  manager              User?                   @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
-  directReports        User[]                   @relation("EmployeeManager")
-  auditLogs            AuditLog[]               @relation("AuditLogs")
-  ecoOrders            EngineeringChangeOrder[]
-  createdJobs          Job[]                    @relation("JobCreator")
-  assignedJobs         Job[]                    @relation("JobAssignee")
-  timeEntries          TimeEntry[]
-  rejectedTimesheets   TimesheetSubmission[]    @relation("TimesheetRejections")
-  approvedTimesheets   TimesheetSubmission[]    @relation("TimesheetApprovals")
-  timesheetSubmissions TimesheetSubmission[]
-  punchTimesheets      Timesheet[]
-  timeChangeRequests   TimeChangeRequest[]      @relation("TimeChangeRequests")
-  approvedTimeChanges  TimeChangeRequest[]      @relation("TimeChangeApprovals")
-  rejectedTimeChanges  TimeChangeRequest[]      @relation("TimeChangeRejections")
-  fileRecords          FileRecord[]             @relation("FileRecords")
-  quoteRevisions       QuoteRevision[]          @relation("QuoteRevisionCreator")
-  timeOffRequests      TimeOffRequest[]         @relation("TimeOffRequests")
-  approvedTimeOff      TimeOffRequest[]         @relation("TimeOffApprovals")
-  rejectedTimeOff      TimeOffRequest[]         @relation("TimeOffRejections")
-  expenseReports       ExpenseReport[]          @relation("ExpenseReports")
-  approvedExpenses      ExpenseReport[]          @relation("ExpenseApprovals")
-  rejectedExpenses      ExpenseReport[]          @relation("ExpenseRejections")
-  serviceReports       ServiceReport[]          @relation("ServiceReports")
-  deliverableAssignments JobDeliverable[]         @relation("DeliverableAssignments")
-  createdBillingMilestones BillingMilestone[]    @relation("BillingMilestoneCreator")
+  id                       String                   @id @default(cuid())
+  email                    String                   @unique
+  name                     String?
+  role                     String                   @default("USER")
+  isActive                 Boolean                  @default(true)
+  position                 String?
+  wage                     Decimal?
+  phone                    String?
+  managerId                String?
+  createdAt                DateTime                 @default(now())
+  updatedAt                DateTime                 @updatedAt
+  manager                  User?                    @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
+  directReports            User[]                   @relation("EmployeeManager")
+  auditLogs                AuditLog[]               @relation("AuditLogs")
+  ecoOrders                EngineeringChangeOrder[]
+  createdJobs              Job[]                    @relation("JobCreator")
+  assignedJobs             Job[]                    @relation("JobAssignee")
+  timeEntries              TimeEntry[]
+  rejectedTimesheets       TimesheetSubmission[]    @relation("TimesheetRejections")
+  approvedTimesheets       TimesheetSubmission[]    @relation("TimesheetApprovals")
+  timesheetSubmissions     TimesheetSubmission[]
+  punchTimesheets          Timesheet[]
+  timeChangeRequests       TimeChangeRequest[]      @relation("TimeChangeRequests")
+  approvedTimeChanges      TimeChangeRequest[]      @relation("TimeChangeApprovals")
+  rejectedTimeChanges      TimeChangeRequest[]      @relation("TimeChangeRejections")
+  fileRecords              FileRecord[]             @relation("FileRecords")
+  quoteRevisions           QuoteRevision[]          @relation("QuoteRevisionCreator")
+  timeOffRequests          TimeOffRequest[]         @relation("TimeOffRequests")
+  approvedTimeOff          TimeOffRequest[]         @relation("TimeOffApprovals")
+  rejectedTimeOff          TimeOffRequest[]         @relation("TimeOffRejections")
+  expenseReports           ExpenseReport[]          @relation("ExpenseReports")
+  approvedExpenses         ExpenseReport[]          @relation("ExpenseApprovals")
+  rejectedExpenses         ExpenseReport[]          @relation("ExpenseRejections")
+  serviceReports           ServiceReport[]          @relation("ServiceReports")
+  deliverableAssignments   JobDeliverable[]         @relation("DeliverableAssignments")
+  createdBillingMilestones BillingMilestone[]       @relation("BillingMilestoneCreator")
 
   @@map("users")
 }
 
 model Job {
-  id              String                   @id @default(cuid())
-  jobNumber       String                   @unique
-  title           String
-  description     String?
-  type            String                   @default("JOB")
-  status          String                   @default("ACTIVE")
-  priority        String                   @default("MEDIUM")
-  startDate       DateTime?
-  endDate         DateTime?
-  estimatedHours  Float?
-  actualHours     Float?
-  assignedToId    String?
-  createdById     String
-  customerId      String?
-  workCode        String?
-  estimatedCost   Float?
-  dueTodayPercent Float?
-  inQuickBooks    Boolean                  @default(false)
-  inLDrive        Boolean                  @default(false)
-  fileLink        String?
-  quoteId         String?                  @unique
-  relatedQuoteId  String?
-  convertedAt     DateTime?
-  lockedHours     Float?
-  currentRevision String?
-  createdAt       DateTime                 @default(now())
-  updatedAt       DateTime                 @updatedAt
-  lastFollowUp    DateTime?
-  ecoOrders       EngineeringChangeOrder[]
-  quotedLabor     JobLaborEstimate[]
-  quote           Quote?                   @relation(fields: [quoteId], references: [id])
-  customer        Customer?                @relation(fields: [customerId], references: [id])
-  createdBy       User                     @relation("JobCreator", fields: [createdById], references: [id])
-  assignedTo      User?                    @relation("JobAssignee", fields: [assignedToId], references: [id])
-  timeEntries     TimeEntry[]
-  fileRecords     FileRecord[]             @relation("JobFiles")
-  milestones      JobMilestone[]           @relation("JobMilestones")
-  expenseReports   ExpenseReport[]          @relation("JobExpenses")
-  serviceReports   ServiceReport[]          @relation("JobServiceReports")
-  purchaseOrders   PurchaseOrder[]          @relation("JobPurchaseOrders")
-  deliverables     JobDeliverable[]         @relation("JobDeliverables")
-  billingMilestones BillingMilestone[]      @relation("JobBillingMilestones")
+  id                 String                   @id @default(cuid())
+  jobNumber          String                   @unique
+  title              String
+  description        String?
+  type               String                   @default("JOB")
+  status             String                   @default("ACTIVE") // Using String for now, will migrate to JobStatus enum later
+  createdFromQuoteId String? // Link to the quote that created this job
+  priority           String                   @default("MEDIUM")
+  startDate          DateTime?
+  endDate            DateTime?
+  estimatedHours     Float?
+  actualHours        Float?
+  assignedToId       String?
+  createdById        String
+  customerId         String?
+  workCode           String?
+  estimatedCost      Float?
+  dueTodayPercent    Float?
+  inQuickBooks       Boolean                  @default(false)
+  inLDrive           Boolean                  @default(false)
+  fileLink           String?
+  quoteId            String?                  @unique
+  relatedQuoteId     String?
+  convertedAt        DateTime?
+  lockedHours        Float?
+  currentRevision    String?
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+  lastFollowUp       DateTime?
+  ecoOrders          EngineeringChangeOrder[]
+  quotedLabor        JobLaborEstimate[]
+  quote              Quote?                   @relation(fields: [quoteId], references: [id])
+  customer           Customer?                @relation(fields: [customerId], references: [id])
+  createdBy          User                     @relation("JobCreator", fields: [createdById], references: [id])
+  assignedTo         User?                    @relation("JobAssignee", fields: [assignedToId], references: [id])
+  timeEntries        TimeEntry[]
+  fileRecords        FileRecord[]             @relation("JobFiles")
+  milestones         JobMilestone[]           @relation("JobMilestones")
+  expenseReports     ExpenseReport[]          @relation("JobExpenses")
+  serviceReports     ServiceReport[]          @relation("JobServiceReports")
+  purchaseOrders     PurchaseOrder[]          @relation("JobPurchaseOrders")
+  deliverables       JobDeliverable[]         @relation("JobDeliverables")
+  billingMilestones  BillingMilestone[]       @relation("JobBillingMilestones")
 
   @@map("jobs")
 }
@@ -176,16 +177,16 @@ model LaborCode {
 }
 
 model Quote {
-  id                   String       @id @default(cuid())
-  quoteNumber          String       @unique
+  id                   String           @id @default(cuid())
+  quoteNumber          String           @unique
   title                String
   description          String?
   customerId           String?
-  amount               Float        @default(0)
+  amount               Float            @default(0)
   validUntil           DateTime?
-  status               String       @default("DRAFT")
-  quoteType            String       @default("PROJECT") // PROJECT, PART_SALE
-  isActive             Boolean      @default(true)
+  status               QuoteStatus      @default(DRAFT)
+  quoteType            String           @default("PROJECT") // PROJECT, PART_SALE
+  isActive             Boolean          @default(true)
   paymentTerms         String?
   estimatedHours       Float?
   hourlyRate           Float?
@@ -198,11 +199,11 @@ model Quote {
   customerContactPhone String?
   lastFollowUp         DateTime?
   quoteFile            String?
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  linkedBOMs           BOM[]        @relation("QuoteToBOM")
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  linkedBOMs           BOM[]            @relation("QuoteToBOM")
   job                  Job?
-  customer             Customer?       @relation(fields: [customerId], references: [id])
+  customer             Customer?        @relation(fields: [customerId], references: [id])
   fileRecords          FileRecord[]     @relation("QuoteFiles")
   revisions            QuoteRevision[]  @relation("QuoteRevisions")
   lostReason           QuoteLostReason?
@@ -285,22 +286,22 @@ model EngineeringChangeOrder {
 }
 
 model Part {
-  id               String         @id @default(cuid())
-  partNumber       String         @unique
-  manufacturer     String
-  description      String?
-  category         String?
-  subcategory      String?
-  primarySource    String?
-  secondarySources String?
-  purchasePrice    Float?
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  bomParts         BOMPart[]
-  packageParts     PackagePart[]
-  relatedPartsB    PartRelation[] @relation("PartB")
-  relatedPartsA    PartRelation[] @relation("PartA")
-  vendorPrices     VendorPartPrice[]
+  id                 String              @id @default(cuid())
+  partNumber         String              @unique
+  manufacturer       String
+  description        String?
+  category           String?
+  subcategory        String?
+  primarySource      String?
+  secondarySources   String?
+  purchasePrice      Float?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  bomParts           BOMPart[]
+  packageParts       PackagePart[]
+  relatedPartsB      PartRelation[]      @relation("PartB")
+  relatedPartsA      PartRelation[]      @relation("PartA")
+  vendorPrices       VendorPartPrice[]
   purchaseOrderItems PurchaseOrderItem[]
 
   @@map("parts")
@@ -398,29 +399,43 @@ enum BOMStatus {
   ARCHIVED
 }
 
+enum QuoteStatus {
+  DRAFT
+  APPROVED
+  CANCELLED
+}
+
+enum JobStatus {
+  PLANNED
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
 model Timesheet {
-  id             String              @id @default(cuid())
-  userId         String
-  date           DateTime
-  clockInTime    DateTime
-  clockOutTime   DateTime?
-  totalHours     Float?
-  status         String              @default("in-progress") // in-progress, completed, needs-review
+  id                     String              @id @default(cuid())
+  userId                 String
+  date                   DateTime
+  clockInTime            DateTime
+  clockOutTime           DateTime?
+  totalHours             Float?
+  status                 String              @default("in-progress") // in-progress, completed, needs-review
   // Geolocation fields
-  geoLat         Float?              // Latitude for clock-in
-  geoLon         Float?              // Longitude for clock-in
-  geoAccuracy    Float?              // Accuracy in meters
-  locationDenied Boolean             @default(false) // True if user denied location permission
+  geoLat                 Float? // Latitude for clock-in
+  geoLon                 Float? // Longitude for clock-in
+  geoAccuracy            Float? // Accuracy in meters
+  locationDenied         Boolean             @default(false) // True if user denied location permission
   // Geolocation for clock-out
-  clockOutGeoLat Float?              // Latitude for clock-out
-  clockOutGeoLon Float?              // Longitude for clock-out
-  clockOutGeoAccuracy Float?         // Accuracy for clock-out
-  clockOutLocationDenied Boolean     @default(false) // True if location denied on clock-out
-  createdAt      DateTime            @default(now())
-  updatedAt      DateTime            @updatedAt
-  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  jobEntries     JobEntry[]
-  changeRequests TimeChangeRequest[]
+  clockOutGeoLat         Float? // Latitude for clock-out
+  clockOutGeoLon         Float? // Longitude for clock-out
+  clockOutGeoAccuracy    Float? // Accuracy for clock-out
+  clockOutLocationDenied Boolean             @default(false) // True if location denied on clock-out
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  user                   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobEntries             JobEntry[]
+  changeRequests         TimeChangeRequest[]
 
   @@map("timesheets")
 }
@@ -468,29 +483,29 @@ model JobEntry {
 }
 
 model FileRecord {
-  id            String   @id @default(cuid())
-  storagePath   String // Path in storage (e.g., 'quotes/quote-Q0001.pdf')
-  fileUrl       String? // Public URL or signed URL
-  fileName      String // Original filename
-  fileType      String // MIME type (e.g., 'application/pdf')
-  fileSize      Int? // File size in bytes
-  metadata      Json? // Additional metadata (JSON)
-  createdById   String
-  linkedJobId        String?
-  linkedQuoteId      String?
-  linkedServiceReportId String?
-  linkedEquipmentId  String?
-  linkedDeliverableId String?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
-  createdBy          User     @relation("FileRecords", fields: [createdById], references: [id])
-  linkedJob          Job?     @relation("JobFiles", fields: [linkedJobId], references: [id], onDelete: SetNull)
-  linkedQuote        Quote?   @relation("QuoteFiles", fields: [linkedQuoteId], references: [id], onDelete: SetNull)
-  linkedServiceReport ServiceReport? @relation("ServiceReportAttachments", fields: [linkedServiceReportId], references: [id], onDelete: SetNull)
-  expenseReceipt     ExpenseReport? @relation("ExpenseReceipts")
-  linkedEquipment    Equipment? @relation("EquipmentManuals", fields: [linkedEquipmentId], references: [id], onDelete: SetNull)
+  id                     String                @id @default(cuid())
+  storagePath            String // Path in storage (e.g., 'quotes/quote-Q0001.pdf')
+  fileUrl                String? // Public URL or signed URL
+  fileName               String // Original filename
+  fileType               String // MIME type (e.g., 'application/pdf')
+  fileSize               Int? // File size in bytes
+  metadata               Json? // Additional metadata (JSON)
+  createdById            String
+  linkedJobId            String?
+  linkedQuoteId          String?
+  linkedServiceReportId  String?
+  linkedEquipmentId      String?
+  linkedDeliverableId    String?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
+  createdBy              User                  @relation("FileRecords", fields: [createdById], references: [id])
+  linkedJob              Job?                  @relation("JobFiles", fields: [linkedJobId], references: [id], onDelete: SetNull)
+  linkedQuote            Quote?                @relation("QuoteFiles", fields: [linkedQuoteId], references: [id], onDelete: SetNull)
+  linkedServiceReport    ServiceReport?        @relation("ServiceReportAttachments", fields: [linkedServiceReportId], references: [id], onDelete: SetNull)
+  expenseReceipt         ExpenseReport?        @relation("ExpenseReceipts")
+  linkedEquipment        Equipment?            @relation("EquipmentManuals", fields: [linkedEquipmentId], references: [id], onDelete: SetNull)
   calibrationCertificate EquipmentCalibration? @relation("CalibrationCertificates")
-  deliverableFiles    JobDeliverable? @relation("DeliverableFiles", fields: [linkedDeliverableId], references: [id], onDelete: SetNull)
+  deliverableFiles       JobDeliverable?       @relation("DeliverableFiles", fields: [linkedDeliverableId], references: [id], onDelete: SetNull)
 
   @@index([linkedJobId])
   @@index([linkedQuoteId])
@@ -506,7 +521,7 @@ model QuoteRevision {
   id             String   @id @default(cuid())
   quoteId        String
   revisionNumber Int
-  data           Json     // Snapshot of quote data at this revision
+  data           Json // Snapshot of quote data at this revision
   createdById    String
   createdAt      DateTime @default(now())
   quote          Quote    @relation("QuoteRevisions", fields: [quoteId], references: [id], onDelete: Cascade)
@@ -519,47 +534,47 @@ model QuoteRevision {
 }
 
 model JobMilestone {
-  id                String    @id @default(cuid())
-  jobId             String
-  name              String
-  description       String?
-  milestoneType     String    // ENGINEERING, PANEL_BUILD, FAT, SAT, COMMISSIONING, OTHER
+  id                 String             @id @default(cuid())
+  jobId              String
+  name               String
+  description        String?
+  milestoneType      String // ENGINEERING, PANEL_BUILD, FAT, SAT, COMMISSIONING, OTHER
   scheduledStartDate DateTime?
   scheduledEndDate   DateTime?
   actualStartDate    DateTime?
   actualEndDate      DateTime?
-  status            String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
-  billingPercentage Float?    // Percentage of total job value
-  isBillingTrigger  Boolean   @default(false) // Triggers invoice when completed
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  job               Job       @relation("JobMilestones", fields: [jobId], references: [id], onDelete: Cascade)
+  status             String             @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
+  billingPercentage  Float? // Percentage of total job value
+  isBillingTrigger   Boolean            @default(false) // Triggers invoice when completed
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  job                Job                @relation("JobMilestones", fields: [jobId], references: [id], onDelete: Cascade)
+  billingMilestones  BillingMilestone[] @relation("BillingMilestoneLink")
 
   @@index([jobId])
   @@index([status])
   @@index([milestoneType])
-  billingMilestones BillingMilestone[] @relation("BillingMilestoneLink")
   @@map("job_milestones")
 }
 
 model JobDeliverable {
-  id              String    @id @default(cuid())
+  id              String       @id @default(cuid())
   jobId           String
-  templateCode    String?   // RSA PM010-PM140 template codes
+  templateCode    String? // RSA PM010-PM140 template codes
   name            String
   description     String?
-  deliverableType String    @default("DOCUMENT") // DOCUMENT, HARDWARE, SOFTWARE, OTHER
-  status          String    @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, DELIVERED, ACCEPTED, REJECTED
+  deliverableType String       @default("DOCUMENT") // DOCUMENT, HARDWARE, SOFTWARE, OTHER
+  status          String       @default("PENDING") // PENDING, IN_PROGRESS, COMPLETED, DELIVERED, ACCEPTED, REJECTED
   assignedToId    String?
   dueDate         DateTime?
   completedDate   DateTime?
   deliveredDate   DateTime?
   acceptedDate    DateTime?
   notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  job             Job       @relation("JobDeliverables", fields: [jobId], references: [id], onDelete: Cascade)
-  assignedTo      User?     @relation("DeliverableAssignments", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  job             Job          @relation("JobDeliverables", fields: [jobId], references: [id], onDelete: Cascade)
+  assignedTo      User?        @relation("DeliverableAssignments", fields: [assignedToId], references: [id], onDelete: SetNull)
   files           FileRecord[] @relation("DeliverableFiles")
 
   @@index([jobId])
@@ -570,23 +585,23 @@ model JobDeliverable {
 }
 
 model BillingMilestone {
-  id                String    @id @default(cuid())
-  jobId             String
-  milestoneId       String?   // Optional link to JobMilestone
-  invoiceNumber     String?
-  amount            Float
-  percentage        Float     // Percentage of total job value
-  status            String    @default("PENDING") // PENDING, INVOICED, PAID, CANCELLED
-  invoicedAt        DateTime?
-  paidAt            DateTime?
-  dueDate           DateTime?
-  notes             String?
-  createdById       String
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  job               Job       @relation("JobBillingMilestones", fields: [jobId], references: [id], onDelete: Cascade)
-  milestone         JobMilestone? @relation("BillingMilestoneLink", fields: [milestoneId], references: [id], onDelete: SetNull)
-  createdBy         User      @relation("BillingMilestoneCreator", fields: [createdById], references: [id])
+  id            String        @id @default(cuid())
+  jobId         String
+  milestoneId   String? // Optional link to JobMilestone
+  invoiceNumber String?
+  amount        Float
+  percentage    Float // Percentage of total job value
+  status        String        @default("PENDING") // PENDING, INVOICED, PAID, CANCELLED
+  invoicedAt    DateTime?
+  paidAt        DateTime?
+  dueDate       DateTime?
+  notes         String?
+  createdById   String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  job           Job           @relation("JobBillingMilestones", fields: [jobId], references: [id], onDelete: Cascade)
+  milestone     JobMilestone? @relation("BillingMilestoneLink", fields: [milestoneId], references: [id], onDelete: SetNull)
+  createdBy     User          @relation("BillingMilestoneCreator", fields: [createdById], references: [id])
 
   @@index([jobId])
   @@index([milestoneId])
@@ -600,7 +615,7 @@ model TimeOffRequest {
   userId          String
   startDate       DateTime
   endDate         DateTime
-  requestType     String    // VACATION, SICK, PERSONAL, UNPAID, OTHER
+  requestType     String // VACATION, SICK, PERSONAL, UNPAID, OTHER
   reason          String?
   hours           Float?
   status          String    @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
@@ -624,15 +639,15 @@ model TimeOffRequest {
 }
 
 model ExpenseReport {
-  id              String    @id @default(cuid())
+  id              String      @id @default(cuid())
   userId          String
   reportDate      DateTime
   description     String
   amount          Float
-  category        String    // TRAVEL, MEALS, SUPPLIES, EQUIPMENT, OTHER
+  category        String // TRAVEL, MEALS, SUPPLIES, EQUIPMENT, OTHER
   jobId           String?
-  receiptFileId   String?   @unique
-  status          String    @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, PAID
+  receiptFileId   String?     @unique
+  status          String      @default("DRAFT") // DRAFT, SUBMITTED, APPROVED, REJECTED, PAID
   submittedAt     DateTime?
   approvedAt      DateTime?
   approvedById    String?
@@ -640,13 +655,13 @@ model ExpenseReport {
   rejectedById    String?
   rejectionReason String?
   paidAt          DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  user            User      @relation("ExpenseReports", fields: [userId], references: [id], onDelete: Cascade)
-  job             Job?      @relation("JobExpenses", fields: [jobId], references: [id], onDelete: SetNull)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  user            User        @relation("ExpenseReports", fields: [userId], references: [id], onDelete: Cascade)
+  job             Job?        @relation("JobExpenses", fields: [jobId], references: [id], onDelete: SetNull)
   receiptFile     FileRecord? @relation("ExpenseReceipts", fields: [receiptFileId], references: [id], onDelete: SetNull)
-  approvedBy      User?     @relation("ExpenseApprovals", fields: [approvedById], references: [id])
-  rejectedBy      User?     @relation("ExpenseRejections", fields: [rejectedById], references: [id])
+  approvedBy      User?       @relation("ExpenseApprovals", fields: [approvedById], references: [id])
+  rejectedBy      User?       @relation("ExpenseRejections", fields: [rejectedById], references: [id])
 
   @@index([userId])
   @@index([status])
@@ -657,20 +672,20 @@ model ExpenseReport {
 }
 
 model ServiceReport {
-  id              String    @id @default(cuid())
-  jobId           String
-  userId          String
-  reportDate      DateTime
-  serviceType     String    // INSTALLATION, MAINTENANCE, REPAIR, COMMISSIONING, TRAINING, OTHER
-  description     String
-  hoursWorked     Float?
-  customerNotes   String?
-  internalNotes   String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  job             Job       @relation("JobServiceReports", fields: [jobId], references: [id], onDelete: Cascade)
-  user            User      @relation("ServiceReports", fields: [userId], references: [id], onDelete: Cascade)
-  attachments     FileRecord[] @relation("ServiceReportAttachments")
+  id            String       @id @default(cuid())
+  jobId         String
+  userId        String
+  reportDate    DateTime
+  serviceType   String // INSTALLATION, MAINTENANCE, REPAIR, COMMISSIONING, TRAINING, OTHER
+  description   String
+  hoursWorked   Float?
+  customerNotes String?
+  internalNotes String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  job           Job          @relation("JobServiceReports", fields: [jobId], references: [id], onDelete: Cascade)
+  user          User         @relation("ServiceReports", fields: [userId], references: [id], onDelete: Cascade)
+  attachments   FileRecord[] @relation("ServiceReportAttachments")
 
   @@index([jobId])
   @@index([userId])
@@ -680,19 +695,19 @@ model ServiceReport {
 }
 
 model Vendor {
-  id          String             @id @default(cuid())
-  name        String             @unique
-  contactName String?
-  email       String?
-  phone       String?
-  address     String?
-  website     String?
-  category    String?            // ELECTRONICS, MECHANICAL, SOFTWARE, SUPPLIES, SERVICES, OTHER
-  notes       String?
-  isActive    Boolean            @default(true)
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  partPrices  VendorPartPrice[]
+  id             String            @id @default(cuid())
+  name           String            @unique
+  contactName    String?
+  email          String?
+  phone          String?
+  address        String?
+  website        String?
+  category       String? // ELECTRONICS, MECHANICAL, SOFTWARE, SUPPLIES, SERVICES, OTHER
+  notes          String?
+  isActive       Boolean           @default(true)
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  partPrices     VendorPartPrice[]
   purchaseOrders PurchaseOrder[]
 
   @@index([name])
@@ -702,18 +717,18 @@ model Vendor {
 }
 
 model VendorPartPrice {
-  id                  String    @id @default(cuid())
-  vendorId            String
-  partId              String
-  price               Float
-  leadTimeDays        Int?
-  effectiveDate       DateTime  @default(now())
+  id                   String   @id @default(cuid())
+  vendorId             String
+  partId               String
+  price                Float
+  leadTimeDays         Int?
+  effectiveDate        DateTime @default(now())
   minimumOrderQuantity Int?
-  notes               String?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
-  vendor              Vendor    @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  part                Part      @relation(fields: [partId], references: [id], onDelete: Cascade)
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  vendor               Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  part                 Part     @relation(fields: [partId], references: [id], onDelete: Cascade)
 
   @@unique([vendorId, partId, effectiveDate])
   @@index([vendorId])
@@ -723,21 +738,21 @@ model VendorPartPrice {
 }
 
 model PurchaseOrder {
-  id              String    @id @default(cuid())
-  poNumber        String    @unique
-  vendorId        String
-  jobId           String?
-  status          String    @default("DRAFT") // DRAFT, SENT, RECEIVED, PARTIALLY_RECEIVED, COMPLETED, CANCELLED
-  orderDate       DateTime  @default(now())
-  expectedDate    DateTime?
-  receivedDate    DateTime?
-  totalAmount     Float?
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  vendor          Vendor    @relation(fields: [vendorId], references: [id], onDelete: Restrict)
-  job             Job?      @relation("JobPurchaseOrders", fields: [jobId], references: [id], onDelete: SetNull)
-  items           PurchaseOrderItem[]
+  id           String              @id @default(cuid())
+  poNumber     String              @unique
+  vendorId     String
+  jobId        String?
+  status       String              @default("DRAFT") // DRAFT, SENT, RECEIVED, PARTIALLY_RECEIVED, COMPLETED, CANCELLED
+  orderDate    DateTime            @default(now())
+  expectedDate DateTime?
+  receivedDate DateTime?
+  totalAmount  Float?
+  notes        String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  vendor       Vendor              @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  job          Job?                @relation("JobPurchaseOrders", fields: [jobId], references: [id], onDelete: SetNull)
+  items        PurchaseOrderItem[]
 
   @@index([vendorId])
   @@index([jobId])
@@ -747,19 +762,19 @@ model PurchaseOrder {
 }
 
 model PurchaseOrderItem {
-  id              String        @id @default(cuid())
-  purchaseOrderId String
-  partId          String?
-  description     String
-  quantity        Int
-  unitPrice       Float
-  totalPrice      Float
-  receivedQuantity Int          @default(0)
-  notes           String?
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  part            Part?         @relation(fields: [partId], references: [id], onDelete: SetNull)
+  id               String        @id @default(cuid())
+  purchaseOrderId  String
+  partId           String?
+  description      String
+  quantity         Int
+  unitPrice        Float
+  totalPrice       Float
+  receivedQuantity Int           @default(0)
+  notes            String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  part             Part?         @relation(fields: [partId], references: [id], onDelete: SetNull)
 
   @@index([purchaseOrderId])
   @@index([partId])
@@ -767,22 +782,22 @@ model PurchaseOrderItem {
 }
 
 model Equipment {
-  id                String            @id @default(cuid())
-  name              String
-  type              String            // CNC, WELDER, MILL, LATHE, FORKLIFT, CALIBRATION_TOOL, OTHER
-  serial            String?
-  purchaseDate      DateTime?
-  serviceStatus     String            @default("OPERATIONAL") // OPERATIONAL, MAINTENANCE, REPAIR, OUT_OF_SERVICE
-  pmSchedule        String?           // Preventive maintenance schedule (e.g., "Every 3 months")
-  lastPMService     DateTime?
-  nextPMService     DateTime?
-  assignedArea      String?           // Location/area where equipment is assigned
-  notes             String?
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  maintenanceLogs   EquipmentMaintenanceLog[]
+  id                 String                    @id @default(cuid())
+  name               String
+  type               String // CNC, WELDER, MILL, LATHE, FORKLIFT, CALIBRATION_TOOL, OTHER
+  serial             String?
+  purchaseDate       DateTime?
+  serviceStatus      String                    @default("OPERATIONAL") // OPERATIONAL, MAINTENANCE, REPAIR, OUT_OF_SERVICE
+  pmSchedule         String? // Preventive maintenance schedule (e.g., "Every 3 months")
+  lastPMService      DateTime?
+  nextPMService      DateTime?
+  assignedArea       String? // Location/area where equipment is assigned
+  notes              String?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  maintenanceLogs    EquipmentMaintenanceLog[]
   calibrationHistory EquipmentCalibration[]
-  manuals           FileRecord[]      @relation("EquipmentManuals")
+  manuals            FileRecord[]              @relation("EquipmentManuals")
 
   @@index([type])
   @@index([serviceStatus])
@@ -791,17 +806,17 @@ model Equipment {
 }
 
 model EquipmentMaintenanceLog {
-  id              String     @id @default(cuid())
-  equipmentId     String
-  serviceDate     DateTime
-  serviceType     String     // PREVENTIVE, REPAIR, INSPECTION, CALIBRATION
-  description     String
-  performedBy     String?    // User name or service provider
-  cost            Float?
-  notes           String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  equipment       Equipment  @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  equipmentId String
+  serviceDate DateTime
+  serviceType String // PREVENTIVE, REPAIR, INSPECTION, CALIBRATION
+  description String
+  performedBy String? // User name or service provider
+  cost        Float?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  equipment   Equipment @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
 
   @@index([equipmentId])
   @@index([serviceDate])
@@ -810,18 +825,18 @@ model EquipmentMaintenanceLog {
 }
 
 model EquipmentCalibration {
-  id              String     @id @default(cuid())
-  equipmentId     String
-  calibrationDate DateTime
+  id                  String      @id @default(cuid())
+  equipmentId         String
+  calibrationDate     DateTime
   nextCalibrationDate DateTime?
-  calibratedBy    String?    // User name or service provider
-  certificateNumber String?
-  certificateFileId String?  @unique
-  notes           String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  equipment       Equipment  @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
-  certificateFile FileRecord? @relation("CalibrationCertificates", fields: [certificateFileId], references: [id], onDelete: SetNull)
+  calibratedBy        String? // User name or service provider
+  certificateNumber   String?
+  certificateFileId   String?     @unique
+  notes               String?
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  equipment           Equipment   @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  certificateFile     FileRecord? @relation("CalibrationCertificates", fields: [certificateFileId], references: [id], onDelete: SetNull)
 
   @@index([equipmentId])
   @@index([calibrationDate])
@@ -830,16 +845,16 @@ model EquipmentCalibration {
 }
 
 model AuditLog {
-  id            String   @id @default(cuid())
-  userId        String
-  action        String   // CREATE, UPDATE, DELETE, APPROVE, REJECT, SUBMIT
-  resourceType  String   // USER, TIME_OFF_REQUEST, EXPENSE_REPORT, TIME_CHANGE_REQUEST, etc.
-  resourceId    String?
-  details       Json?    // Additional details about the action
-  ipAddress     String?
-  userAgent     String?
-  createdAt     DateTime @default(now())
-  user          User     @relation("AuditLogs", fields: [userId], references: [id], onDelete: Cascade)
+  id           String   @id @default(cuid())
+  userId       String
+  action       String // CREATE, UPDATE, DELETE, APPROVE, REJECT, SUBMIT
+  resourceType String // USER, TIME_OFF_REQUEST, EXPENSE_REPORT, TIME_CHANGE_REQUEST, etc.
+  resourceId   String?
+  details      Json? // Additional details about the action
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  user         User     @relation("AuditLogs", fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([resourceType])
@@ -849,12 +864,12 @@ model AuditLog {
 }
 
 model QuoteLostReason {
-  id          String   @id @default(cuid())
-  quoteId     String   @unique
-  reason      String   // PRICE, TIMELINE, SPECIFICATIONS, COMPETITOR, OTHER
-  details     String?
-  createdAt   DateTime @default(now())
-  quote       Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  id        String   @id @default(cuid())
+  quoteId   String   @unique
+  reason    String // PRICE, TIMELINE, SPECIFICATIONS, COMPETITOR, OTHER
+  details   String?
+  createdAt DateTime @default(now())
+  quote     Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@index([reason])
   @@map("quote_lost_reasons")

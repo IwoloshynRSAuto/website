@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { roundToNearest15Minutes, calculateHoursBetween } from '@/lib/utils/time-rounding'
 
@@ -32,20 +33,65 @@ export async function PUT(
     const body = await request.json()
     const validatedData = updateChangeRequestSchema.parse(body)
 
-    // Get the change request
-    const changeRequest = await prisma.timeChangeRequest.findUnique({
-      where: { id: changeRequestId },
-      include: {
-        timesheet: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true
+    // Get the change request - handle missing geolocation columns
+    let changeRequest
+    try {
+      changeRequest = await prisma.timeChangeRequest.findUnique({
+        where: { id: changeRequestId },
+        include: {
+          timesheet: {
+            select: {
+              id: true,
+              userId: true,
+              date: true,
+              clockInTime: true,
+              clockOutTime: true,
+              totalHours: true,
+              status: true
+              // Explicitly exclude geolocation fields
+            }
+          },
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
           }
         }
+      })
+    } catch (dbError: any) {
+      const errorMsg = String(dbError?.message || dbError?.code || '')
+      if (errorMsg.includes('geoLat') || errorMsg.includes('geoLon') || 
+          (errorMsg.includes('does not exist') && errorMsg.includes('geo'))) {
+        // Retry with select to exclude geolocation
+        changeRequest = await prisma.timeChangeRequest.findUnique({
+          where: { id: changeRequestId },
+          include: {
+            timesheet: {
+              select: {
+                id: true,
+                userId: true,
+                date: true,
+                clockInTime: true,
+                clockOutTime: true,
+                totalHours: true,
+                status: true
+              }
+            },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true
+              }
+            }
+          }
+        })
+      } else {
+        throw dbError
       }
-    })
+    }
 
     if (!changeRequest) {
       return NextResponse.json({ error: 'Change request not found' }, { status: 404 })
@@ -58,15 +104,68 @@ export async function PUT(
       )
     }
 
-    // Verify admin user exists
-    let adminUser = await prisma.user.findUnique({
-      where: { id: session.user.id }
-    })
+    // Verify admin user exists - handle missing managerId column
+    let adminUser
+    try {
+      adminUser = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          position: true,
+          wage: true,
+          phone: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true
+          // Explicitly exclude managerId
+        }
+      })
+    } catch (dbError: any) {
+      const errorMsg = String(dbError?.message || dbError?.code || '')
+      if (errorMsg.includes('managerId') && errorMsg.includes('does not exist')) {
+        // Use raw SQL to fetch user without managerId
+        const userResults = await prisma.$queryRaw(
+          Prisma.sql`SELECT id, email, name, role, position, wage, phone, "isActive", "createdAt", "updatedAt" FROM users WHERE id = ${session.user.id}`
+        ) as any[]
+        adminUser = userResults?.[0] || null
+      } else {
+        throw dbError
+      }
+    }
 
     if (!adminUser && session.user.email) {
-      adminUser = await prisma.user.findUnique({
-        where: { email: session.user.email }
-      })
+      try {
+        adminUser = await prisma.user.findUnique({
+          where: { email: session.user.email },
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            role: true,
+            position: true,
+            wage: true,
+            phone: true,
+            isActive: true,
+            createdAt: true,
+            updatedAt: true
+            // Explicitly exclude managerId
+          }
+        })
+      } catch (dbError: any) {
+        const errorMsg = String(dbError?.message || dbError?.code || '')
+        if (errorMsg.includes('managerId') && errorMsg.includes('does not exist')) {
+          // Use raw SQL to fetch user without managerId
+          const userResults = await prisma.$queryRaw(
+            Prisma.sql`SELECT id, email, name, role, position, wage, phone, "isActive", "createdAt", "updatedAt" FROM users WHERE email = ${session.user.email}`
+          ) as any[]
+          adminUser = userResults?.[0] || null
+        } else {
+          throw dbError
+        }
+      }
     }
 
     if (!adminUser) {

@@ -1,60 +1,43 @@
 'use client'
 
-import { useEffect } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession } from 'next-auth/react'
-import { cn } from '@/lib/utils'
+import { SidebarItem } from './sidebar-item'
 import {
-  LayoutDashboard,
   Home,
-  Users,
   Clock,
-  Shield,
-  Settings,
-  Wrench,
-  Code,
-  ChevronDown,
-  ChevronRight,
-  Building2,
-  Package,
-  Database,
-  Box,
-  Search,
   FileText,
   CheckCircle2,
-  AlertCircle,
-  BarChart3,
-  Calendar,
+  Wrench,
+  Package,
+  Building2,
+  Settings,
+  Database,
+  Box,
   DollarSign,
-  UserCheck,
-  TrendingUp,
+  Users,
+  BarChart3,
+  Code,
   MapPin,
 } from 'lucide-react'
-
-import { MODULE_COLORS } from '@/lib/dashboard-styles'
 
 const navigation = [
   { 
     name: 'Home', 
     href: '/dashboard/home', 
     icon: Home,
-    children: [
-      { name: 'PTO Approvals', href: '/dashboard/home/approvals/pto', icon: Calendar, adminOnly: true },
-      { name: 'Expense Approvals', href: '/dashboard/home/approvals/expense', icon: DollarSign, adminOnly: true },
-    ]
   },
   { 
     name: 'Timesheets', 
-    href: '/dashboard/timekeeping', 
-    icon: Clock, 
+    href: '/dashboard/timesheets/attendance', 
+    icon: Clock,
     module: 'timesheets',
     children: [
-      { name: 'Attendance', href: '/dashboard/timekeeping/attendance', icon: Clock },
-      { name: 'Time', href: '/dashboard/timekeeping/time', icon: FileText },
-      { name: 'Timesheet Approvals', href: '/dashboard/timekeeping/approvals/attendance', icon: CheckCircle2, adminOnly: true },
-      { name: 'Attendance Approvals', href: '/dashboard/timekeeping/approvals/time-changes', icon: AlertCircle, adminOnly: true },
-      { name: 'Attendance Locations', href: '/dashboard/timekeeping/locations', icon: MapPin, adminOnly: true },
+      { name: 'Attendance', href: '/dashboard/timesheets/attendance', icon: Clock },
+      { name: 'Time', href: '/dashboard/timesheets/time', icon: FileText },
+      { name: 'Approvals', href: '/dashboard/timesheets/approvals', icon: CheckCircle2, adminOnly: true },
+      { name: 'Geolocation', href: '/dashboard/timesheets/geolocation', icon: MapPin, adminOnly: true },
     ]
   },
   { name: 'Jobs', href: '/dashboard/jobs', icon: Wrench },
@@ -69,7 +52,6 @@ const navigation = [
       { name: 'Part Sales', href: '/dashboard/part-sales', icon: DollarSign },
     ]
   },
-  { name: 'Vendors', href: '/dashboard/vendors', icon: Building2 },
   { name: 'Customers', href: '/dashboard/customers', icon: Building2 },
   { 
     name: 'Admin Dashboard', 
@@ -77,6 +59,7 @@ const navigation = [
     icon: Settings,
     adminOnly: true,
     children: [
+      { name: 'Approvals', href: '/dashboard/admin/approvals', icon: CheckCircle2 },
       { name: 'Employee Management', href: '/dashboard/admin/employees', icon: Users },
       { name: 'Metrics & Analytics', href: '/dashboard/metrics', icon: BarChart3 },
       { name: 'Labor Codes', href: '/dashboard/admin/labor-codes', icon: Code },
@@ -108,6 +91,13 @@ export function Sidebar() {
       }
     }
     if (href.includes('/timekeeping') || href.includes('/timesheets')) {
+      return {
+        active: 'bg-orange-100 text-orange-700 border-l-2 border-orange-500',
+        icon: 'text-orange-500',
+        childActive: 'bg-orange-50 text-orange-600 border-l-2 border-orange-500',
+      }
+    }
+    if (href.includes('/timesheets')) {
       return {
         active: 'bg-orange-100 text-orange-700 border-l-2 border-orange-500',
         icon: 'text-orange-500',
@@ -178,73 +168,14 @@ export function Sidebar() {
           // Show admin/manager items only to admin or manager users
           if (item.adminOnly) {
             const userRole = session?.user?.role
-            // Always check - don't filter if we can't determine role
             if (!session || !session.user || (userRole !== 'ADMIN' && userRole !== 'MANAGER')) {
               return false
             }
           }
           return true
-        }).map((item) => {
-          const isActive = pathname === item.href || (item.children && item.children.some(child => pathname === child.href))
-          const hasChildren = item.children && item.children.length > 0
-          const moduleClasses = getModuleClasses(item.href)
-          
-          return (
-            <div key={item.name}>
-              <Link
-                href={item.href}
-                className={cn(
-                  'flex items-center px-3 py-2.5 text-sm font-medium rounded-lg transition-all duration-150 ease-in-out',
-                  isActive
-                    ? moduleClasses.active
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                )}
-              >
-                <item.icon className={cn(
-                  'mr-3 h-5 w-5 flex-shrink-0',
-                  isActive ? moduleClasses.icon : 'text-gray-400'
-                )} />
-                {item.name}
-              </Link>
-              
-              {hasChildren && isActive && (
-                <div className="ml-6 mt-1 space-y-1">
-                  {item.children.filter(child => {
-                    // Filter admin/manager-only children
-                    if (child.adminOnly) {
-                      const userRole = session?.user?.role
-                      if (!session || !session.user || (userRole !== 'ADMIN' && userRole !== 'MANAGER')) {
-                        return false
-                      }
-                    }
-                    return true
-                  }).map((child) => {
-                    const isChildActive = pathname === child.href
-                    const childModuleClasses = getModuleClasses(child.href)
-                    return (
-                      <Link
-                        key={child.name}
-                        href={child.href}
-                        className={cn(
-                          'flex items-center px-3 py-2 text-sm rounded-lg transition-all duration-150 ease-in-out',
-                          isChildActive
-                            ? childModuleClasses.childActive
-                            : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-                        )}
-                      >
-                        <child.icon className={cn(
-                          'mr-3 h-4 w-4 flex-shrink-0',
-                          isChildActive ? childModuleClasses.icon : 'text-gray-500'
-                        )} />
-                        {child.name}
-                      </Link>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
+        }).map((item) => (
+          <SidebarItem key={item.name} item={item} getModuleClasses={getModuleClasses} />
+        ))}
       </nav>
     </div>
   )

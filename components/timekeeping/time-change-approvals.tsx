@@ -66,7 +66,11 @@ interface TimeChangeRequest {
   } | null
 }
 
-export function TimeChangeApprovals() {
+interface TimeChangeApprovalsProps {
+  compact?: boolean
+}
+
+export function TimeChangeApprovals({ compact = false }: TimeChangeApprovalsProps) {
   const { toast } = useToast()
   const [changeRequests, setChangeRequests] = useState<TimeChangeRequest[]>([])
   const [isLoading, setIsLoading] = useState(true)

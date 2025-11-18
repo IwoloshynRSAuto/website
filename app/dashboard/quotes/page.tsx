@@ -3,7 +3,7 @@ import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { QuoteService } from '@/lib/quotes/service'
-import { QuotesDashboard } from '@/components/quotes/quotes-dashboard'
+import { QuotesKanbanBoard } from '@/components/quotes/quotes-kanban-board'
 
 export const dynamic = 'force-dynamic'
 
@@ -35,11 +35,12 @@ export default async function QuotesPage() {
       id: quote.id,
       quoteNumber: quote.quoteNumber,
       title: quote.title,
+      description: quote.description,
       customerName: quote.customer?.name || null,
       customerId: quote.customer?.id || null,
       bomId: firstBOM?.id || null,
       bomName: firstBOM?.name || null,
-      status: quote.status,
+      status: quote.status as 'DRAFT' | 'APPROVED' | 'CANCELLED',
       amount: quote.amount,
       totalCost,
       totalCustomerPrice,
@@ -48,23 +49,25 @@ export default async function QuotesPage() {
       createdAt: quote.createdAt.toISOString(),
       updatedAt: quote.updatedAt.toISOString(),
       fileCount: quote._count?.fileRecords || 0,
+      job: quote.job ? {
+        id: quote.job.id,
+        jobNumber: quote.job.jobNumber,
+        title: quote.job.title,
+      } : null,
     }
   })
 
-  // Format aging quotes
-  const agingData = agingQuotes.map((quote) => ({
-    id: quote.id,
-    quoteNumber: quote.quoteNumber,
-    title: quote.title,
-    customerName: quote.customer?.name || null,
-    status: quote.status,
-    daysSinceUpdate: quote.daysSinceUpdate,
-    isExpired: quote.isExpired,
-    agingAlert: quote.agingAlert,
-    validUntil: quote.validUntil?.toISOString() || null,
-    updatedAt: quote.updatedAt.toISOString(),
-  }))
+  return (
+    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Quotes</h1>
+        <p className="text-sm sm:text-base text-gray-600 mt-1">
+          Manage quotes with an Agile workflow. Move quotes between Draft, Approved, and Cancelled statuses.
+        </p>
+      </div>
 
-  return <QuotesDashboard initialQuotes={quotesData} initialAgingQuotes={agingData} />
+      <QuotesKanbanBoard initialQuotes={quotesData} />
+    </div>
+  )
 }
 

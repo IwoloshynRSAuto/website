@@ -38,14 +38,14 @@ export default async function CustomersPage() {
     <div className="p-3 sm:p-4 lg:p-6">
       <div className="mb-4 sm:mb-6 lg:mb-8">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Customers</h1>
-            <p className="text-sm sm:text-base text-gray-600">
-              {isAdmin 
-                ? "Manage customer information, contacts, and accounts" 
-                : "View customer information and project history"
-              }
-            </p>
+        <div>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Customers</h1>
+          <p className="text-sm sm:text-base text-gray-600">
+            {isAdmin 
+              ? "Manage customer information, contacts, and accounts" 
+              : "View customer information and project history"
+            }
+          </p>
           </div>
           <Link href="/dashboard/customers/top">
             <Button variant="outline">

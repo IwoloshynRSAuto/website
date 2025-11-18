@@ -253,26 +253,38 @@ export function EmployeeSelfService({ userId, initialTab = 'pto' }: { userId: st
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList>
-              <TabsTrigger value="pto">
-                <Calendar className="h-4 w-4 mr-2" />
+            <TabsList className="grid w-full grid-cols-3 mb-6 gap-2 bg-transparent p-0 h-auto">
+              <TabsTrigger 
+                value="pto" 
+                className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
+              >
+                <Calendar className="h-5 w-5" />
                 Time Off
               </TabsTrigger>
-              <TabsTrigger value="expense">
-                <DollarSign className="h-4 w-4 mr-2" />
+              <TabsTrigger 
+                value="expense" 
+                className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
+              >
+                <DollarSign className="h-5 w-5" />
                 Expenses
               </TabsTrigger>
-              <TabsTrigger value="time-change">
-                <Clock className="h-4 w-4 mr-2" />
+              <TabsTrigger 
+                value="time-change" 
+                className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
+              >
+                <Clock className="h-5 w-5" />
                 Time Changes
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="pto" className="space-y-4">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Time Off Requests</h3>
-                <Button onClick={() => setIsPtoDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
+                <Button 
+                  onClick={() => setIsPtoDialogOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-6"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
                   Request Time Off
                 </Button>
               </div>
@@ -312,10 +324,13 @@ export function EmployeeSelfService({ userId, initialTab = 'pto' }: { userId: st
             </TabsContent>
 
             <TabsContent value="expense" className="space-y-4">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Expense Reports</h3>
-                <Button onClick={() => setIsExpenseDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
+                <Button 
+                  onClick={() => setIsExpenseDialogOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-6"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
                   Submit Expense
                 </Button>
               </div>
@@ -353,10 +368,13 @@ export function EmployeeSelfService({ userId, initialTab = 'pto' }: { userId: st
             </TabsContent>
 
             <TabsContent value="time-change" className="space-y-4">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Time Change Requests</h3>
-                <Button onClick={() => setIsTimeChangeDialogOpen(true)}>
-                  <Plus className="h-4 w-4 mr-2" />
+                <Button 
+                  onClick={() => setIsTimeChangeDialogOpen(true)}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-6"
+                >
+                  <Plus className="h-5 w-5 mr-2" />
                   Request Time Change
                 </Button>
               </div>
@@ -457,10 +475,20 @@ export function EmployeeSelfService({ userId, initialTab = 'pto' }: { userId: st
               </div>
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsPtoDialogOpen(false)}>
+              <Button 
+                type="button" 
+                variant="outline" 
+                onClick={() => setIsPtoDialogOpen(false)}
+                className="font-bold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-6"
+              >
                 Cancel
               </Button>
-              <Button type="submit">Submit</Button>
+              <Button 
+                type="submit"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-6"
+              >
+                Submit Request
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

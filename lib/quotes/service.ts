@@ -265,6 +265,13 @@ export class QuoteService {
           },
           orderBy: { createdAt: 'desc' },
         },
+        job: {
+          select: {
+            id: true,
+            jobNumber: true,
+            title: true,
+          },
+        },
         _count: {
           select: {
             fileRecords: true,

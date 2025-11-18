@@ -37,6 +37,11 @@ interface TimesheetEntry {
   clockOutTime: string | null
   totalHours: number | null
   status: string
+  submissionStatus?: string | null
+  submissionId?: string | null
+  rejectionReason?: string | null
+  isLocked?: boolean
+  isRejected?: boolean
   jobEntries: Array<{
     id: string
     jobNumber: string
@@ -106,29 +111,84 @@ export function TimeView({
         endDate.setHours(23, 59, 59, 999)
       } else if (viewMode === 'week') {
         startDate = startOfWeek(currentDate, { weekStartsOn: 0 })
+        startDate.setHours(0, 0, 0, 0)
         endDate = endOfWeek(currentDate, { weekStartsOn: 0 })
+        endDate.setHours(23, 59, 59, 999)
       } else {
         startDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
         endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
       }
 
+      console.log('[TimeView] Fetching timesheets:', {
+        selectedUserId,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        viewMode,
+        currentDate: currentDate.toISOString()
+      })
+
       const response = await fetch(
         `/api/timesheets?userId=${selectedUserId}&startDate=${startDate.toISOString()}&endDate=${endDate.toISOString()}`
       )
       
-      if (response.ok) {
-        const data = await response.json()
-        // Ensure we have an array - handle both array and object responses
-        const timesheetsData = Array.isArray(data) ? data : (data.data || data.timesheets || [])
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('[TimeView] API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData
+        })
+        throw new Error(errorData.error || `Failed to fetch timesheets: ${response.status}`)
+      }
+      
+      const responseData = await response.json()
+      // API returns { success: true, data: [...] }
+      const timesheetsData = responseData.success && responseData.data 
+        ? responseData.data 
+        : Array.isArray(responseData) 
+          ? responseData 
+          : (responseData.data || responseData.timesheets || [])
+      
+      console.log('[TimeView] API Response:', {
+          success: responseData.success,
+          total: timesheetsData.length,
+          sample: timesheetsData.slice(0, 3).map((ts: any) => ({
+            id: ts.id,
+            date: ts.date,
+            clockInTime: ts.clockInTime,
+            jobEntriesCount: ts.jobEntries?.length || 0,
+            hasJobEntries: ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length > 0
+          }))
+        })
+        
         // Filter to only show job time entries (entries with job entries)
         const jobEntries = Array.isArray(timesheetsData)
-          ? timesheetsData.filter((ts: TimesheetEntry) => ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length > 0)
+          ? timesheetsData.filter((ts: TimesheetEntry) => {
+              const jobEntries = ts.jobEntries
+              const hasJobEntries = jobEntries && Array.isArray(jobEntries) && jobEntries.length > 0
+              return hasJobEntries
+            })
           : []
-        setTimesheets(jobEntries)
         
-        // Check submission status for the current week (if in week view)
-        // IMPORTANT: Only check status for entries belonging to the selected user
-        if (viewMode === 'week') {
+        console.log('[TimeView] Filtered job entries:', {
+          count: jobEntries.length,
+          entries: jobEntries.map(ts => ({
+            id: ts.id,
+            date: ts.date,
+            clockInTime: ts.clockInTime,
+            clockOutTime: ts.clockOutTime,
+            userId: ts.userId,
+            jobEntriesCount: ts.jobEntries?.length || 0
+          }))
+      })
+      setTimesheets(jobEntries)
+      
+      // Force a re-render check
+      console.log('[TimeView] State updated, timesheets count:', jobEntries.length)
+      
+      // Check submission status for the current week (if in week view)
+      // IMPORTANT: Only check status for entries belonging to the selected user
+      if (viewMode === 'week') {
           const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
           // First, try to find submission status from any entry in this week
           const weekEntry = jobEntries.find((ts: TimesheetEntry) => {
@@ -179,10 +239,9 @@ export function TimeView({
               setWeekSubmissionId(null)
             }
           }
-        } else {
-          setWeekSubmissionStatus(null)
-          setWeekSubmissionId(null)
-        }
+      } else {
+        setWeekSubmissionStatus(null)
+        setWeekSubmissionId(null)
       }
     } catch (error) {
       console.error('Error loading timesheets:', error)
@@ -553,7 +612,7 @@ export function TimeView({
       if (response.ok) {
         toast({
           title: 'Success',
-          description: `Week of ${format(weekStart, 'MMM d')} - ${format(weekEnd, 'MMM d, yyyy')} submitted for approval. Your entries are now locked and cannot be edited until approved or rejected.`,
+          description: `Week of ${format(currentWeekStart, 'MMM d')} - ${format(currentWeekEnd, 'MMM d, yyyy')} submitted for approval. Your entries are now locked and cannot be edited until approved or rejected.`,
           duration: 5000
         })
         // Update submission status immediately
@@ -630,10 +689,64 @@ export function TimeView({
   }
 
   const getTimesheetsForDate = (date: Date): TimesheetEntry[] => {
-    return Array.isArray(timesheets) ? timesheets.filter(ts => {
-      const tsDate = new Date(ts.date)
-      return isSameDay(tsDate, date)
-    }) : []
+    if (!Array.isArray(timesheets) || timesheets.length === 0) {
+      console.log('[TimeView] getTimesheetsForDate: No timesheets available', {
+        timesheetsLength: timesheets.length,
+        timesheetsType: typeof timesheets,
+        isArray: Array.isArray(timesheets)
+      })
+      return []
+    }
+    
+    const targetDateStr = format(date, 'yyyy-MM-dd')
+    console.log('[TimeView] getTimesheetsForDate: Looking for date', {
+      targetDate: targetDateStr,
+      totalTimesheets: timesheets.length,
+      sampleDates: timesheets.slice(0, 3).map(ts => ({
+        id: ts.id,
+        date: ts.date,
+        dateType: typeof ts.date,
+        jobEntriesCount: ts.jobEntries?.length || 0
+      }))
+    })
+    
+    const matching = timesheets.filter(ts => {
+      if (!ts || !ts.date) {
+        console.warn('[TimeView] Missing date in timesheet:', ts?.id)
+        return false
+      }
+      try {
+        // Convert date string to Date object
+        const tsDate = new Date(ts.date as string)
+        if (isNaN(tsDate.getTime())) {
+          console.warn('[TimeView] Invalid date in timesheet:', ts.id, ts.date)
+          return false
+        }
+        const tsDateStr = format(tsDate, 'yyyy-MM-dd')
+        const matches = tsDateStr === targetDateStr
+        if (matches) {
+          console.log('[TimeView] Found matching timesheet:', {
+            id: ts.id,
+            tsDateStr,
+            targetDateStr,
+            clockInTime: ts.clockInTime,
+            jobEntriesCount: ts.jobEntries?.length || 0
+          })
+        }
+        return matches
+      } catch (error) {
+        console.error('[TimeView] Error comparing dates:', ts.id, error, ts.date)
+        return false
+      }
+    })
+    
+    console.log('[TimeView] getTimesheetsForDate: Found matches', {
+      targetDate: targetDateStr,
+      matches: matching.length,
+      matchIds: matching.map(m => m.id)
+    })
+    
+    return matching
   }
 
   const calculateDayTotal = (date: Date): number => {
@@ -656,6 +769,20 @@ export function TimeView({
     const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
     const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
     const weekDays = eachDayOfInterval({ start: weekStart, end: weekEnd })
+    
+    console.log('[TimeView] renderWeekView:', {
+      currentDate: currentDate.toISOString(),
+      weekStart: weekStart.toISOString(),
+      weekEnd: weekEnd.toISOString(),
+      weekDays: weekDays.map(d => format(d, 'yyyy-MM-dd')),
+      timesheetsCount: timesheets.length,
+      timesheetsDates: timesheets.slice(0, 5).map(ts => ({
+        id: ts.id,
+        date: ts.date,
+        dateFormatted: ts.date ? format(new Date(ts.date as string), 'yyyy-MM-dd') : 'invalid',
+        jobEntriesCount: ts.jobEntries?.length || 0
+      }))
+    })
 
     return (
       <div className="grid grid-cols-1 sm:grid-cols-7 gap-2">
@@ -1127,7 +1254,7 @@ export function TimeView({
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                     <Button
                       onClick={handleSubmitWeekForApproval}
-                      disabled={isSubmitting || !selectedUserId || (weekSubmissionStatus && (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'))}
+                      disabled={isSubmitting || !selectedUserId || (weekSubmissionStatus ? (weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED') : false)}
                       className="bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm sm:text-base font-bold shadow-lg hover:shadow-xl active:shadow-inner transition-all duration-200 px-4 sm:px-5 py-2 sm:py-2.5 rounded-lg min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap disabled:hover:bg-orange-500"
                       size="sm"
                     >

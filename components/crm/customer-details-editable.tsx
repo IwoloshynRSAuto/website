@@ -135,15 +135,16 @@ export function CustomerDetailsEditable({
         body: JSON.stringify(payload),
       })
 
-      if (response.ok) {
+      const data = await response.json()
+
+      if (response.ok && data.success) {
         toast.success('Customer updated successfully!')
         router.refresh()
       } else {
-        const errorData = await response.json()
-        console.error('API Error:', errorData)
-        const errorMessage = errorData.details 
-          ? `Validation error: ${errorData.details}` 
-          : errorData.error || 'Failed to update customer'
+        console.error('[CustomerDetailsEditable] API Error:', data)
+        const errorMessage = data.details 
+          ? `Validation error: ${JSON.stringify(data.details)}` 
+          : data.error || 'Failed to update customer'
         toast.error(errorMessage)
       }
     } catch (error) {
@@ -174,6 +175,7 @@ export function CustomerDetailsEditable({
     }
     
     try {
+      console.log('[CustomerDetailsEditable] Opening folder:', path)
       const response = await fetch('/api/open-folder', {
         method: 'POST',
         headers: {
@@ -182,21 +184,24 @@ export function CustomerDetailsEditable({
         body: JSON.stringify({ filePath: path }),
       })
       
-      if (response.ok) {
+      const data = await response.json()
+      
+      if (response.ok && data.success) {
         toast.success('Opening folder in File Explorer...')
       } else {
-        const data = await response.json()
-        console.error('Failed to open folder:', data.error)
+        console.error('[CustomerDetailsEditable] Failed to open folder:', data)
+        // If path doesn't exist or can't be opened, copy to clipboard as fallback
         try {
           await navigator.clipboard.writeText(path)
           toast.success(`Path copied to clipboard: ${path}`)
         } catch (clipboardError) {
-          toast.error(`Failed to open folder. Path: ${path}`)
+          toast.error(data.error || `Failed to open folder. Path: ${path}`)
         }
       }
     } catch (error) {
-      console.error('Error opening folder:', error)
-      toast.error('Failed to open folder')
+      console.error('[CustomerDetailsEditable] Error opening folder:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to open folder'
+      toast.error(errorMessage)
     }
   }
 

@@ -35,12 +35,138 @@ const updateTimesheetSchema = z.object({
     z.null()
   ]).optional(),
   status: z.enum(['in-progress', 'completed', 'needs-review']).optional(),
+  // Geolocation fields for clock-in
+  geoLat: z.number().optional().nullable(),
+  geoLon: z.number().optional().nullable(),
+  geoAccuracy: z.number().optional().nullable(),
+  locationDenied: z.boolean().optional().nullable(),
   // Geolocation fields for clock-out
   clockOutGeoLat: z.number().optional().nullable(),
   clockOutGeoLon: z.number().optional().nullable(),
   clockOutGeoAccuracy: z.number().optional().nullable(),
-  // clockOutLocationDenied: z.boolean().optional().default(false), // Removed - field doesn't exist in database yet
+  clockOutLocationDenied: z.boolean().optional().nullable(),
 })
+
+// GET /api/timesheets/:id - Get single timesheet
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> | { id: string } }
+) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      )
+    }
+
+    // Handle Next.js 15 async params
+    const resolvedParams = await Promise.resolve(params)
+    const timesheetId = resolvedParams.id
+
+    if (!timesheetId) {
+      return NextResponse.json(
+        { success: false, error: 'Timesheet ID is required' },
+        { status: 400 }
+      )
+    }
+
+    // Query timesheet - handle missing geolocation columns gracefully
+    let timesheet
+    try {
+      timesheet = await prisma.timesheet.findUnique({
+        where: { id: timesheetId },
+        include: { jobEntries: true },
+      })
+    } catch (dbError: any) {
+      // If geolocation columns don't exist, use select to exclude them
+      const errorMsg = String(dbError?.message || dbError?.code || '')
+      const isGeoError = errorMsg.includes('geoLat') || 
+                        errorMsg.includes('geoLon') ||
+                        errorMsg.includes('geoAccuracy') ||
+                        errorMsg.includes('locationDenied') ||
+                        errorMsg.includes('clockOutGeoLat') ||
+                        errorMsg.includes('clockOutGeoLon') ||
+                        (errorMsg.includes('does not exist') && (
+                          errorMsg.includes('geo') || 
+                          errorMsg.includes('location')
+                        ))
+      
+      if (isGeoError) {
+        console.warn('[API GET /timesheets/:id] Geolocation columns not found, querying without them')
+        timesheet = await prisma.timesheet.findUnique({
+          where: { id: timesheetId },
+          select: {
+            id: true,
+            userId: true,
+            date: true,
+            clockInTime: true,
+            clockOutTime: true,
+            totalHours: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            jobEntries: true
+            // Explicitly exclude geolocation fields
+          }
+        })
+      } else {
+        throw dbError
+      }
+    }
+
+    if (!timesheet) {
+      return NextResponse.json(
+        { success: false, error: 'Timesheet not found' },
+        { status: 404 }
+      )
+    }
+
+    // Authorization check - users can only view their own timesheets (unless admin)
+    if (session.user.role !== 'ADMIN' && timesheet.userId !== session.user.id) {
+      return NextResponse.json(
+        { success: false, error: 'Forbidden: You can only view your own timesheets' },
+        { status: 403 }
+      )
+    }
+
+    // Serialize Date objects and handle optional geolocation fields
+    const ts = timesheet as any
+    const response = {
+      id: timesheet.id,
+      userId: timesheet.userId,
+      date: timesheet.date.toISOString(),
+      clockInTime: timesheet.clockInTime.toISOString(),
+      clockOutTime: timesheet.clockOutTime ? timesheet.clockOutTime.toISOString() : null,
+      totalHours: timesheet.totalHours ? Number(timesheet.totalHours) : null,
+      status: timesheet.status,
+      createdAt: timesheet.createdAt.toISOString(),
+      updatedAt: timesheet.updatedAt.toISOString(),
+      jobEntries: timesheet.jobEntries || [],
+      // Conditionally include geolocation fields if they exist
+      ...(ts.geoLat !== undefined && ts.geoLat !== null ? { geoLat: Number(ts.geoLat) } : {}),
+      ...(ts.geoLon !== undefined && ts.geoLon !== null ? { geoLon: Number(ts.geoLon) } : {}),
+      ...(ts.geoAccuracy !== undefined && ts.geoAccuracy !== null ? { geoAccuracy: Number(ts.geoAccuracy) } : {}),
+      ...(ts.locationDenied !== undefined ? { locationDenied: ts.locationDenied } : {}),
+      ...(ts.clockOutGeoLat !== undefined && ts.clockOutGeoLat !== null ? { clockOutGeoLat: Number(ts.clockOutGeoLat) } : {}),
+      ...(ts.clockOutGeoLon !== undefined && ts.clockOutGeoLon !== null ? { clockOutGeoLon: Number(ts.clockOutGeoLon) } : {}),
+      ...(ts.clockOutGeoAccuracy !== undefined && ts.clockOutGeoAccuracy !== null ? { clockOutGeoAccuracy: Number(ts.clockOutGeoAccuracy) } : {}),
+      ...(ts.clockOutLocationDenied !== undefined ? { clockOutLocationDenied: ts.clockOutLocationDenied } : {}),
+    }
+
+    return NextResponse.json(response)
+  } catch (error: any) {
+    console.error('Error fetching timesheet:', error)
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || 'Failed to fetch timesheet',
+      },
+      { status: 500 }
+    )
+  }
+}
 
 // PATCH /api/timesheets/:id - Update timesheet
 export async function PATCH(
@@ -76,10 +202,43 @@ export async function PATCH(
     //   )
     // }
 
-    const timesheet = await prisma.timesheet.findUnique({
-      where: { id: timesheetId },
-      include: { jobEntries: true },
-    })
+    // Query timesheet - handle missing geolocation columns gracefully
+    let timesheet
+    try {
+      timesheet = await prisma.timesheet.findUnique({
+        where: { id: timesheetId },
+        include: { jobEntries: true },
+      })
+    } catch (dbError: any) {
+      // If geolocation columns don't exist, use select to exclude them
+      const errorMsg = String(dbError?.message || dbError?.code || '')
+      const isGeoError = errorMsg.includes('geoLat') || 
+                        errorMsg.includes('geo') || 
+                        errorMsg.includes('location') ||
+                        errorMsg.includes('does not exist')
+      
+      if (isGeoError) {
+        console.warn('[API PATCH /timesheets/:id] Geolocation columns not found, querying without them')
+        timesheet = await prisma.timesheet.findUnique({
+          where: { id: timesheetId },
+          select: {
+            id: true,
+            userId: true,
+            date: true,
+            clockInTime: true,
+            clockOutTime: true,
+            totalHours: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            jobEntries: true
+            // Explicitly exclude geolocation fields
+          }
+        })
+      } else {
+        throw dbError
+      }
+    }
 
     if (!timesheet) {
       return NextResponse.json(
@@ -261,6 +420,20 @@ export async function PATCH(
       updateData.status = validatedData.status
     }
 
+    // Add geolocation fields for clock-in
+    if (validatedData.geoLat !== undefined) {
+      updateData.geoLat = validatedData.geoLat
+    }
+    if (validatedData.geoLon !== undefined) {
+      updateData.geoLon = validatedData.geoLon
+    }
+    if (validatedData.geoAccuracy !== undefined) {
+      updateData.geoAccuracy = validatedData.geoAccuracy
+    }
+    if (validatedData.locationDenied !== undefined) {
+      updateData.locationDenied = validatedData.locationDenied
+    }
+    
     // Add geolocation fields for clock-out
     if (validatedData.clockOutGeoLat !== undefined) {
       updateData.clockOutGeoLat = validatedData.clockOutGeoLat
@@ -271,10 +444,9 @@ export async function PATCH(
     if (validatedData.clockOutGeoAccuracy !== undefined) {
       updateData.clockOutGeoAccuracy = validatedData.clockOutGeoAccuracy
     }
-    // clockOutLocationDenied removed - field doesn't exist in database yet
-    // if (validatedData.clockOutLocationDenied !== undefined) {
-    //   updateData.clockOutLocationDenied = validatedData.clockOutLocationDenied
-    // }
+    if (validatedData.clockOutLocationDenied !== undefined) {
+      updateData.clockOutLocationDenied = validatedData.clockOutLocationDenied
+    }
 
     // Calculate total hours if both times are present
     const clockIn = updateData.clockInTime || timesheet.clockInTime
@@ -319,21 +491,61 @@ export async function PATCH(
       const startOfDay = new Date(year, month, day, 0, 0, 0, 0)
       const endOfDay = new Date(year, month, day, 23, 59, 59, 999)
       
-      const existingEntries = await prisma.timesheet.findMany({
-        where: {
-          userId: timesheet.userId,
-          date: {
-            gte: startOfDay,
-            lte: endOfDay
+      // Query existing entries - handle missing geolocation columns
+      let existingEntries
+      try {
+        existingEntries = await prisma.timesheet.findMany({
+          where: {
+            userId: timesheet.userId,
+            date: {
+              gte: startOfDay,
+              lte: endOfDay
+            },
+            id: {
+              not: timesheetId // Exclude current entry
+            }
           },
-          id: {
-            not: timesheetId // Exclude current entry
+          include: {
+            jobEntries: true
           }
-        },
-        include: {
-          jobEntries: true
+        })
+      } catch (dbError: any) {
+        // If geolocation columns don't exist, use select to exclude them
+        const errorMsg = String(dbError?.message || dbError?.code || '')
+        const isGeoError = errorMsg.includes('geoLat') || 
+                          errorMsg.includes('geo') || 
+                          errorMsg.includes('location') ||
+                          errorMsg.includes('does not exist')
+        
+        if (isGeoError) {
+          console.warn('[API PATCH /timesheets/:id] Geolocation columns not found in overlap check, querying without them')
+          existingEntries = await prisma.timesheet.findMany({
+            where: {
+              userId: timesheet.userId,
+              date: {
+                gte: startOfDay,
+                lte: endOfDay
+              },
+              id: {
+                not: timesheetId // Exclude current entry
+              }
+            },
+            select: {
+              id: true,
+              userId: true,
+              date: true,
+              clockInTime: true,
+              clockOutTime: true,
+              totalHours: true,
+              status: true,
+              jobEntries: true
+              // Explicitly exclude geolocation fields
+            }
+          })
+        } else {
+          throw dbError
         }
-      })
+      }
       
       const newIn = clockIn
       const newOut = clockOut || new Date(year, month, day, 23, 59, 59, 999)
@@ -492,10 +704,43 @@ export async function DELETE(
       )
     }
 
-    const timesheet = await prisma.timesheet.findUnique({
-      where: { id: timesheetId },
-      include: { jobEntries: true },
-    })
+    // Query timesheet - handle missing geolocation columns gracefully
+    let timesheet
+    try {
+      timesheet = await prisma.timesheet.findUnique({
+        where: { id: timesheetId },
+        include: { jobEntries: true },
+      })
+    } catch (dbError: any) {
+      // If geolocation columns don't exist, use select to exclude them
+      const errorMsg = String(dbError?.message || dbError?.code || '')
+      const isGeoError = errorMsg.includes('geoLat') || 
+                        errorMsg.includes('geo') || 
+                        errorMsg.includes('location') ||
+                        errorMsg.includes('does not exist')
+      
+      if (isGeoError) {
+        console.warn('[API DELETE /timesheets/:id] Geolocation columns not found, querying without them')
+        timesheet = await prisma.timesheet.findUnique({
+          where: { id: timesheetId },
+          select: {
+            id: true,
+            userId: true,
+            date: true,
+            clockInTime: true,
+            clockOutTime: true,
+            totalHours: true,
+            status: true,
+            createdAt: true,
+            updatedAt: true,
+            jobEntries: true
+            // Explicitly exclude geolocation fields
+          }
+        })
+      } else {
+        throw dbError
+      }
+    }
 
     if (!timesheet) {
       return NextResponse.json(
@@ -547,9 +792,36 @@ export async function DELETE(
     }
 
     // Delete the timesheet (cascade will delete job entries)
-    await prisma.timesheet.delete({
-      where: { id: timesheetId },
-    })
+    // Handle missing geolocation columns gracefully
+    try {
+      await prisma.timesheet.delete({
+        where: { id: timesheetId },
+      })
+    } catch (deleteError: any) {
+      // If delete fails due to geolocation columns, use raw SQL
+      const errorMsg = String(deleteError?.message || deleteError?.code || '')
+      const isGeoError = errorMsg.includes('geoLat') || 
+                        errorMsg.includes('geo') || 
+                        errorMsg.includes('location') ||
+                        errorMsg.includes('does not exist')
+      
+      if (isGeoError) {
+        console.warn('[API DELETE /timesheets/:id] Geolocation columns not found, using raw SQL to delete')
+        const { Prisma } = await import('@prisma/client')
+        
+        // First delete job entries (cascade might not work with raw SQL)
+        await prisma.$executeRaw`
+          DELETE FROM job_entries WHERE "timesheetId" = ${timesheetId}
+        `
+        
+        // Then delete the timesheet
+        await prisma.$executeRaw`
+          DELETE FROM timesheets WHERE id = ${timesheetId}
+        `
+      } else {
+        throw deleteError
+      }
+    }
 
     return NextResponse.json({
       success: true,

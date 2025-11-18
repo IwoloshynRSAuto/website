@@ -129,13 +129,22 @@ export function ManagerApprovalsDashboard() {
         ? `/api/approvals/expense/${id}`
         : `/api/approvals/time-change/${id}`
 
+      console.log('[ManagerApprovalsDashboard] Approving:', { type, id, endpoint })
+
       const response = await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'approve' }),
       })
 
-      if (!response.ok) throw new Error('Failed to approve request')
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        console.error('[ManagerApprovalsDashboard] Approval failed:', data)
+        throw new Error(data.error || 'Failed to approve request')
+      }
+
+      console.log('[ManagerApprovalsDashboard] Approval successful:', data)
 
       toast({
         title: 'Success',
@@ -144,10 +153,11 @@ export function ManagerApprovalsDashboard() {
 
       setSelectedRequest(null)
       loadApprovals()
-    } catch (error) {
+    } catch (error: any) {
+      console.error('[ManagerApprovalsDashboard] Error approving:', error)
       toast({
         title: 'Error',
-        description: 'Failed to approve request',
+        description: error.message || 'Failed to approve request',
         variant: 'destructive',
       })
     }
@@ -170,6 +180,8 @@ export function ManagerApprovalsDashboard() {
         ? `/api/approvals/expense/${id}`
         : `/api/approvals/time-change/${id}`
 
+      console.log('[ManagerApprovalsDashboard] Rejecting:', { type, id, endpoint, rejectionReason })
+
       const response = await fetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -179,7 +191,14 @@ export function ManagerApprovalsDashboard() {
         }),
       })
 
-      if (!response.ok) throw new Error('Failed to reject request')
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        console.error('[ManagerApprovalsDashboard] Rejection failed:', data)
+        throw new Error(data.error || 'Failed to reject request')
+      }
+
+      console.log('[ManagerApprovalsDashboard] Rejection successful:', data)
 
       toast({
         title: 'Success',
@@ -189,10 +208,11 @@ export function ManagerApprovalsDashboard() {
       setSelectedRequest(null)
       setRejectionReason('')
       loadApprovals()
-    } catch (error) {
+    } catch (error: any) {
+      console.error('[ManagerApprovalsDashboard] Error rejecting:', error)
       toast({
         title: 'Error',
-        description: 'Failed to reject request',
+        description: error.message || 'Failed to reject request',
         variant: 'destructive',
       })
     }

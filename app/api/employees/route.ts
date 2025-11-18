@@ -25,9 +25,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    if (!authorize(session.user, 'read', 'user')) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    }
+    // Allow all authenticated users to read employee list (needed for timesheet user selection)
+    // Type assertion needed because session.user.role is string but authorize expects Role type
+    // if (!authorize(session.user as any, 'read', 'user')) {
+    //   return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    // }
 
     const { searchParams } = new URL(request.url)
     const includeInactive = searchParams.get('includeInactive') === 'true'
@@ -44,6 +46,7 @@ export async function GET(request: NextRequest) {
     // Check if managerId column exists, if not return basic employee list
     let employees
     try {
+      // Try to query with manager relations first
       employees = await prisma.user.findMany({
         where,
         include: {
@@ -66,20 +69,59 @@ export async function GET(request: NextRequest) {
         },
         orderBy: { name: 'asc' },
       })
+      
+      console.log('[API GET /employees] Found employees:', {
+        count: employees.length,
+        employees: employees.map(emp => ({
+          id: emp.id,
+          email: emp.email,
+          name: emp.name,
+          role: emp.role,
+          isActive: emp.isActive
+        }))
+      })
     } catch (dbError: any) {
-      // If managerId column doesn't exist, fetch without relations
+      // If managerId column doesn't exist, use raw SQL to bypass Prisma schema validation
       if (dbError.message?.includes('managerId') || dbError.message?.includes('does not exist')) {
-        console.warn('Manager hierarchy not available - database migration may be needed')
-        employees = await prisma.user.findMany({
-          where,
-          orderBy: { name: 'asc' },
-        })
-        // Add empty manager and directReports to match expected structure
-        employees = employees.map(emp => ({
-          ...emp,
+        console.warn('Manager hierarchy not available - using raw SQL query')
+        
+        // Build WHERE clause for raw SQL
+        const whereClause = !includeInactive ? 'WHERE "isActive" = true' : ''
+        
+        // Use raw SQL to query only columns that exist (bypasses Prisma schema validation)
+        const rawEmployees = await prisma.$queryRawUnsafe<any[]>(
+          `SELECT id, email, name, role, position, wage, phone, "isActive", "createdAt", "updatedAt" 
+           FROM users 
+           ${whereClause}
+           ORDER BY name ASC`
+        )
+        
+        // Transform raw results to match expected structure
+        employees = rawEmployees.map(emp => ({
+          id: emp.id,
+          email: emp.email,
+          name: emp.name,
+          role: emp.role,
+          position: emp.position,
+          wage: emp.wage,
+          phone: emp.phone,
+          isActive: emp.isActive,
+          createdAt: emp.createdAt,
+          updatedAt: emp.updatedAt,
           manager: null,
           directReports: [],
         }))
+        
+        console.log('[API GET /employees] Found employees (without manager hierarchy):', {
+          count: employees.length,
+          employees: employees.map(emp => ({
+            id: emp.id,
+            email: emp.email,
+            name: emp.name,
+            role: emp.role,
+            isActive: emp.isActive
+          }))
+        })
       } else {
         throw dbError
       }
@@ -103,7 +145,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    if (!authorize(session.user, 'create', 'user')) {
+    // Type assertion needed because session.user.role is string but authorize expects Role type
+    if (!authorize(session.user as any, 'create', 'user')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
@@ -143,24 +186,29 @@ export async function POST(request: NextRequest) {
     })
 
     // Create audit log
-    await prisma.auditLog.create({
-      data: {
-        userId: session.user.id,
-        action: 'CREATE',
-        resourceType: 'USER',
-        resourceId: employee.id,
-        details: {
-          email: employee.email,
-          name: employee.name,
-          role: employee.role,
+    try {
+      await prisma.auditLog.create({
+        data: {
+          userId: session.user.id,
+          action: 'CREATE',
+          resourceType: 'USER',
+          resourceId: employee.id,
+          details: {
+            email: employee.email,
+            name: employee.name,
+            role: employee.role,
+          },
         },
-      },
-    })
+      })
+    } catch (auditError) {
+      // Audit log creation is optional - don't fail the request if it fails
+      console.warn('Failed to create audit log:', auditError)
+    }
 
     return NextResponse.json({ employee }, { status: 201 })
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: error.errors }, { status: 400 })
+      return NextResponse.json({ error: error.issues }, { status: 400 })
     }
     console.error('Error creating employee:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

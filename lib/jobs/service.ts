@@ -140,8 +140,8 @@ export class JobService {
       throw new Error('Quote not found')
     }
 
-    if (quote.status !== 'WON' && quote.status !== 'SENT') {
-      throw new Error('Quote must be WON or SENT before conversion')
+    if (quote.status !== 'APPROVED') {
+      throw new Error('Quote must be APPROVED before conversion')
     }
 
     // Check if job already exists for this quote

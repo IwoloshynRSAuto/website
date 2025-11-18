@@ -19,6 +19,7 @@ import {
   Database,
 } from 'lucide-react'
 import { DataManagement } from '@/components/admin/data-management'
+import { ManagerApprovalsDashboard } from '@/components/employee/manager-approvals-dashboard'
 
 interface AdminDashboardProps {
   stats: {
@@ -212,6 +213,19 @@ export function AdminDashboard({ stats }: AdminDashboardProps) {
               </Card>
             </Link>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* Approvals Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-blue-600" />
+            Pending Approvals
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ManagerApprovalsDashboard />
         </CardContent>
       </Card>
 

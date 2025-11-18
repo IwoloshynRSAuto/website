@@ -6,10 +6,14 @@ import { z } from 'zod'
 
 export const createCustomerSchema = z.object({
   name: z.string().min(1, 'Customer name is required'),
-  email: z.string().email().optional().or(z.literal('')),
-  phone: z.string().optional().or(z.literal('')),
-  address: z.string().optional().or(z.literal('')),
-  fileLink: z.string().optional().or(z.literal(''))
+  email: z.union([
+    z.string().email('Invalid email format'),
+    z.literal(''),
+    z.null()
+  ]).optional(),
+  phone: z.union([z.string(), z.literal(''), z.null()]).optional(),
+  address: z.union([z.string(), z.literal(''), z.null()]).optional(),
+  fileLink: z.union([z.string(), z.literal(''), z.null()]).optional(),
 })
 
 export const updateCustomerSchema = z.object({
