@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
@@ -22,8 +23,8 @@ import {
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Check, X, Eye, FileText, User, Calendar } from 'lucide-react'
-import { format } from 'date-fns'
+import { Check, X, Eye, FileText, User, Calendar, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { useToast } from '@/components/ui/use-toast'
 
 interface TimeSubmission {
@@ -48,6 +49,7 @@ interface TimeSubmission {
     id: string
     date: string
     regularHours: number
+    overtimeHours: number
     job: {
       jobNumber: string
       title: string
@@ -59,8 +61,20 @@ interface TimeSubmission {
   }>
 }
 
-export function TimeApprovals() {
+interface Employee {
+  id: string
+  name: string | null
+  email: string
+  isActive: boolean
+}
+
+interface TimeApprovalsProps {
+  currentUserId?: string
+}
+
+export function TimeApprovals({ currentUserId }: TimeApprovalsProps) {
   const { toast } = useToast()
+  const [employees, setEmployees] = useState<Employee[]>([])
   const [submissions, setSubmissions] = useState<TimeSubmission[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedSubmission, setSelectedSubmission] = useState<TimeSubmission | null>(null)
@@ -69,24 +83,107 @@ export function TimeApprovals() {
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  
+  // Use ref to persist employees list across re-renders
+  const employeesRef = useRef<Employee[]>([])
+  
+  // Week selector state - default to current week
+  const [selectedWeekStart, setSelectedWeekStart] = useState<Date>(() => {
+    const today = new Date()
+    return startOfWeek(today, { weekStartsOn: 0 }) // Sunday
+  })
 
+  // Load employees on mount and whenever they might be missing
+  useEffect(() => {
+    loadEmployees()
+  }, []) // Load once on mount
+
+  // Reload employees if list becomes empty (safety check)
+  useEffect(() => {
+    if (employees.length === 0 && employeesRef.current.length > 0) {
+      // Restore from ref if state was cleared
+      console.log('[TimeApprovals] Employees list is empty, restoring from ref...')
+      setEmployees(employeesRef.current)
+    } else if (employees.length === 0) {
+      // Only reload if ref is also empty
+      console.log('[TimeApprovals] Employees list is empty, reloading...')
+      loadEmployees()
+    }
+  }, [employees.length, selectedWeekStart]) // Check when week changes or employees count changes
+
+  // Load submissions when week changes
   useEffect(() => {
     loadSubmissions()
-  }, [])
+  }, [selectedWeekStart])
+
+  const loadEmployees = async () => {
+    try {
+      // Always load employees - don't check if already loaded to ensure they persist
+      const response = await fetch('/api/employees?includeInactive=false')
+      if (response.ok) {
+        const data = await response.json()
+        console.log('[TimeApprovals] Employees API response:', data)
+        // Handle both array and object responses
+        const employeesList = Array.isArray(data) ? data : (data.employees || data.data || [])
+        // Show all employees (including current user) so they can see their own submissions
+        if (employeesList.length > 0) {
+          employeesRef.current = employeesList // Store in ref
+          setEmployees(employeesList) // Update state
+          console.log('[TimeApprovals] Loaded', employeesList.length, 'employees')
+        }
+      }
+    } catch (error) {
+      console.error('Error loading employees:', error)
+    }
+  }
 
   const loadSubmissions = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch('/api/timesheet-submissions')
+      // Fetch all SUBMITTED submissions first, then filter by week if needed
+      const response = await fetch(`/api/timesheet-submissions?status=SUBMITTED`)
       if (response.ok) {
         const data = await response.json()
-        // Handle both array and object responses
-        const submissionsData = Array.isArray(data) ? data : (data.data || data.submissions || [])
-        // Filter for time submissions (submissions with timeEntries that have jobId)
-        // Attendance submissions have timesheets but no job-related timeEntries
+        // Handle both array and object responses - API returns { success: true, data: [...] }
+        let submissionsData: any[] = []
+        if (Array.isArray(data)) {
+          submissionsData = data
+        } else if (data && typeof data === 'object') {
+          // API returns { success: true, data: [...] }
+          if (data.data && Array.isArray(data.data)) {
+            submissionsData = data.data
+          } else if (data.submissions && Array.isArray(data.submissions)) {
+            submissionsData = data.submissions
+          }
+        }
+        
+        console.log('[TimeApprovals] Parsed submissions:', submissionsData.length)
+        
+        // Filter for time submissions (submissions with timeEntries that have jobId) and match selected week
         const timeSubmissions = Array.isArray(submissionsData)
           ? submissionsData
               .filter((sub: any) => {
+                // Filter by selected week first - compare week start dates (ignore time)
+                const subWeekStart = new Date(sub.weekStart)
+                const selectedWeek = new Date(selectedWeekStart)
+                
+                // Normalize both dates to midnight UTC for comparison
+                const subWeekDate = new Date(Date.UTC(
+                  subWeekStart.getUTCFullYear(),
+                  subWeekStart.getUTCMonth(),
+                  subWeekStart.getUTCDate()
+                ))
+                const selectedWeekDate = new Date(Date.UTC(
+                  selectedWeek.getUTCFullYear(),
+                  selectedWeek.getUTCMonth(),
+                  selectedWeek.getUTCDate()
+                ))
+                
+                if (subWeekDate.getTime() !== selectedWeekDate.getTime()) {
+                  return false // Not for the selected week
+                }
+                
                 // Time submissions have timeEntries with jobId OR type === 'TIME'
                 const hasJobEntries = sub.timeEntries && Array.isArray(sub.timeEntries) && sub.timeEntries.some((te: any) => te.jobId)
                 const isTimeType = sub.type === 'TIME'
@@ -108,13 +205,8 @@ export function TimeApprovals() {
                   : sub.timeEntries || []
                 return { ...sub, totalHours, timeEntries: sortedTimeEntries }
               })
-              // Sort submissions by weekStart (oldest first - Sunday 11/9 on top)
-              .sort((a: any, b: any) => {
-                const weekStartA = new Date(a.weekStart).getTime()
-                const weekStartB = new Date(b.weekStart).getTime()
-                return weekStartA - weekStartB // Oldest first
-              })
           : []
+        
         setSubmissions(timeSubmissions)
       }
     } catch (error) {
@@ -223,11 +315,43 @@ export function TimeApprovals() {
       case 'SUBMITTED':
         return <Badge className="bg-blue-100 text-blue-800">Pending</Badge>
       default:
-        return <Badge className="bg-gray-100 text-gray-800">{status}</Badge>
+        return <Badge className="bg-gray-100 text-gray-800">Not Submitted</Badge>
     }
   }
 
-  if (isLoading) {
+  // Get submission for an employee
+  const getSubmissionForEmployee = (employeeId: string): TimeSubmission | null => {
+    return submissions.find(sub => sub.userId === employeeId) || null
+  }
+
+  // Filter employees by search query
+  const filteredEmployees = employees.filter(emp => {
+    if (!searchQuery.trim()) return true
+    const query = searchQuery.toLowerCase()
+    return (
+      emp.name?.toLowerCase().includes(query) ||
+      emp.email.toLowerCase().includes(query)
+    )
+  })
+
+  // Navigate weeks
+  const navigateWeek = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      setSelectedWeekStart(subWeeks(selectedWeekStart, 1))
+    } else {
+      setSelectedWeekStart(addWeeks(selectedWeekStart, 1))
+    }
+  }
+
+  const goToCurrentWeek = () => {
+    const today = new Date()
+    setSelectedWeekStart(startOfWeek(today, { weekStartsOn: 0 }))
+  }
+
+  const weekEnd = endOfWeek(selectedWeekStart, { weekStartsOn: 0 })
+  const weekRange = `${format(selectedWeekStart, 'M/d')} - ${format(weekEnd, 'M/d')}`
+
+  if (isLoading && employees.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
         <FileText className="h-8 w-8 mx-auto mb-2 animate-spin" />
@@ -238,13 +362,66 @@ export function TimeApprovals() {
 
   return (
     <div className="space-y-4">
+      {/* Week Selector and Search */}
       <Card>
         <CardContent className="pt-6">
-          {submissions.length === 0 ? (
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+            {/* Week Selector */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateWeek('prev')}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg">
+                <Calendar className="h-4 w-4 text-gray-500" />
+                <span className="font-medium">{weekRange}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateWeek('next')}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToCurrentWeek}
+              >
+                Today
+              </Button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="relative w-full sm:w-auto sm:min-w-[300px]">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search employees..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Employees Table */}
+      <Card>
+        <CardContent className="pt-6">
+          {isLoading && employees.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p className="text-lg font-medium mb-2">No time submissions</p>
-              <p className="text-sm">Time approval submissions will appear here</p>
+              <Clock className="h-8 w-8 mx-auto mb-2 animate-spin" />
+              <p>Loading employees and submissions...</p>
+            </div>
+          ) : filteredEmployees.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <User className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p className="text-lg font-medium mb-2">No employees found</p>
+              <p className="text-sm">{searchQuery ? 'Try a different search term' : 'No employees available'}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -260,58 +437,42 @@ export function TimeApprovals() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {submissions.map((submission) => (
-                    <TableRow key={submission.id}>
+                  {filteredEmployees.map((employee) => {
+                    const submission = getSubmissionForEmployee(employee.id)
+                    const status = submission?.status || 'NOT_SUBMITTED'
+                    // Show approve/reject buttons for any submission that exists (SUBMITTED status)
+                    const showApproveReject = submission && (status === 'SUBMITTED' || status?.toUpperCase() === 'SUBMITTED')
+                    
+                    return (
+                      <TableRow key={employee.id}>
                       <TableCell className="font-medium">
                         <div className="flex items-center gap-2">
                           <User className="h-4 w-4 text-gray-500" />
-                          {submission.user.name || submission.user.email}
+                            {employee.name || employee.email}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <Calendar className="h-4 w-4 text-gray-500" />
-                          {(() => {
-                            // The dates in the database are stored as UTC midnight
-                            // Convert UTC dates to local dates for display
-                            const startUTC = new Date(submission.weekStart)
-                            const endUTC = new Date(submission.weekEnd)
-                            
-                            // Extract UTC date components and create local dates
-                            // This ensures we display the correct calendar dates regardless of timezone
-                            const startDate = new Date(Date.UTC(
-                              startUTC.getUTCFullYear(),
-                              startUTC.getUTCMonth(),
-                              startUTC.getUTCDate()
-                            ))
-                            const endDate = new Date(Date.UTC(
-                              endUTC.getUTCFullYear(),
-                              endUTC.getUTCMonth(),
-                              endUTC.getUTCDate()
-                            ))
-                            
-                            // Format using local date components for display
-                            const startLocal = new Date(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate())
-                            const endLocal = new Date(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate())
-                            
-                            return `${format(startLocal, 'M/d')} - ${format(endLocal, 'M/d')}`
-                          })()}
+                            {weekRange}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <FileText className="h-4 w-4 text-gray-500" />
-                          {submission.totalHours.toFixed(2)}h
+                            {submission ? submission.totalHours.toFixed(2) + 'h' : '—'}
                         </div>
                       </TableCell>
-                      <TableCell>{getStatusBadge(submission.status)}</TableCell>
+                        <TableCell>{getStatusBadge(status)}</TableCell>
                       <TableCell>
-                        {submission.submittedAt
+                          {submission?.submittedAt
                           ? format(new Date(submission.submittedAt), 'MMM d, yyyy')
                           : '—'}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-2">
+                            {submission && (
+                              <>
                           <Button
                             variant="outline"
                             size="sm"
@@ -323,7 +484,7 @@ export function TimeApprovals() {
                             <Eye className="h-4 w-4 mr-1" />
                             View
                           </Button>
-                          {submission.status === 'SUBMITTED' && (
+                                {showApproveReject && (
                             <>
                               <Button
                                 variant="outline"
@@ -349,12 +510,15 @@ export function TimeApprovals() {
                                 <X className="h-4 w-4 mr-1" />
                                 Reject
                               </Button>
+                                  </>
+                                )}
                             </>
                           )}
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -368,46 +532,23 @@ export function TimeApprovals() {
           <DialogHeader>
             <DialogTitle>Time Submission Details</DialogTitle>
             <DialogDescription>
-              View all time entries for this submission
+              {selectedSubmission && (
+                <>
+                  {selectedSubmission.user.name || selectedSubmission.user.email} - {weekRange}
+                </>
+              )}
             </DialogDescription>
           </DialogHeader>
           {selectedSubmission && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-sm font-semibold">Employee</Label>
-                  <p>{selectedSubmission.user.name || selectedSubmission.user.email}</p>
-                </div>
-                <div>
-                  <Label className="text-sm font-semibold">Date Range</Label>
-                  <p>
-                    {(() => {
-                      const start = new Date(selectedSubmission.weekStart)
-                      const end = new Date(selectedSubmission.weekEnd)
-                      // Use UTC date components to avoid timezone shifts
-                      // Ensure we're displaying the correct Sunday-Saturday range
-                      const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate())
-                      const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate())
-                      // Verify and adjust to Sunday-Saturday boundaries
-                      const startDay = startDate.getDay()
-                      const endDay = endDate.getDay()
-                      if (startDay !== 0) {
-                        startDate.setDate(startDate.getDate() - startDay)
-                      }
-                      if (endDay !== 6) {
-                        endDate.setDate(endDate.getDate() + (6 - endDay))
-                      }
-                      return `${format(startDate, 'M/d')} - ${format(endDate, 'M/d')} (Sunday - Saturday)`
-                    })()}
-                  </p>
-                </div>
-                <div>
                   <Label className="text-sm font-semibold">Total Hours</Label>
-                  <p>{selectedSubmission.totalHours.toFixed(2)}h</p>
+                  <p className="text-lg font-bold">{selectedSubmission.totalHours.toFixed(2)}h</p>
                 </div>
                 <div>
                   <Label className="text-sm font-semibold">Status</Label>
-                  <div>{getStatusBadge(selectedSubmission.status)}</div>
+                  <div className="mt-1">{getStatusBadge(selectedSubmission.status)}</div>
                 </div>
               </div>
               
@@ -436,7 +577,7 @@ export function TimeApprovals() {
                           <TableCell>{format(new Date(entry.date), 'MMM d, yyyy')}</TableCell>
                           <TableCell>{entry.job.jobNumber} - {entry.job.title}</TableCell>
                           <TableCell>{entry.laborCode?.code || '—'}</TableCell>
-                          <TableCell>{entry.regularHours.toFixed(2)}h</TableCell>
+                          <TableCell>{(entry.regularHours + (entry.overtimeHours || 0)).toFixed(2)}h</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -528,6 +669,3 @@ export function TimeApprovals() {
     </div>
   )
 }
-
-
-

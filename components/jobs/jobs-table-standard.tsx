@@ -97,23 +97,31 @@ interface JobsTableProps {
   jobs: Job[]
   showCreateButton?: boolean
   headerButtons?: React.ReactNode
+  isLoading?: boolean
+  title?: string
 }
 
-export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons }: JobsTableProps) {
+export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons, isLoading: externalIsLoading = false, title }: JobsTableProps) {
   const router = useRouter()
   const pathname = usePathname()
   const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
+  
+  // Use external loading state if provided, otherwise use internal state
+  const isActuallyLoading = externalIsLoading || isLoading
+  
+  // For internal operations, still use setIsLoading
   const [submitECOModalOpen, setSubmitECOModalOpen] = useState(false)
   const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const [openingPath, setOpeningPath] = useState<string | null>(null)
   
-  // Filter and sort state
-  const [statusFilter, setStatusFilter] = useState<string>('ALL')
-  const [typeFilter, setTypeFilter] = useState<string>('ALL')
-  const [quoteFilter, setQuoteFilter] = useState<string>('ALL') // Filter for jobs from quotes
-  const [sortBy, setSortBy] = useState<string>('createdAt')
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+  // Note: Filtering and sorting are now handled by the parent component (JobsQuotesTabs)
+  // These are kept for backward compatibility but not used when jobs are passed from parent
+  const [statusFilter] = useState<string>('ALL')
+  const [typeFilter] = useState<string>('ALL')
+  const [quoteFilter] = useState<string>('ALL')
+  const [sortBy] = useState<string>('createdAt')
+  const [sortOrder] = useState<'asc' | 'desc'>('desc')
   
   // Clear form data from localStorage when navigating away from jobs page
   const isOnJobsPage = useRef(pathname === '/dashboard/jobs')
@@ -386,16 +394,6 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
       )
     },
     {
-      key: 'dueTodayPercent',
-      label: 'Inv%',
-      width: 'w-8',
-      render: (value: number | null, job: Job) => (
-        <div className="text-xs text-center">
-          {job.dueTodayPercent ? `${job.dueTodayPercent}%` : '-'}
-        </div>
-      )
-    },
-    {
       key: 'startDate',
       label: 'Start',
       sortable: true,
@@ -441,37 +439,6 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
         )
       )
     },
-    {
-      key: 'quote',
-      label: 'Source Quote',
-      sortable: true,
-      width: 'w-20',
-      render: (value: any, job: Job) => {
-        if (job.quote) {
-          return (
-            <div className="text-xs">
-              <div className="font-medium text-blue-600">{job.quote.quoteNumber}</div>
-              <Badge className={`text-xs mt-0.5 ${
-                job.quote.status === 'APPROVED' ? 'bg-green-100 text-green-800' :
-                job.quote.status === 'DRAFT' ? 'bg-gray-100 text-gray-800' :
-                job.quote.status === 'CANCELLED' ? 'bg-red-100 text-red-800' :
-                'bg-gray-100 text-gray-800'
-              }`}>
-                {job.quote.status}
-              </Badge>
-            </div>
-          )
-        }
-        if (job.createdFromQuoteId) {
-          return (
-            <div className="text-xs text-gray-500">
-              Quote ID: {job.createdFromQuoteId.substring(0, 8)}...
-            </div>
-          )
-        }
-        return <span className="text-gray-400 text-xs">-</span>
-      }
-    }
   ]
 
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -490,176 +457,26 @@ export function JobsTableStandard({ jobs, showCreateButton = true, headerButtons
   // Define available statuses
   const availableStatuses = ['QUOTE', 'ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED']
 
-  // Filter jobs
-  const filteredJobs = jobs.filter(job => {
-    // When filtering by QUOTE, also include PLANNING status (they're the same)
-    let matchesStatus = false
-    if (statusFilter === 'ALL') {
-      matchesStatus = true
-    } else if (statusFilter === 'QUOTE') {
-      matchesStatus = job.status === 'QUOTE' || job.status === 'PLANNING'
-    } else {
-      matchesStatus = job.status === statusFilter
-    }
-    
-    const matchesType = typeFilter === 'ALL' || job.type === typeFilter
-    
-    // Filter by quote source
-    let matchesQuote = true
-    if (quoteFilter === 'FROM_QUOTE') {
-      matchesQuote = !!(job.quote || job.createdFromQuoteId || job.relatedQuoteId)
-    } else if (quoteFilter === 'NO_QUOTE') {
-      matchesQuote = !job.quote && !job.createdFromQuoteId && !job.relatedQuoteId
-    }
-    
-    return matchesStatus && matchesType && matchesQuote
-  })
-
-  // Sort jobs
-  const sortedJobs = [...filteredJobs].sort((a, b) => {
-    let aValue: any
-    let bValue: any
-
-    switch (sortBy) {
-      case 'createdAt':
-        aValue = new Date(a.createdAt).getTime()
-        bValue = new Date(b.createdAt).getTime()
-        break
-      case 'startDate':
-        aValue = a.startDate ? new Date(a.startDate).getTime() : 0
-        bValue = b.startDate ? new Date(b.startDate).getTime() : 0
-        break
-      case 'endDate':
-        aValue = a.endDate ? new Date(a.endDate).getTime() : 0
-        bValue = b.endDate ? new Date(b.endDate).getTime() : 0
-        break
-      case 'status':
-        aValue = a.status || ''
-        bValue = b.status || ''
-        break
-      case 'quote':
-        aValue = a.quote?.quoteNumber || a.createdFromQuoteId || ''
-        bValue = b.quote?.quoteNumber || b.createdFromQuoteId || ''
-        break
-      case 'jobNumber':
-        aValue = a.jobNumber || ''
-        bValue = b.jobNumber || ''
-        break
-      case 'title':
-        aValue = a.title || ''
-        bValue = b.title || ''
-        break
-      case 'customer':
-        aValue = a.customer?.name || ''
-        bValue = b.customer?.name || ''
-        break
-      default:
-        return 0
-    }
-
-    if (typeof aValue === 'number' && typeof bValue === 'number') {
-      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue
-    } else {
-      const comparison = String(aValue).localeCompare(String(bValue))
-      return sortOrder === 'asc' ? comparison : -comparison
-    }
-  })
+  // Note: Filtering and sorting are now handled by the parent component (JobsQuotesTabs)
+  // Jobs are already filtered and sorted when passed to this component
+  const sortedJobs = jobs
 
   return (
     <>
       <StandardTable
-        title="Jobs"
+        title=""
         data={sortedJobs}
         columns={columns}
-        searchFields={['jobNumber', 'title', 'customer.name', 'assignedTo.name']}
-        onDelete={deleteJob}
+        searchFields={[]}
+        onDelete={undefined}
         detailRoute="/dashboard/jobs"
-        createButton={createButton}
+        createButton={null}
         emptyMessage="No jobs found"
         className="w-full"
         showEditButton={false}
-        filterBar={
-          <div className="p-4 bg-white border-b border-gray-200">
-            <div className="flex flex-wrap items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-gray-500" />
-                <Label htmlFor="status-filter" className="text-sm font-medium text-gray-700">Status:</Label>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger id="status-filter" className="h-9 w-[150px]">
-                    <SelectValue placeholder="All Statuses" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All</SelectItem>
-                    <SelectItem value="QUOTE">Quote</SelectItem>
-                    <SelectItem value="ACTIVE">Active</SelectItem>
-                    <SelectItem value="ON_HOLD">On Hold</SelectItem>
-                    <SelectItem value="COMPLETED">Completed</SelectItem>
-                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              
-              <div className="flex items-center gap-2">
-                <Label htmlFor="type-filter" className="text-sm font-medium text-gray-700">Type:</Label>
-                <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger id="type-filter" className="h-9 w-[120px]">
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All Types</SelectItem>
-                    <SelectItem value="JOB">Job</SelectItem>
-                    <SelectItem value="QUOTE">Quote</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Label htmlFor="quote-filter" className="text-sm font-medium text-gray-700">Quote:</Label>
-                <Select value={quoteFilter} onValueChange={setQuoteFilter}>
-                  <SelectTrigger id="quote-filter" className="h-9 w-[140px]">
-                    <SelectValue placeholder="All" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="ALL">All Jobs</SelectItem>
-                    <SelectItem value="FROM_QUOTE">From Quote</SelectItem>
-                    <SelectItem value="NO_QUOTE">Not From Quote</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <ArrowUpDown className="h-4 w-4 text-gray-500" />
-                <Label htmlFor="sort-by" className="text-sm font-medium text-gray-700">Sort By:</Label>
-                <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger id="sort-by" className="h-9 w-[160px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="createdAt">Recently Created</SelectItem>
-                    <SelectItem value="startDate">Start Date</SelectItem>
-                    <SelectItem value="endDate">Due Date</SelectItem>
-                    <SelectItem value="status">Status</SelectItem>
-                    <SelectItem value="jobNumber">Job Number</SelectItem>
-                    <SelectItem value="title">Title</SelectItem>
-                    <SelectItem value="customer">Customer</SelectItem>
-                    <SelectItem value="quote">Source Quote</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                  className="h-9 px-4 bg-white hover:bg-gray-50 border-gray-300 text-gray-700 shadow-sm font-medium"
-                >
-                  {sortOrder === 'asc' ? '↑ Ascending' : '↓ Descending'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        }
+        showDeleteButton={false}
+        showActions={false}
+        filterBar={null}
       />
 
       {submitECOModalOpen && selectedJob && (

@@ -2,13 +2,15 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { JobsTableStandard } from './jobs-table-standard'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
-import { Wrench, FileText, ChevronLeft, ChevronRight, Search, ArrowUp, ArrowDown } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Search, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+import { JobsTableStandard } from './jobs-table-standard'
+import { CreateJobButton } from './create-job-button'
+import { MultiSOPButton } from '@/components/common/multi-sop-button'
+import { SOPS } from '@/lib/sops'
 
 interface Job {
   id: string
@@ -52,27 +54,22 @@ interface Job {
   }
 }
 
-interface JobsQuotesTabsProps {
+interface JobsDatabaseViewProps {
+  initialJobs?: Job[]
+  initialTotal?: number
   headerButtons?: React.ReactNode
 }
 
-export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
+export function JobsDatabaseView({ initialJobs = [], initialTotal = 0, headerButtons }: JobsDatabaseViewProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const tabParam = searchParams?.get('tab')
-  const [activeTab, setActiveTab] = useState<'all' | 'jobs' | 'quotes'>(
-    (tabParam === 'jobs' || tabParam === 'quotes') ? tabParam : 'all'
-  )
-
-  // Data state
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [total, setTotal] = useState(0)
-  const [totalJobs, setTotalJobs] = useState(0)
-  const [totalQuotes, setTotalQuotes] = useState(0)
+  const [jobs, setJobs] = useState<Job[]>(initialJobs)
+  const [total, setTotal] = useState(initialTotal)
   const [isLoading, setIsLoading] = useState(false)
-
+  
   // Filters
   const [searchTerm, setSearchTerm] = useState(searchParams?.get('search') || '')
+  const [typeFilter, setTypeFilter] = useState<'all' | 'JOB' | 'QUOTE'>(searchParams?.get('type') as 'all' | 'JOB' | 'QUOTE' || 'all')
   const [statusFilter, setStatusFilter] = useState(searchParams?.get('status') || 'all')
   
   // Sorting
@@ -82,17 +79,17 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
   // Pagination
   const [currentPage, setCurrentPage] = useState(parseInt(searchParams?.get('page') || '1', 10))
   const limit = 25
-
+  
   const hasInitializedFromUrl = useRef(false)
 
   // Update URL with current state
-  const updateURL = (tab: string, search: string, page: number, sort: string, order: 'asc' | 'desc', status: string) => {
+  const updateURL = (search: string, page: number, sort: string, order: 'asc' | 'desc', type: string, status: string) => {
     const params = new URLSearchParams()
-    if (tab !== 'all') params.set('tab', tab)
     if (search) params.set('search', search)
     if (page > 1) params.set('page', page.toString())
     if (sort !== 'createdAt') params.set('sortBy', sort)
     if (order !== 'desc') params.set('sortOrder', order)
+    if (type !== 'all') params.set('type', type)
     if (status !== 'all') params.set('status', status)
     
     const newUrl = params.toString() ? `/dashboard/jobs?${params.toString()}` : '/dashboard/jobs'
@@ -100,18 +97,11 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
   }
 
   // Fetch jobs with search, pagination, and sorting
-  const fetchJobs = async (
-    tab: 'all' | 'jobs' | 'quotes' = activeTab,
-    search: string = searchTerm,
-    page: number = currentPage,
-    sort: string = sortBy,
-    order: 'asc' | 'desc' = sortOrder,
-    status: string = statusFilter
-  ): Promise<void> => {
+  const fetchJobs = async (search: string = searchTerm, page: number = currentPage, sort: string = sortBy, order: 'asc' | 'desc' = sortOrder, type: string = typeFilter, status: string = statusFilter): Promise<void> => {
     setIsLoading(true)
     try {
       // Update URL with current state
-      updateURL(tab, search, page, sort, order, status)
+      updateURL(search, page, sort, order, type, status)
       
       const params = new URLSearchParams({
         page: page.toString(),
@@ -119,17 +109,11 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
         sortBy: sort,
         sortOrder: order,
       })
-      
-      // Set type filter based on active tab
-      if (tab === 'jobs') {
-        params.append('type', 'JOB')
-      } else if (tab === 'quotes') {
-        params.append('type', 'QUOTE')
-      }
-      // 'all' tab doesn't set type filter, so API returns both
-      
       if (search) {
         params.append('search', search)
+      }
+      if (type && type !== 'all') {
+        params.append('type', type)
       }
       if (status && status !== 'all') {
         params.append('status', status)
@@ -139,18 +123,7 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
       if (response.ok) {
         const data = await response.json()
         setJobs(data.jobs || [])
-        const fetchedTotal = data.pagination?.total || data.total || 0
-        setTotal(fetchedTotal)
-        
-        // Update tab-specific totals
-        if (tab === 'jobs') {
-          setTotalJobs(fetchedTotal)
-        } else if (tab === 'quotes') {
-          setTotalQuotes(fetchedTotal)
-        } else if (tab === 'all') {
-          // For 'all' tab, we need to fetch separate counts for jobs and quotes
-          // But we'll update total which is the combined count
-        }
+        setTotal(data.pagination?.total || data.total || 0)
       } else {
         const errorData = await response.json().catch(() => ({ error: 'Unknown error' }))
         console.error('Failed to fetch jobs:', response.status, errorData)
@@ -174,7 +147,7 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
     }
     searchTimeoutRef.current = setTimeout(() => {
       setCurrentPage(1)
-      fetchJobs(activeTab, searchTerm, 1, sortBy, sortOrder, statusFilter)
+      fetchJobs(searchTerm, 1, sortBy, sortOrder, typeFilter, statusFilter)
     }, 300)
     return () => {
       if (searchTimeoutRef.current) {
@@ -183,35 +156,10 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
     }
   }, [searchTerm])
 
-  // Fetch when tab, filters, sorting, or pagination changes
+  // Fetch when filters, sorting, or pagination changes
   useEffect(() => {
-    fetchJobs(activeTab, searchTerm, currentPage, sortBy, sortOrder, statusFilter)
-  }, [activeTab, currentPage, sortBy, sortOrder, statusFilter])
-
-  // Fetch totals for all tabs on mount
-  useEffect(() => {
-    const fetchTotals = async () => {
-      try {
-        // Fetch jobs total
-        const jobsResponse = await fetch('/api/jobs?type=JOB&limit=1&page=1')
-        if (jobsResponse.ok) {
-          const jobsData = await jobsResponse.json()
-          setTotalJobs(jobsData.pagination?.total || 0)
-        }
-        
-        // Fetch quotes total
-        const quotesResponse = await fetch('/api/jobs?type=QUOTE&limit=1&page=1')
-        if (quotesResponse.ok) {
-          const quotesData = await quotesResponse.json()
-          setTotalQuotes(quotesData.pagination?.total || 0)
-        }
-      } catch (error) {
-        console.error('Error fetching totals:', error)
-      }
-    }
-    
-    fetchTotals()
-  }, [])
+    fetchJobs(searchTerm, currentPage, sortBy, sortOrder, typeFilter, statusFilter)
+  }, [currentPage, sortBy, sortOrder, typeFilter, statusFilter])
 
   // Initialize component - check if we have URL params
   useEffect(() => {
@@ -219,7 +167,7 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
     
     const hasUrlParams = searchParams && (
       searchParams.get('search') ||
-      searchParams.get('tab') ||
+      searchParams.get('type') ||
       searchParams.get('status') ||
       searchParams.get('page') !== '1' ||
       searchParams.get('sortBy') !== 'createdAt' ||
@@ -229,16 +177,20 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
     if (hasUrlParams) {
       // We have URL params, fetch with those
       fetchJobs(
-        activeTab,
         searchTerm,
         currentPage,
         sortBy,
         sortOrder,
+        typeFilter,
         statusFilter
       )
+    } else if (initialJobs && initialJobs.length > 0) {
+      // No URL params, use initial jobs from server (ONLY on first render)
+      setJobs(initialJobs)
+      setTotal(initialTotal)
     } else {
-      // No URL params, fetch default list
-      fetchJobs('all', '', 1, 'createdAt', 'desc', 'all')
+      // No initial jobs and no URL params, fetch default list
+      fetchJobs('', 1, 'createdAt', 'desc', 'all', 'all')
     }
     
     hasInitializedFromUrl.current = true
@@ -246,65 +198,74 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
 
   const totalPages = Math.ceil(total / limit)
 
-  const handleTabChange = (value: string) => {
-    const newTab = value as 'all' | 'jobs' | 'quotes'
-    setActiveTab(newTab)
-    setCurrentPage(1) // Reset to page 1 when switching tabs
+  const handleSort = (field: string) => {
+    if (sortBy === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(field)
+      setSortOrder('asc')
+    }
+    setCurrentPage(1)
   }
 
   return (
     <div className="space-y-4">
-      <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-        {/* Header Row: Tabs + Action Buttons */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-          <TabsList className="grid grid-cols-3 gap-2 bg-transparent p-0 h-auto">
-            <TabsTrigger
-              value="all"
-              className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
-            >
-              <Wrench className="h-5 w-5" />
-              All ({activeTab === 'all' ? total : totalJobs + totalQuotes || '...'})
-            </TabsTrigger>
-            <TabsTrigger
-              value="jobs"
-              className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
-            >
-              <Wrench className="h-5 w-5" />
-              Jobs ({activeTab === 'jobs' ? total : totalJobs || '...'})
-            </TabsTrigger>
-            <TabsTrigger
-              value="quotes"
-              className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-blue-500 hover:bg-blue-50 active:bg-blue-100 font-bold text-gray-800 hover:text-blue-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:border-blue-600"
-            >
-              <FileText className="h-5 w-5" />
-              Quotes ({activeTab === 'quotes' ? total : totalQuotes || '...'})
-            </TabsTrigger>
-          </TabsList>
-          
-          {headerButtons && (
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-              {headerButtons}
-            </div>
-          )}
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Jobs & Quotes</h1>
+          <p className="text-sm sm:text-base text-gray-600">Manage active projects, quotes, timelines, and job progress</p>
         </div>
+        {headerButtons || (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <MultiSOPButton 
+              sops={[SOPS.CREATE_QUOTE, SOPS.CONVERT_QUOTE]}
+              variant="default"
+              className="bg-blue-600 hover:bg-blue-700 text-white font-bold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-6"
+            />
+            <CreateJobButton />
+          </div>
+        )}
+      </div>
 
-        {/* Search, Status, and Sort Controls - All on one line */}
-        <div className="flex flex-wrap items-end gap-4 mb-4">
-          <div className="flex-1 min-w-[200px]">
+      {/* Search and Filters */}
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="md:col-span-2">
             <Label htmlFor="search">Search</Label>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
                 id="search"
-                placeholder="Search by job number, title, customer name, description..."
+                placeholder="Search by job number, title, description..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
               />
             </div>
           </div>
+          
+          <div>
+            <Label htmlFor="type-filter">Type</Label>
+            <Select
+              value={typeFilter}
+              onValueChange={(value) => {
+                setTypeFilter(value as 'all' | 'JOB' | 'QUOTE')
+                setCurrentPage(1)
+              }}
+            >
+              <SelectTrigger id="type-filter">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Types</SelectItem>
+                <SelectItem value="JOB">Jobs Only</SelectItem>
+                <SelectItem value="QUOTE">Quotes Only</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-          <div className="w-[180px]">
+          <div>
             <Label htmlFor="status-filter">Status</Label>
             <Select
               value={statusFilter}
@@ -330,7 +291,10 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
               </SelectContent>
             </Select>
           </div>
+        </div>
 
+        {/* Sort Controls */}
+        <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <Label htmlFor="sort-by">Sort by:</Label>
             <Select
@@ -357,10 +321,7 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
-                setCurrentPage(1)
-              }}
+              onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
               className="h-9 px-3"
             >
               {sortOrder === 'asc' ? (
@@ -378,41 +339,18 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
           </div>
 
           <div className="text-sm text-gray-600 ml-auto">
-            Showing {jobs.length} of {total} {activeTab === 'all' ? 'jobs & quotes' : activeTab === 'jobs' ? 'jobs' : 'quotes'}
+            Showing {jobs.length} of {total} {typeFilter === 'all' ? 'jobs & quotes' : typeFilter === 'JOB' ? 'jobs' : 'quotes'}
           </div>
         </div>
+      </div>
 
-        <TabsContent value="all" className="mt-0">
-          <JobsTableStandard
-            jobs={jobs}
-            headerButtons={headerButtons}
-            isLoading={isLoading}
-          />
-        </TabsContent>
-
-        <TabsContent value="jobs" className="mt-0">
-          <JobsTableStandard
-            jobs={jobs}
-            headerButtons={headerButtons}
-            isLoading={isLoading}
-          />
-        </TabsContent>
-
-        <TabsContent value="quotes" className="mt-0">
-          {jobs.length > 0 ? (
-            <JobsTableStandard
-              jobs={jobs}
-              headerButtons={headerButtons}
-              isLoading={isLoading}
-            />
-          ) : (
-            <div className="text-center py-12 text-gray-500">
-              <FileText className="h-12 w-12 mx-auto mb-3 text-gray-300" />
-              <p>No quotes found.</p>
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+      {/* Jobs Table */}
+      <JobsTableStandard
+        jobs={jobs}
+        headerButtons={headerButtons}
+        showCreateButton={false}
+        isLoading={isLoading}
+      />
 
       {/* Pagination */}
       {totalPages > 1 && (
@@ -471,3 +409,4 @@ export function JobsQuotesTabs({ headerButtons }: JobsQuotesTabsProps) {
     </div>
   )
 }
+

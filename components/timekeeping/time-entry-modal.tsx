@@ -725,25 +725,18 @@ export function TimeEntryModal({
         // Update existing timesheet (clocking out or editing)
         const updateData: any = {}
         if (isClockOut) {
-          // Get geolocation for clock-out
-          const location = await getCurrentLocation()
+          // Send clock-out immediately, geolocation will be updated in background
           updateData.clockOutTime = clockOutDate?.toISOString() || null
           updateData.status = clockOutDate ? 'completed' : 'in-progress'
-          updateData.clockOutGeoLat = location?.lat ?? null
-          updateData.clockOutGeoLon = location?.lon ?? null
-          updateData.clockOutGeoAccuracy = location?.accuracy ?? null
+          updateData.clockOutGeoLat = null // Will be updated in background
+          updateData.clockOutGeoLon = null
+          updateData.clockOutGeoAccuracy = null
         } else if (selectedEntry) {
           // Editing existing entry with both times
           updateData.clockInTime = clockInDate.toISOString()
           updateData.clockOutTime = clockOutDate?.toISOString() || null
           updateData.status = clockOutDate ? 'completed' : 'in-progress'
-          // Only add geolocation if clocking out (not editing both times)
-          if (clockOutDate) {
-            const location = await getCurrentLocation()
-            updateData.clockOutGeoLat = location?.lat ?? null
-            updateData.clockOutGeoLon = location?.lon ?? null
-            updateData.clockOutGeoAccuracy = location?.accuracy ?? null
-          }
+          // Geolocation will be updated in background if clocking out
         }
 
         const response = await fetch(`/api/timesheets/${timesheetIdToUpdate}`, {
@@ -751,6 +744,23 @@ export function TimeEntryModal({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updateData)
         })
+
+        // Update geolocation in background if clocking out (non-blocking)
+        if (response.ok && (isClockOut || (selectedEntry && clockOutDate))) {
+          getCurrentLocation().then((location) => {
+            if (location) {
+              fetch(`/api/timesheets/${timesheetIdToUpdate}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  clockOutGeoLat: location.lat,
+                  clockOutGeoLon: location.lon,
+                  clockOutGeoAccuracy: location.accuracy,
+                })
+              }).catch(err => console.error('Failed to update geolocation:', err))
+            }
+          }).catch(err => console.error('Failed to get geolocation:', err))
+        }
 
         if (!response.ok) {
           let errorMessage = 'Failed to update timesheet'
@@ -799,7 +809,12 @@ export function TimeEntryModal({
         const response = await fetch('/api/timesheets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
+          body: JSON.stringify({
+            ...requestBody,
+            geoLat: null, // Will be updated in background
+            geoLon: null,
+            geoAccuracy: null,
+          })
         })
 
         let responseData
@@ -840,6 +855,23 @@ export function TimeEntryModal({
           })
           setIsSubmitting(false)
           return
+        }
+        
+        // Update geolocation in background (non-blocking)
+        if (responseData?.id) {
+          getCurrentLocation().then((location) => {
+            if (location) {
+              fetch(`/api/timesheets/${responseData.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  geoLat: location.lat,
+                  geoLon: location.lon,
+                  geoAccuracy: location.accuracy,
+                })
+              }).catch(err => console.error('Failed to update geolocation:', err))
+            }
+          }).catch(err => console.error('Failed to get geolocation:', err))
         }
         
         // Response is successful - verify the response structure

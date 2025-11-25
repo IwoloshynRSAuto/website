@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Clock, FileText } from 'lucide-react'
@@ -9,6 +10,8 @@ import { TimeApprovals } from './time-approvals'
 
 export function ApprovalsView() {
   const [activeTab, setActiveTab] = useState('attendance')
+  const { data: session } = useSession()
+  const currentUserId = session?.user?.id
 
   return (
     <div className="space-y-6">
@@ -36,11 +39,11 @@ export function ApprovalsView() {
             </TabsList>
 
             <TabsContent value="attendance" className="mt-0">
-              <AttendanceApprovals />
+              <AttendanceApprovals currentUserId={currentUserId} />
             </TabsContent>
 
             <TabsContent value="time" className="mt-0">
-              <TimeApprovals />
+              <TimeApprovals currentUserId={currentUserId} />
             </TabsContent>
           </Tabs>
         </CardContent>

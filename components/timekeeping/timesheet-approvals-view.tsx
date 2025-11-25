@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useSession } from 'next-auth/react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AttendanceApprovals } from './attendance-approvals'
 import { TimeApprovals } from './time-approvals'
@@ -14,6 +15,8 @@ interface TimesheetApprovalsViewProps {
 
 export function TimesheetApprovalsView({ isAdmin, initialTab = 'attendance' }: TimesheetApprovalsViewProps) {
   const [activeTab, setActiveTab] = useState(initialTab)
+  const { data: session } = useSession()
+  const currentUserId = session?.user?.id
 
   if (!isAdmin) {
     return (
@@ -58,11 +61,11 @@ export function TimesheetApprovalsView({ isAdmin, initialTab = 'attendance' }: T
         </TabsList>
 
         <TabsContent value="attendance" className="mt-0">
-          <AttendanceApprovals />
+          <AttendanceApprovals currentUserId={currentUserId} />
         </TabsContent>
 
         <TabsContent value="time" className="mt-0">
-          <TimeApprovals />
+          <TimeApprovals currentUserId={currentUserId} />
         </TabsContent>
 
         <TabsContent value="change-requests" className="mt-0">
@@ -92,12 +95,12 @@ function AllPendingApprovals() {
       <div className="space-y-6">
         <div className="border rounded-lg p-4">
           <h4 className="font-semibold mb-4">Attendance Approvals</h4>
-          <AttendanceApprovals />
+          <AttendanceApprovals currentUserId={currentUserId} />
         </div>
         
         <div className="border rounded-lg p-4">
           <h4 className="font-semibold mb-4">Time Approvals</h4>
-          <TimeApprovals />
+          <TimeApprovals currentUserId={currentUserId} />
         </div>
         
         <div className="border rounded-lg p-4">

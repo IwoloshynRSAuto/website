@@ -22,7 +22,7 @@ export default async function AttendanceApprovalsPage() {
         <p className="text-sm sm:text-base text-gray-600 mt-1">Review and approve attendance submissions</p>
       </div>
 
-      <AttendanceApprovals />
+      <AttendanceApprovals currentUserId={session.user.id} />
     </div>
   )
 }

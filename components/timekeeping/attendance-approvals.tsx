@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import {
   Table,
   TableBody,
@@ -22,8 +23,8 @@ import {
 } from '@/components/ui/dialog'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
-import { Check, X, Eye, Clock, User, Calendar } from 'lucide-react'
-import { format } from 'date-fns'
+import { Check, X, Eye, Clock, User, Calendar, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { format, startOfWeek, endOfWeek, addWeeks, subWeeks } from 'date-fns'
 import { getWeekStart, getWeekEnd } from '@/lib/utils/date-utils'
 import { useToast } from '@/components/ui/use-toast'
 
@@ -55,8 +56,20 @@ interface AttendanceSubmission {
   }>
 }
 
-export function AttendanceApprovals() {
+interface Employee {
+  id: string
+  name: string | null
+  email: string
+  isActive: boolean
+}
+
+interface AttendanceApprovalsProps {
+  currentUserId?: string
+}
+
+export function AttendanceApprovals({ currentUserId }: AttendanceApprovalsProps) {
   const { toast } = useToast()
+  const [employees, setEmployees] = useState<Employee[]>([])
   const [submissions, setSubmissions] = useState<AttendanceSubmission[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedSubmission, setSelectedSubmission] = useState<AttendanceSubmission | null>(null)
@@ -65,22 +78,91 @@ export function AttendanceApprovals() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
   const [isProcessing, setIsProcessing] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  
+  // Use ref to persist employees list across re-renders
+  const employeesRef = useRef<Employee[]>([])
+  
+  // Week selector state - default to current week
+  const [selectedWeekStart, setSelectedWeekStart] = useState<Date>(() => {
+    const today = new Date()
+    return startOfWeek(today, { weekStartsOn: 0 }) // Sunday
+  })
 
+  // Load employees on mount and whenever they might be missing
+  useEffect(() => {
+    loadEmployees()
+  }, []) // Load once on mount
+
+  // Reload employees if list becomes empty (safety check)
+  useEffect(() => {
+    if (employees.length === 0 && employeesRef.current.length > 0) {
+      // Restore from ref if state was cleared
+      console.log('[AttendanceApprovals] Employees list is empty, restoring from ref...')
+      setEmployees(employeesRef.current)
+    } else if (employees.length === 0) {
+      // Only reload if ref is also empty
+      console.log('[AttendanceApprovals] Employees list is empty, reloading...')
+      loadEmployees()
+    }
+  }, [employees.length, selectedWeekStart]) // Check when week changes or employees count changes
+
+  // Load submissions when week changes
   useEffect(() => {
     loadSubmissions()
-  }, [])
+  }, [selectedWeekStart])
 
-  const loadSubmissions = async () => {
-    setIsLoading(true)
+  const loadEmployees = async () => {
     try {
-      const response = await fetch('/api/timesheet-submissions')
+      // Always load employees - don't check if already loaded to ensure they persist
+      const response = await fetch('/api/employees?includeInactive=false')
       if (response.ok) {
         const data = await response.json()
+        console.log('[AttendanceApprovals] Employees API response:', data)
         // Handle both array and object responses
-        const submissionsData = Array.isArray(data) ? data : (data.data || data.submissions || [])
+        const employeesList = Array.isArray(data) ? data : (data.employees || data.data || [])
+        // Show all employees (including current user) so they can see their own submissions
+        if (employeesList.length > 0) {
+          employeesRef.current = employeesList // Store in ref
+          setEmployees(employeesList) // Update state
+          console.log('[AttendanceApprovals] Loaded', employeesList.length, 'employees:', employeesList.map(e => ({ id: e.id, name: e.name, email: e.email })))
+        } else {
+          console.warn('[AttendanceApprovals] No employees found in API response')
+        }
+      }
+    } catch (error) {
+      console.error('Error loading employees:', error)
+    }
+  }
+
+  const loadSubmissions = async () => {
+    console.log('[AttendanceApprovals] loadSubmissions called for week:', selectedWeekStart.toISOString().split('T')[0])
+    setIsLoading(true)
+    try {
+      // Fetch all SUBMITTED submissions first, then filter by week if needed
+      console.log('[AttendanceApprovals] Fetching submissions from API...')
+      const response = await fetch(`/api/timesheet-submissions?status=SUBMITTED`)
+      console.log('[AttendanceApprovals] API response status:', response.status, response.ok)
+      if (response.ok) {
+        const data = await response.json()
+        // Handle both array and object responses - API returns { success: true, data: [...] }
+        let submissionsData: any[] = []
+        if (Array.isArray(data)) {
+          submissionsData = data
+        } else if (data && typeof data === 'object') {
+          // API returns { success: true, data: [...] }
+          if (data.data && Array.isArray(data.data)) {
+            submissionsData = data.data
+          } else if (data.submissions && Array.isArray(data.submissions)) {
+            submissionsData = data.submissions
+          }
+        }
         
-        // Filter for attendance-only submissions
-        // Attendance submissions: have timesheets OR have no job-related timeEntries
+        console.log('[AttendanceApprovals] Parsed submissions:', submissionsData.length, 'Raw data keys:', Object.keys(data || {}))
+        console.log('[AttendanceApprovals] Selected week:', selectedWeekStart.toISOString().split('T')[0])
+        console.log('[AttendanceApprovals] All submissions week starts:', submissionsData.map((s: any) => s.weekStart))
+        
+        // Filter for attendance-only submissions and match selected week
         const attendanceSubmissions = Array.isArray(submissionsData)
           ? submissionsData
               .filter((sub: any) => {
@@ -92,6 +174,26 @@ export function AttendanceApprovals() {
                   return false
                 }
                 
+                // Filter by selected week - compare week start dates (ignore time)
+                const subWeekStart = new Date(sub.weekStart)
+                const selectedWeek = new Date(selectedWeekStart)
+                
+                // Normalize both dates to midnight UTC for comparison
+                const subWeekDate = new Date(Date.UTC(
+                  subWeekStart.getUTCFullYear(),
+                  subWeekStart.getUTCMonth(),
+                  subWeekStart.getUTCDate()
+                ))
+                const selectedWeekDate = new Date(Date.UTC(
+                  selectedWeek.getUTCFullYear(),
+                  selectedWeek.getUTCMonth(),
+                  selectedWeek.getUTCDate()
+                ))
+                
+                if (subWeekDate.getTime() !== selectedWeekDate.getTime()) {
+                  return false // Not for the selected week
+                }
+                
                 // If it has timesheets, it's an attendance submission
                 const hasTimesheets = sub.timesheets && Array.isArray(sub.timesheets) && sub.timesheets.length > 0
                 if (hasTimesheets) {
@@ -99,11 +201,8 @@ export function AttendanceApprovals() {
                 }
                 
                 // If it has no timeEntries at all, it might be an attendance submission
-                // (attendance entries are stored in Timesheet table, not TimeEntry)
                 const hasNoTimeEntries = !sub.timeEntries || !Array.isArray(sub.timeEntries) || sub.timeEntries.length === 0
                 if (hasNoTimeEntries) {
-                  // This could be an attendance submission - check if there are timesheets in the database
-                  // For now, include it if it has no job entries
                   return true
                 }
                 
@@ -115,16 +214,30 @@ export function AttendanceApprovals() {
               }))
           : []
         
+        console.log('[AttendanceApprovals] Filtered attendance submissions:', attendanceSubmissions.length, 'for week:', selectedWeekStart.toISOString().split('T')[0])
+        if (attendanceSubmissions.length > 0) {
+          console.log('[AttendanceApprovals] Submission details:', attendanceSubmissions.map(s => ({
+            id: s.id,
+            userId: s.userId,
+            weekStart: s.weekStart,
+            type: s.type,
+            status: s.status,
+            totalHours: s.totalHours
+          })))
+        }
         setSubmissions(attendanceSubmissions)
+      } else {
+        console.error('[AttendanceApprovals] API response not OK:', response.status, response.statusText)
       }
     } catch (error) {
-      console.error('Error loading attendance submissions:', error)
+      console.error('[AttendanceApprovals] Error loading attendance submissions:', error)
       toast({
         title: 'Error',
         description: 'Failed to load attendance submissions',
         variant: 'destructive'
       })
     } finally {
+      console.log('[AttendanceApprovals] loadSubmissions completed, isLoading set to false')
       setIsLoading(false)
     }
   }
@@ -223,11 +336,43 @@ export function AttendanceApprovals() {
       case 'SUBMITTED':
         return <Badge className="bg-blue-100 text-blue-800">Pending</Badge>
       default:
-        return <Badge className="bg-gray-100 text-gray-800">{status}</Badge>
+        return <Badge className="bg-gray-100 text-gray-800">Not Submitted</Badge>
     }
   }
 
-  if (isLoading) {
+  // Get submission for an employee
+  const getSubmissionForEmployee = (employeeId: string): AttendanceSubmission | null => {
+    return submissions.find(sub => sub.userId === employeeId) || null
+  }
+
+  // Filter employees by search query
+  const filteredEmployees = employees.filter(emp => {
+    if (!searchQuery.trim()) return true
+    const query = searchQuery.toLowerCase()
+    return (
+      emp.name?.toLowerCase().includes(query) ||
+      emp.email.toLowerCase().includes(query)
+    )
+  })
+
+  // Navigate weeks
+  const navigateWeek = (direction: 'prev' | 'next') => {
+    if (direction === 'prev') {
+      setSelectedWeekStart(subWeeks(selectedWeekStart, 1))
+    } else {
+      setSelectedWeekStart(addWeeks(selectedWeekStart, 1))
+    }
+  }
+
+  const goToCurrentWeek = () => {
+    const today = new Date()
+    setSelectedWeekStart(startOfWeek(today, { weekStartsOn: 0 }))
+  }
+
+  const weekEnd = endOfWeek(selectedWeekStart, { weekStartsOn: 0 })
+  const weekRange = `${format(selectedWeekStart, 'M/d')} - ${format(weekEnd, 'M/d')}`
+
+  if (isLoading && employees.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
         <Clock className="h-8 w-8 mx-auto mb-2 animate-spin" />
@@ -238,13 +383,66 @@ export function AttendanceApprovals() {
 
   return (
     <div className="space-y-4">
+      {/* Week Selector and Search */}
       <Card>
         <CardContent className="pt-6">
-          {submissions.length === 0 ? (
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+            {/* Week Selector */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateWeek('prev')}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg">
+                <Calendar className="h-4 w-4 text-gray-500" />
+                <span className="font-medium">{weekRange}</span>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigateWeek('next')}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={goToCurrentWeek}
+              >
+                Today
+              </Button>
+            </div>
+
+            {/* Search Bar */}
+            <div className="relative w-full sm:w-auto sm:min-w-[300px]">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search employees..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Employees Table */}
+      <Card>
+        <CardContent className="pt-6">
+          {isLoading && employees.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
-              <Clock className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p className="text-lg font-medium mb-2">No attendance submissions</p>
-              <p className="text-sm">Attendance approval submissions will appear here</p>
+              <Clock className="h-8 w-8 mx-auto mb-2 animate-spin" />
+              <p>Loading employees and submissions...</p>
+            </div>
+          ) : filteredEmployees.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <User className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+              <p className="text-lg font-medium mb-2">No employees found</p>
+              <p className="text-sm">{searchQuery ? 'Try a different search term' : 'No employees available'}</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -260,101 +458,93 @@ export function AttendanceApprovals() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {submissions.map((submission) => (
-                    <TableRow key={submission.id}>
-                      <TableCell className="font-medium">
-                        <div className="flex items-center gap-2">
-                          <User className="h-4 w-4 text-gray-500" />
-                          {submission.user.name || submission.user.email}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Calendar className="h-4 w-4 text-gray-500" />
-                          {(() => {
-                            // The dates in the database are stored as UTC midnight
-                            // Convert UTC dates to local dates for display
-                            const startUTC = new Date(submission.weekStart)
-                            const endUTC = new Date(submission.weekEnd)
-                            
-                            // Extract UTC date components and create local dates
-                            // This ensures we display the correct calendar dates regardless of timezone
-                            const startDate = new Date(Date.UTC(
-                              startUTC.getUTCFullYear(),
-                              startUTC.getUTCMonth(),
-                              startUTC.getUTCDate()
-                            ))
-                            const endDate = new Date(Date.UTC(
-                              endUTC.getUTCFullYear(),
-                              endUTC.getUTCMonth(),
-                              endUTC.getUTCDate()
-                            ))
-                            
-                            // Format using local date components for display
-                            const startLocal = new Date(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate())
-                            const endLocal = new Date(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate())
-                            
-                            return `${format(startLocal, 'M/d')} - ${format(endLocal, 'M/d')}`
-                          })()}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Clock className="h-4 w-4 text-gray-500" />
-                          {submission.totalHours.toFixed(2)}h
-                        </div>
-                      </TableCell>
-                      <TableCell>{getStatusBadge(submission.status)}</TableCell>
-                      <TableCell>
-                        {submission.submittedAt
-                          ? format(new Date(submission.submittedAt), 'MMM d, yyyy')
-                          : '—'}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setSelectedSubmission(submission)
-                              setIsViewDialogOpen(true)
-                            }}
-                          >
-                            <Eye className="h-4 w-4 mr-1" />
-                            View
-                          </Button>
-                          {submission.status === 'SUBMITTED' && (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-green-700 border-green-300 hover:bg-green-50"
-                                onClick={() => {
-                                  setSelectedSubmission(submission)
-                                  setIsApprovalDialogOpen(true)
-                                }}
-                              >
-                                <Check className="h-4 w-4 mr-1" />
-                                Approve
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-red-700 border-red-300 hover:bg-red-50"
-                                onClick={() => {
-                                  setSelectedSubmission(submission)
-                                  setIsRejectionDialogOpen(true)
-                                }}
-                              >
-                                <X className="h-4 w-4 mr-1" />
-                                Reject
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {filteredEmployees.map((employee) => {
+                    const submission = getSubmissionForEmployee(employee.id)
+                    const status = submission?.status || 'NOT_SUBMITTED'
+                    // Show approve/reject buttons for any submission that exists (SUBMITTED status)
+                    const showApproveReject = submission && (status === 'SUBMITTED' || status?.toUpperCase() === 'SUBMITTED')
+                    
+                    // Debug logging
+                    if (submission) {
+                      console.log('[AttendanceApprovals] Employee:', employee.name, 'Status:', status, 'Submission status:', submission.status, 'showApproveReject:', showApproveReject)
+                    }
+                    
+                    return (
+                      <TableRow key={employee.id}>
+                        <TableCell className="font-medium">
+                          <div className="flex items-center gap-2">
+                            <User className="h-4 w-4 text-gray-500" />
+                            {employee.name || employee.email}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Calendar className="h-4 w-4 text-gray-500" />
+                            {weekRange}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Clock className="h-4 w-4 text-gray-500" />
+                            {submission ? submission.totalHours.toFixed(2) + 'h' : '—'}
+                          </div>
+                        </TableCell>
+                        <TableCell>{getStatusBadge(status)}</TableCell>
+                        <TableCell>
+                          {submission?.submittedAt
+                            ? format(new Date(submission.submittedAt), 'MMM d, yyyy')
+                            : '—'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {submission ? (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedSubmission(submission)
+                                    setIsViewDialogOpen(true)
+                                  }}
+                                >
+                                  <Eye className="h-4 w-4 mr-1" />
+                                  View
+                                </Button>
+                                {showApproveReject && (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-green-700 border-green-300 hover:bg-green-50"
+                                      onClick={() => {
+                                        setSelectedSubmission(submission)
+                                        setIsApprovalDialogOpen(true)
+                                      }}
+                                    >
+                                      <Check className="h-4 w-4 mr-1" />
+                                      Approve
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="text-red-700 border-red-300 hover:bg-red-50"
+                                      onClick={() => {
+                                        setSelectedSubmission(submission)
+                                        setIsRejectionDialogOpen(true)
+                                      }}
+                                    >
+                                      <X className="h-4 w-4 mr-1" />
+                                      Reject
+                                    </Button>
+                                  </>
+                                )}
+                              </>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             </div>
@@ -400,25 +590,7 @@ export function AttendanceApprovals() {
             <DialogDescription>
               {selectedSubmission && (
                 <>
-                  {selectedSubmission.user.name || selectedSubmission.user.email} -{' '}
-                  {(() => {
-                    // Ensure we're displaying the correct Sunday-Saturday range
-                    const start = new Date(selectedSubmission.weekStart)
-                    const end = new Date(selectedSubmission.weekEnd)
-                    // Use local date components to display the actual calendar dates
-                    const startDate = new Date(start.getFullYear(), start.getMonth(), start.getDate())
-                    const endDate = new Date(end.getFullYear(), end.getMonth(), end.getDate())
-                    // Verify and adjust to Sunday-Saturday boundaries
-                    const startDay = startDate.getDay()
-                    const endDay = endDate.getDay()
-                    if (startDay !== 0) {
-                      startDate.setDate(startDate.getDate() - startDay)
-                    }
-                    if (endDay !== 6) {
-                      endDate.setDate(endDate.getDate() + (6 - endDay))
-                    }
-                    return `${format(startDate, 'M/d')} - ${format(endDate, 'M/d')} (Sunday - Saturday)`
-                  })()}
+                  {selectedSubmission.user.name || selectedSubmission.user.email} - {weekRange}
                 </>
               )}
             </DialogDescription>
@@ -454,7 +626,6 @@ export function AttendanceApprovals() {
                           <TableHead>Clock In</TableHead>
                           <TableHead>Clock Out</TableHead>
                           <TableHead>Hours</TableHead>
-                          <TableHead>Status</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -469,11 +640,6 @@ export function AttendanceApprovals() {
                               <TableCell>{format(new Date(ts.clockInTime), 'h:mm a')}</TableCell>
                               <TableCell>{ts.clockOutTime ? format(new Date(ts.clockOutTime), 'h:mm a') : '—'}</TableCell>
                               <TableCell>{hours.toFixed(2)}h</TableCell>
-                              <TableCell>
-                                <Badge className={ts.status === 'completed' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}>
-                                  {ts.status}
-                                </Badge>
-                              </TableCell>
                             </TableRow>
                           )
                         })}
@@ -553,6 +719,3 @@ export function AttendanceApprovals() {
     </div>
   )
 }
-
-
-

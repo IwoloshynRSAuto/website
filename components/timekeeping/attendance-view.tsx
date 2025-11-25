@@ -1388,16 +1388,15 @@ export function AttendanceView({
       const isClockedIn = todayAttendance && !todayAttendance.clockOutTime
 
       if (isClockedIn && todayAttendance) {
-        // Clock Out - get location
-        const location = await getCurrentLocation()
+        // Clock Out - send immediately, update geolocation in background
         const response = await fetch(`/api/timesheets/${todayAttendance.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             clockOutTime: now.toISOString(),
-            clockOutGeoLat: location?.lat ?? null,
-            clockOutGeoLon: location?.lon ?? null,
-            clockOutGeoAccuracy: location?.accuracy ?? null,
+            clockOutGeoLat: null, // Will be updated in background
+            clockOutGeoLon: null,
+            clockOutGeoAccuracy: null,
           }),
         })
 
@@ -1409,10 +1408,28 @@ export function AttendanceView({
           title: 'Success',
           description: 'Clocked out successfully',
         })
+        
+        // Update geolocation in background (non-blocking)
+        getCurrentLocation().then((location) => {
+          if (location) {
+            fetch(`/api/timesheets/${todayAttendance.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                clockOutGeoLat: location.lat,
+                clockOutGeoLon: location.lon,
+                clockOutGeoAccuracy: location.accuracy,
+              })
+            }).then(() => {
+              // Refresh timesheet data after geolocation update
+              loadTimesheets()
+            }).catch(err => console.error('Failed to update geolocation:', err))
+          }
+        }).catch(err => console.error('Failed to get geolocation:', err))
+        
         await loadTimesheets()
       } else {
-        // Clock In - get location
-        const location = await getCurrentLocation()
+        // Clock In - send immediately, update geolocation in background
         const response = await fetch('/api/timesheets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1420,9 +1437,9 @@ export function AttendanceView({
             userId: selectedUserId,
             date: today.toISOString(),
             clockInTime: now.toISOString(),
-            geoLat: location?.lat ?? null,
-            geoLon: location?.lon ?? null,
-            geoAccuracy: location?.accuracy ?? null,
+            geoLat: null, // Will be updated in background
+            geoLon: null,
+            geoAccuracy: null,
           }),
         })
 
@@ -1430,10 +1447,33 @@ export function AttendanceView({
           const errorData = await response.json().catch(() => ({}))
           throw new Error(errorData.error || 'Failed to clock in')
         }
+        
+        const responseData = await response.json()
         toast({
           title: 'Success',
           description: 'Clocked in successfully',
         })
+        
+        // Update geolocation in background (non-blocking)
+        if (responseData?.id) {
+          getCurrentLocation().then((location) => {
+            if (location) {
+              fetch(`/api/timesheets/${responseData.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  geoLat: location.lat,
+                  geoLon: location.lon,
+                  geoAccuracy: location.accuracy,
+                })
+              }).then(() => {
+                // Refresh timesheet data after geolocation update
+                loadTimesheets()
+              }).catch(err => console.error('Failed to update geolocation:', err))
+            }
+          }).catch(err => console.error('Failed to get geolocation:', err))
+        }
+        
         await loadTimesheets()
       }
     } catch (error: any) {
@@ -1614,7 +1654,14 @@ export function AttendanceView({
       matchIds: matching.map(m => m.id)
     })
     
-    return matching
+    // Sort by clockInTime chronologically (first clock in first)
+    const sorted = matching.sort((a, b) => {
+      const timeA = new Date(a.clockInTime).getTime()
+      const timeB = new Date(b.clockInTime).getTime()
+      return timeA - timeB
+    })
+    
+    return sorted
   }
 
   const calculateDayTotal = (date: Date): number => {

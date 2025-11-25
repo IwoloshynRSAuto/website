@@ -584,7 +584,7 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
       console.log('[Clock In] Timesheet date:', timesheetDate.toISOString())
       console.log('[Clock In] Sending request to /api/timesheets')
 
-      // Make API request
+      // Make API request immediately (non-blocking)
       const response = await fetch('/api/timesheets', {
         method: 'POST',
         headers: { 
@@ -592,7 +592,10 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
         },
         body: JSON.stringify({
           clockInTime: clockInDate.toISOString(),
-          date: timesheetDate.toISOString()
+          date: timesheetDate.toISOString(),
+          geoLat: null, // Will be updated in background
+          geoLon: null,
+          geoAccuracy: null,
         })
       })
 
@@ -600,6 +603,28 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
       console.log('[Clock In] Response ok:', response.ok)
 
       const responseData = await response.json()
+
+      // Update geolocation in background (non-blocking)
+      if (response.ok && responseData.id) {
+        getCurrentLocation().then((location) => {
+          if (location) {
+            console.log('[Clock In] Updating geolocation in background:', location)
+            fetch(`/api/timesheets/${responseData.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                geoLat: location.lat,
+                geoLon: location.lon,
+                geoAccuracy: location.accuracy,
+              })
+            }).then(() => {
+              // Refresh timesheet data after geolocation update
+              loadTimesheets()
+              loadCurrentTimesheet()
+            }).catch(err => console.error('[Clock In] Failed to update geolocation:', err))
+          }
+        }).catch(err => console.error('[Clock In] Failed to get geolocation:', err))
+      }
       console.log('[Clock In] Response data:', responseData)
 
       if (!response.ok) {
@@ -950,25 +975,42 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
         return
       }
 
-      // Get geolocation for clock-out
-      console.log('[Clock Out] Getting geolocation...')
-      const location = await getCurrentLocation()
-      console.log('[Clock Out] Location:', location)
-
+      // Send clock out immediately (non-blocking)
       console.log('[Clock Out] Clock out date:', clockOutDate.toISOString())
       console.log('[Clock Out] Sending PATCH to /api/timesheets/' + currentTimesheet.id)
 
+      // Send request immediately without waiting for geolocation
       const response = await fetch(`/api/timesheets/${currentTimesheet.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           clockOutTime: clockOutDate.toISOString(),
           status: 'in-progress', // Keep in-progress so they can clock back in
-          clockOutGeoLat: location?.lat ?? null,
-          clockOutGeoLon: location?.lon ?? null,
-          clockOutGeoAccuracy: location?.accuracy ?? null,
+          clockOutGeoLat: null, // Will be updated in background
+          clockOutGeoLon: null,
+          clockOutGeoAccuracy: null,
         })
       })
+
+      // Update geolocation in background (non-blocking)
+      getCurrentLocation().then((location) => {
+        if (location) {
+          console.log('[Clock Out] Updating geolocation in background:', location)
+          fetch(`/api/timesheets/${currentTimesheet.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              clockOutGeoLat: location.lat,
+              clockOutGeoLon: location.lon,
+              clockOutGeoAccuracy: location.accuracy,
+            })
+          }).then(() => {
+            // Refresh timesheet data after geolocation update
+            loadTimesheets()
+            loadCurrentTimesheet()
+          }).catch(err => console.error('[Clock Out] Failed to update geolocation:', err))
+        }
+      }).catch(err => console.error('[Clock Out] Failed to get geolocation:', err))
 
       console.log('[Clock Out] Response status:', response.status)
       console.log('[Clock Out] Response ok:', response.ok)
@@ -2537,4 +2579,5 @@ export function PunchInOutTimesheet({ userId, userName }: PunchInOutTimesheetPro
     </div>
   )
 }
+
 

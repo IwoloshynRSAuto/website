@@ -9,9 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
-import { ArrowLeft, Calendar, User, Building, DollarSign, FileText, Save, X } from 'lucide-react'
+import { ArrowLeft, Calendar, User, Building, DollarSign, FileText, Save, X, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { toast } from 'react-hot-toast'
 
 interface Quote {
@@ -63,6 +64,7 @@ interface QuoteDetailsEditableProps {
 }
 
 export function QuoteDetailsEditable({ quote, users, customers }: QuoteDetailsEditableProps) {
+  const router = useRouter()
   const [isEditing, setIsEditing] = useState(true)
   const [formData, setFormData] = useState({
     title: quote.title,
@@ -161,6 +163,31 @@ export function QuoteDetailsEditable({ quote, users, customers }: QuoteDetailsEd
     }
   }
 
+  const handleDelete = async () => {
+    if (!confirm('Are you sure you want to delete this quote? This action cannot be undone.')) {
+      return
+    }
+    setIsLoading(true)
+    try {
+      const response = await fetch(`/api/quotes/${quote.id}`, {
+        method: 'DELETE',
+      })
+
+      if (response.ok) {
+        toast.success('Quote deleted successfully')
+        router.push('/dashboard/jobs?tab=quotes')
+      } else {
+        const errorData = await response.json()
+        toast.error(errorData.error || 'Failed to delete quote')
+      }
+    } catch (error) {
+      console.error('Delete error:', error)
+      toast.error('Failed to delete quote')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       DRAFT: 'bg-gray-200 text-gray-800',
@@ -208,6 +235,15 @@ export function QuoteDetailsEditable({ quote, users, customers }: QuoteDetailsEd
           )}
           <Button onClick={handleConvertToJob} disabled={isLoading} className="bg-green-600 hover:bg-green-700">
             Convert to Job
+          </Button>
+          <Button 
+            onClick={handleDelete} 
+            disabled={isLoading} 
+            variant="destructive"
+            className="bg-red-600 hover:bg-red-700"
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete
           </Button>
         </div>
       </div>

@@ -40,6 +40,7 @@ interface StandardTableProps {
   className?: string
   showEditButton?: boolean
   showDeleteButton?: boolean
+  showActions?: boolean
   filterBar?: React.ReactNode
 }
 
@@ -57,6 +58,7 @@ export function StandardTable({
   className = "",
   showEditButton = true,
   showDeleteButton = true,
+  showActions = true,
   filterBar
 }: StandardTableProps) {
   const router = useRouter()
@@ -120,29 +122,35 @@ export function StandardTable({
 
   return (
     <Card className={className}>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center">
-            {title}
-          </CardTitle>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
-            {createButton && (
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                {createButton}
-              </div>
+      {(title || createButton || searchFields.length > 0) && (
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            {title && (
+              <CardTitle className="flex items-center">
+                {title}
+              </CardTitle>
             )}
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-8 w-full sm:w-64"
-              />
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+              {createButton && (
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  {createButton}
+                </div>
+              )}
+              {searchFields.length > 0 && (
+                <div className="relative">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Search..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="pl-8 w-full sm:w-64"
+                  />
+                </div>
+              )}
             </div>
           </div>
-        </div>
-      </CardHeader>
+        </CardHeader>
+      )}
       {filterBar}
       <CardContent>
         <div className="rounded-md border">
@@ -179,7 +187,7 @@ export function StandardTable({
                     )}
                   </TableHead>
                 ))}
-                {((showEditButton && onEdit) || (showDeleteButton && onDelete) || onView || detailRoute) && (
+                {showActions && ((showEditButton && onEdit) || (showDeleteButton && onDelete) || onView || detailRoute) && (
                   <TableHead className="py-1 px-1 text-xs w-16">Actions</TableHead>
                 )}
               </TableRow>
@@ -188,7 +196,7 @@ export function StandardTable({
               {sortedData.length === 0 ? (
                 <TableRow>
                   <TableCell 
-                    colSpan={columns.length + (((showEditButton && onEdit) || (showDeleteButton && onDelete) || onView || detailRoute) ? 1 : 0)} 
+                    colSpan={columns.length + (showActions && ((showEditButton && onEdit) || (showDeleteButton && onDelete) || onView || detailRoute) ? 1 : 0)} 
                     className="text-center text-muted-foreground py-8"
                   >
                     {emptyMessage}
@@ -209,7 +217,7 @@ export function StandardTable({
                         {column.render ? column.render(item[column.key], item) : item[column.key]}
                       </TableCell>
                     ))}
-                    {((showEditButton && onEdit) || (showDeleteButton && onDelete) || onView || detailRoute) && (
+                    {showActions && ((showEditButton && onEdit) || (showDeleteButton && onDelete) || onView || detailRoute) && (
                       <TableCell className="py-1 px-1" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center space-x-1">
                           {onView && (

@@ -22,7 +22,7 @@ export default async function TimeApprovalsPage() {
         <p className="text-sm sm:text-base text-gray-600 mt-1">Review and approve job time submissions</p>
       </div>
 
-      <TimeApprovals />
+      <TimeApprovals currentUserId={session.user.id} />
     </div>
   )
 }

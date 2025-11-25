@@ -122,17 +122,15 @@ export function PersonalizedHome({
       today.setHours(0, 0, 0, 0)
 
       if (todayAttendance && !todayAttendance.clockOutTime) {
-        // Clock Out - get location
-        const location = await getCurrentLocation()
+        // Clock Out - send immediately, update geolocation in background
         const response = await fetch(`/api/timesheets/${todayAttendance.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             clockOutTime: now.toISOString(),
-            clockOutGeoLat: location?.lat ?? null,
-            clockOutGeoLon: location?.lon ?? null,
-            clockOutGeoAccuracy: location?.accuracy ?? null,
-            // clockOutLocationDenied: !location, // Removed - field doesn't exist in database yet
+            clockOutGeoLat: null, // Will be updated in background
+            clockOutGeoLon: null,
+            clockOutGeoAccuracy: null,
           }),
         })
 
@@ -144,10 +142,25 @@ export function PersonalizedHome({
           title: 'Success',
           description: 'Clocked out successfully',
         })
+        
+        // Update geolocation in background (non-blocking)
+        getCurrentLocation().then((location) => {
+          if (location) {
+            fetch(`/api/timesheets/${todayAttendance.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                clockOutGeoLat: location.lat,
+                clockOutGeoLon: location.lon,
+                clockOutGeoAccuracy: location.accuracy,
+              })
+            }).catch(err => console.error('Failed to update geolocation:', err))
+          }
+        }).catch(err => console.error('Failed to get geolocation:', err))
+        
         router.refresh()
       } else {
-        // Clock In - get location
-        const location = await getCurrentLocation()
+        // Clock In - send immediately, update geolocation in background
         const response = await fetch('/api/timesheets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -155,10 +168,9 @@ export function PersonalizedHome({
             userId: userId,
             date: today.toISOString(),
             clockInTime: now.toISOString(),
-            geoLat: location?.lat ?? null,
-            geoLon: location?.lon ?? null,
-            geoAccuracy: location?.accuracy ?? null,
-            // locationDenied: !location, // Removed - field doesn't exist in database
+            geoLat: null, // Will be updated in background
+            geoLon: null,
+            geoAccuracy: null,
           }),
         })
 
@@ -166,10 +178,30 @@ export function PersonalizedHome({
           const errorData = await response.json().catch(() => ({}))
           throw new Error(errorData.error || 'Failed to clock in')
         }
+        
+        const responseData = await response.json()
         toast({
           title: 'Success',
           description: 'Clocked in successfully',
         })
+        
+        // Update geolocation in background (non-blocking)
+        if (responseData?.id) {
+          getCurrentLocation().then((location) => {
+            if (location) {
+              fetch(`/api/timesheets/${responseData.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  geoLat: location.lat,
+                  geoLon: location.lon,
+                  geoAccuracy: location.accuracy,
+                })
+              }).catch(err => console.error('Failed to update geolocation:', err))
+            }
+          }).catch(err => console.error('Failed to get geolocation:', err))
+        }
+        
         router.refresh()
       }
     } catch (error: any) {
