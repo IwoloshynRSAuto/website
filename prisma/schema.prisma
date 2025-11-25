@@ -946,3 +946,152 @@ model TaskCard {
   @@index([status])
   @@map("task_cards")
 }
+
+// eBay Automation Models
+model EbayListing {
+  id                   String              @id @default(cuid())
+  code                 String               @unique
+  title                String?
+  description          String?
+  listingStatus        String               @default("draft") // draft, active_listing, active, sold, ended
+  userId               String
+  categoryId           String?
+  storageLocationId    String?
+  conditionId          String?
+  conditionText        String?
+  testStatusId         String?
+  testStatus           String? // Legacy support
+  notes                String?
+  needsInspection      Boolean              @default(false)
+  needsTesting         Boolean              @default(false)
+  postedDate           DateTime?
+  suggestedPrice       Float?
+  suggestedAuctionPrice Float?
+  suggestedShipping    Float?
+  imageFolderPath      String?
+  ebayDraftData        String?              // JSON string for draft listing data
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  
+  images               EbayListingImage[]
+  category             EbayCategory?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  storageLocation      EbayStorageLocation?  @relation(fields: [storageLocationId], references: [id], onDelete: SetNull)
+  condition            EbayCondition?        @relation(fields: [conditionId], references: [id], onDelete: SetNull)
+  testStatusRelation   EbayTestStatus?       @relation(fields: [testStatusId], references: [id], onDelete: SetNull)
+  aiAnalysis           EbayAIAnalysis?
+  ebayData             EbayData?
+  alerts               EbayAlert[]
+  
+  @@index([userId])
+  @@index([categoryId])
+  @@index([storageLocationId])
+  @@index([listingStatus])
+  @@index([createdAt])
+  @@map("ebay_listings")
+}
+
+model EbayListingImage {
+  id        String       @id @default(cuid())
+  listingId String
+  filename  String
+  url       String
+  order     Int          @default(0)
+  createdAt DateTime     @default(now())
+  listing   EbayListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  @@index([listingId])
+  @@index([order])
+  @@map("ebay_listing_images")
+}
+
+model EbayAIAnalysis {
+  id                 String       @id @default(cuid())
+  listingId         String       @unique
+  autoTitle         String?
+  autoDescription   String?
+  autoCategory      String?
+  detectedBrand     String?
+  detectedModel     String?
+  itemSpecifics     String?      // JSON string
+  suggestedCategory String?
+  confidenceScore   Float?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  listing           EbayListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  @@map("ebay_ai_analyses")
+}
+
+model EbayCategory {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  listings  EbayListing[]
+  
+  @@map("ebay_categories")
+}
+
+model EbayStorageLocation {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  listings  EbayListing[]
+  
+  @@map("ebay_storage_locations")
+}
+
+model EbayCondition {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  listings  EbayListing[]
+  
+  @@map("ebay_conditions")
+}
+
+model EbayAlert {
+  id        String       @id @default(cuid())
+  listingId String
+  type      String       // aging, inspection, testing, pricing, etc.
+  message   String
+  isActive  Boolean      @default(true)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  listing   EbayListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  @@index([listingId])
+  @@index([isActive])
+  @@map("ebay_alerts")
+}
+
+model EbayData {
+  id              String       @id @default(cuid())
+  listingId       String       @unique
+  ebayItemId     String?
+  ebayListingUrl String?
+  status          String?      // draft_stub, pending, uploaded, failed
+  itemSpecifics   String?      // JSON string
+  uploadedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  listing        EbayListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  
+  @@map("ebay_data")
+}
+
+model EbayTestStatus {
+  id        String         @id @default(cuid())
+  name      String         @unique
+  isActive  Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  listings  EbayListing[]
+  
+  @@map("ebay_test_statuses")
+}

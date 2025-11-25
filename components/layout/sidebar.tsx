@@ -20,6 +20,8 @@ import {
   BarChart3,
   Code,
   MapPin,
+  ShoppingCart,
+  Plus,
 } from 'lucide-react'
 
 const navigation = [
@@ -53,6 +55,16 @@ const navigation = [
     ]
   },
   { name: 'Customers', href: '/dashboard/customers', icon: Building2 },
+  { 
+    name: 'eBay Automation', 
+    href: '/dashboard/ebay', 
+    icon: ShoppingCart,
+    children: [
+      { name: 'Dashboard', href: '/dashboard/ebay', icon: ShoppingCart },
+      { name: 'New Listing', href: '/dashboard/ebay/listings/new', icon: Plus },
+      { name: 'Settings', href: '/dashboard/ebay/settings', icon: Settings },
+    ]
+  },
   { 
     name: 'Admin Dashboard', 
     href: '/dashboard/manager', 
@@ -137,6 +149,13 @@ export function Sidebar() {
         active: 'bg-amber-100 text-amber-700 border-l-2 border-amber-600',
         icon: 'text-amber-600',
         childActive: 'bg-amber-50 text-amber-600 border-l-2 border-amber-600',
+      }
+    }
+    if (href.includes('/ebay')) {
+      return {
+        active: 'bg-green-100 text-green-700 border-l-2 border-green-600',
+        icon: 'text-green-600',
+        childActive: 'bg-green-50 text-green-600 border-l-2 border-green-600',
       }
     }
     if (href.includes('/admin') || href.includes('/manager')) {

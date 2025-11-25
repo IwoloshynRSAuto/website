@@ -86,7 +86,8 @@ export async function PUT(
     if (body.categoryId !== undefined) updateData.categoryId = body.categoryId || null
     if (body.storageLocationId !== undefined) updateData.storageLocationId = body.storageLocationId || null
     if (body.location !== undefined) updateData.location = body.location
-    if (body.condition !== undefined) updateData.conditionText = body.condition
+    if (body.conditionId !== undefined) updateData.conditionId = body.conditionId || null
+    if (body.condition !== undefined) updateData.conditionText = body.condition // Legacy support
     if (body.testStatus !== undefined) updateData.testStatus = body.testStatus
     if (body.notes !== undefined) updateData.notes = body.notes
     if (body.listingStatus !== undefined) updateData.listingStatus = body.listingStatus

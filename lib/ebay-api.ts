@@ -66,7 +66,12 @@ export const settings = {
   getCategories: () => api.get('/settings/categories'),
   createCategory: (data: any) => api.post('/settings/categories', data),
   updateCategory: (id: string | number, data: any) => api.put(`/settings/categories/${id}`, data),
-  deleteCategory: (id: string | number) => api.delete(`/settings/categories/${id}`)
+  deleteCategory: (id: string | number) => api.delete(`/settings/categories/${id}`),
+
+  getTestStatuses: () => api.get('/settings/test-statuses'),
+  createTestStatus: (data: any) => api.post('/settings/test-statuses', data),
+  updateTestStatus: (id: string | number, data: any) => api.put(`/settings/test-statuses/${id}`, data),
+  deleteTestStatus: (id: string | number) => api.delete(`/settings/test-statuses/${id}`)
 }
 
 // AI API (Stub/Placeholder)

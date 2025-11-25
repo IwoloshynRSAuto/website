@@ -24,13 +24,14 @@ export default function NewListingPage() {
   const [generatedTitle, setGeneratedTitle] = useState('')
   const [locations, setLocations] = useState<any[]>([])
   const [categories, setCategories] = useState<any[]>([])
+  const [conditions, setConditions] = useState<any[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const [formData, setFormData] = useState({
     title: '',
     categoryId: '',
     storageLocationId: '',
-    condition: '',
+    conditionId: '',
     testStatus: '',
     notes: ''
   })
@@ -41,12 +42,14 @@ export default function NewListingPage() {
 
   async function loadSettings() {
     try {
-      const [locRes, catRes] = await Promise.all([
+      const [locRes, catRes, condRes] = await Promise.all([
         ebayApi.settings.getLocations(),
-        ebayApi.settings.getCategories()
+        ebayApi.settings.getCategories(),
+        ebayApi.settings.getConditions()
       ])
       setLocations(locRes.data.data || [])
       setCategories(catRes.data.data || [])
+      setConditions(condRes.data.data || [])
     } catch (error) {
       console.error('Failed to load settings:', error)
     }
@@ -131,7 +134,7 @@ export default function NewListingPage() {
         title: formData.title,
         categoryId: formData.categoryId || null,
         storageLocationId: formData.storageLocationId || null,
-        condition: formData.condition,
+        conditionId: formData.conditionId || null,
         testStatus: formData.testStatus,
         notes: formData.notes,
         listingStatus: 'draft'
@@ -329,12 +332,22 @@ export default function NewListingPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="condition">Condition</Label>
-                  <Input
-                    id="condition"
-                    value={formData.condition}
-                    onChange={(e) => setFormData(prev => ({ ...prev, condition: e.target.value }))}
-                    placeholder="e.g., New, Used, For Parts"
-                  />
+                  <Select
+                    value={formData.conditionId || 'none'}
+                    onValueChange={(value) => setFormData(prev => ({ ...prev, conditionId: value === 'none' ? '' : value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select condition" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {conditions.filter(c => c.isActive).map((condition) => (
+                        <SelectItem key={condition.id} value={condition.id}>
+                          {condition.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
 
                 <div>

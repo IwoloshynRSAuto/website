@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma'
 
 export const dynamic = 'force-dynamic'
 
-// GET /api/ebay/settings/conditions
+// GET /api/ebay/settings/test-statuses
 export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -13,27 +13,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const conditions = await prisma.ebayCondition.findMany({
+    const testStatuses = await prisma.ebayTestStatus.findMany({
       orderBy: { name: 'asc' }
     })
 
     return NextResponse.json({
       success: true,
-      data: conditions
+      data: testStatuses
     })
   } catch (error: any) {
-    console.error('[Settings] Error fetching conditions:', error)
+    console.error('[Settings] Error fetching test statuses:', error)
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Failed to fetch conditions'
+        error: error.message || 'Failed to fetch test statuses'
       },
       { status: 500 }
     )
   }
 }
 
-// POST /api/ebay/settings/conditions
+// POST /api/ebay/settings/test-statuses
 export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const condition = await prisma.ebayCondition.create({
+    const testStatus = await prisma.ebayTestStatus.create({
       data: {
         name: name.trim(),
         isActive: true
@@ -60,24 +60,23 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: condition
+      data: testStatus
     })
   } catch (error: any) {
-    console.error('[Settings] Error creating condition:', error)
+    console.error('[Settings] Error creating test status:', error)
     if (error.code === 'P2002') {
       return NextResponse.json(
-        { success: false, error: 'Condition with this name already exists' },
+        { success: false, error: 'Test status with this name already exists' },
         { status: 400 }
       )
     }
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Failed to create condition'
+        error: error.message || 'Failed to create test status'
       },
       { status: 500 }
     )
   }
 }
-
 

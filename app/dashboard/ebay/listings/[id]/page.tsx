@@ -25,6 +25,7 @@ export default function ListingDetailPage() {
   const [editData, setEditData] = useState<any>({})
   const [categories, setCategories] = useState<any[]>([])
   const [locations, setLocations] = useState<any[]>([])
+  const [conditions, setConditions] = useState<any[]>([])
   const [uploading, setUploading] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
@@ -37,12 +38,14 @@ export default function ListingDetailPage() {
 
   async function loadSettings() {
     try {
-      const [catRes, locRes] = await Promise.all([
+      const [catRes, locRes, condRes] = await Promise.all([
         ebayApi.settings.getCategories(),
-        ebayApi.settings.getLocations()
+        ebayApi.settings.getLocations(),
+        ebayApi.settings.getConditions()
       ])
       setCategories(catRes.data.data || [])
       setLocations(locRes.data.data || [])
+      setConditions(condRes.data.data || [])
     } catch (error) {
       console.error('Error loading settings:', error)
     }
@@ -59,7 +62,7 @@ export default function ListingDetailPage() {
         description: listingData.description || '',
         categoryId: listingData.categoryId || '',
         storageLocationId: listingData.storageLocationId || '',
-        condition: listingData.conditionText || '',
+        conditionId: listingData.conditionId || '',
         testStatus: listingData.testStatus || '',
         notes: listingData.notes || '',
         listingStatus: listingData.listingStatus || 'draft'
@@ -360,13 +363,24 @@ export default function ListingDetailPage() {
                 <div>
                   <Label htmlFor="condition">Condition</Label>
                   {editing ? (
-                    <Input
-                      id="condition"
-                      value={editData.condition || ''}
-                      onChange={(e) => setEditData(prev => ({ ...prev, condition: e.target.value }))}
-                    />
+                    <Select
+                      value={editData.conditionId || 'none'}
+                      onValueChange={(value) => setEditData(prev => ({ ...prev, conditionId: value === 'none' ? '' : value }))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select condition" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">None</SelectItem>
+                        {conditions.filter(c => c.isActive).map((condition) => (
+                          <SelectItem key={condition.id} value={condition.id}>
+                            {condition.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : (
-                    <p className="mt-2 text-gray-600">{listing.conditionText || 'No condition specified'}</p>
+                    <p className="mt-2 text-gray-600">{listing.condition?.name || listing.conditionText || 'No condition specified'}</p>
                   )}
                 </div>
 
