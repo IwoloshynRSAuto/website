@@ -48,13 +48,8 @@ export default async function JobsPage() {
     orderBy: { createdAt: 'desc' }
   })
 
-  // Fetch quotes from Quote model (BOM-based quotes)
+  // Fetch all quotes from Quote model
   const quotes = await prisma.quote.findMany({
-    where: {
-      linkedBOMs: {
-        some: {},
-      },
-    },
     include: {
       linkedBOMs: {
         include: {

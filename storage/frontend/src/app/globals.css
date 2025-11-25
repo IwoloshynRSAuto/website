@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0F0F0F] text-[#E5E5E5] min-h-screen;
+  }
+}
+
+@layer components {
+  .glass {
+    @apply bg-[#1E1E1E] backdrop-blur-md border border-[#2A2A2A];
+  }
+
+  .glass-hover {
+    @apply glass hover:bg-[#222] transition-all duration-300;
+  }
+
+  .btn-primary {
+    @apply px-6 py-3 bg-[#22B8CF] rounded-lg font-semibold hover:bg-[#2DD4BF] transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl text-white;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 bg-[#1E1E1E] border border-[#2A2A2A] rounded-lg font-semibold hover:bg-[#222] text-[#E5E5E5];
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 bg-[#1E1E1E] border border-[#2A2A2A] rounded-lg focus:ring-2 focus:ring-[#22B8CF] focus:outline-none placeholder-gray-500 text-[#E5E5E5];
+  }
+
+  .card {
+    @apply bg-[#1E1E1E] border border-[#2A2A2A] rounded-xl p-6 shadow-xl;
+  }
+
+  .badge {
+    @apply px-3 py-1 rounded-full text-sm font-medium;
+  }
+
+  .badge-success {
+    @apply badge bg-green-500/20 text-green-300 border border-green-500/30;
+  }
+
+  .badge-warning {
+    @apply badge bg-yellow-500/20 text-yellow-300 border border-yellow-500/30;
+  }
+
+  .badge-error {
+    @apply badge bg-red-500/20 text-red-300 border border-red-500/30;
+  }
+
+  .badge-info {
+    @apply badge bg-blue-500/20 text-blue-300 border border-blue-500/30;
+  }
+
+  .badge-gray {
+    @apply px-2 py-1 text-xs rounded-full bg-gray-500/20 text-gray-300;
+  }
+
+  /* Premium Select/Dropdown Styling */
+  select {
+    @apply px-4 py-2.5 bg-[#1E1E1E] border border-[#2A2A2A] rounded-lg text-[#E5E5E5] text-sm;
+    @apply focus:outline-none focus:ring-2 focus:ring-[#22B8CF] focus:border-transparent;
+    @apply hover:bg-[#222] transition-all duration-200;
+    @apply backdrop-blur-sm cursor-pointer;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%23E5E5E5' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e");
+    background-position: right 0.5rem center;
+    background-repeat: no-repeat;
+    background-size: 1.5em 1.5em;
+    padding-right: 2.5rem;
+    appearance: none;
+  }
+
+  select:hover {
+    border-color: #22B8CF;
+    box-shadow: 0 0 0 1px rgba(34, 184, 207, 0.3);
+  }
+
+  select:focus {
+    background-color: #222;
+    box-shadow: 0 0 20px rgba(34, 184, 207, 0.3);
+  }
+
+  select option {
+    background-color: #1E1E1E;
+    color: #E5E5E5;
+    padding: 0.5rem;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

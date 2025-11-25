@@ -4,9 +4,12 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
+function getPrismaClient(): PrismaClient {
+  if (globalForPrisma.prisma) {
+    return globalForPrisma.prisma
+  }
+
+  const client = new PrismaClient({
     log: ['error', 'warn'],
     errorFormat: 'pretty',
     datasources: {
@@ -14,7 +17,12 @@ export const prisma =
     }
   })
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
+  // Always set global prisma to ensure it's available in all environments
+  globalForPrisma.prisma = client
+  return client
+}
+
+export const prisma = getPrismaClient()
 
 export async function withDbRetry<T>(
   operation: () => Promise<T>,

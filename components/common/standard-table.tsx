@@ -97,7 +97,15 @@ export function StandardTable({
 
   const handleRowClick = (item: any) => {
     if (detailRoute) {
-      router.push(`${detailRoute}/${item.id}`)
+      // Check if this is a quote from the Quote model (not a job with type='QUOTE')
+      // Quotes from Quote model have jobNumber starting with 'Q' and no type field or type is 'QUOTE' but have quoteNumber
+      const isQuoteModel = item.type === 'QUOTE' && item.jobNumber && item.jobNumber.startsWith('Q')
+      
+      if (isQuoteModel) {
+        router.push(`/dashboard/parts/quotes/${item.id}`)
+      } else {
+        router.push(`${detailRoute}/${item.id}`)
+      }
     } else if (onEdit) {
       onEdit(item)
     } else if (onView) {

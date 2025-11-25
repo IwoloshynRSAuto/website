@@ -44,6 +44,8 @@ model User {
   serviceReports           ServiceReport[]          @relation("ServiceReports")
   deliverableAssignments   JobDeliverable[]         @relation("DeliverableAssignments")
   createdBillingMilestones BillingMilestone[]       @relation("BillingMilestoneCreator")
+  assignedQuotes           Quote[]                  @relation("QuoteAssignedTo")
+  assignedTasks            TaskCard[]               @relation("TaskAssignee")
 
   @@map("users")
 }
@@ -92,6 +94,7 @@ model Job {
   purchaseOrders     PurchaseOrder[]          @relation("JobPurchaseOrders")
   deliverables       JobDeliverable[]         @relation("JobDeliverables")
   billingMilestones  BillingMilestone[]       @relation("JobBillingMilestones")
+  tasks              TaskCard[]               @relation("JobTasks")
 
   @@map("jobs")
 }
@@ -170,8 +173,9 @@ model LaborCode {
   isActive     Boolean            @default(true)
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
-  jobEstimates JobLaborEstimate[]
-  timeEntries  TimeEntry[]
+  jobEstimates   JobLaborEstimate[]
+  quoteEstimates QuoteLaborEstimate[]
+  timeEntries    TimeEntry[]
 
   @@map("labor_codes")
 }
@@ -182,6 +186,7 @@ model Quote {
   title                String
   description          String?
   customerId           String?
+  assignedToId         String?
   amount               Float            @default(0)
   validUntil           DateTime?
   status               QuoteStatus      @default(DRAFT)
@@ -204,9 +209,13 @@ model Quote {
   linkedBOMs           BOM[]            @relation("QuoteToBOM")
   job                  Job?
   customer             Customer?        @relation(fields: [customerId], references: [id])
+  assignedTo           User?            @relation("QuoteAssignedTo", fields: [assignedToId], references: [id])
   fileRecords          FileRecord[]     @relation("QuoteFiles")
   revisions            QuoteRevision[]  @relation("QuoteRevisions")
   lostReason           QuoteLostReason?
+  laborEstimates       QuoteLaborEstimate[]
+  milestones           QuoteMilestone[]
+  tasks                TaskCard[]               @relation("QuoteTasks")
 
   @@map("quotes")
 }
@@ -403,6 +412,9 @@ enum QuoteStatus {
   DRAFT
   APPROVED
   CANCELLED
+  SENT
+  WON
+  LOST
 }
 
 enum JobStatus {
@@ -873,4 +885,64 @@ model QuoteLostReason {
 
   @@index([reason])
   @@map("quote_lost_reasons")
+}
+
+model QuoteLaborEstimate {
+  id             String    @id @default(cuid())
+  quoteId        String
+  laborCodeId    String
+  estimatedHours Float     @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  laborCode      LaborCode @relation(fields: [laborCodeId], references: [id])
+  quote          Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@unique([quoteId, laborCodeId])
+  @@map("quote_labor_estimates")
+}
+
+model QuoteMilestone {
+  id                 String             @id @default(cuid())
+  quoteId            String
+  name               String
+  description        String?
+  milestoneType      String // ENGINEERING, PANEL_BUILD, FAT, SAT, COMMISSIONING, OTHER
+  scheduledStartDate DateTime?
+  scheduledEndDate   DateTime?
+  actualStartDate    DateTime?
+  actualEndDate      DateTime?
+  status             String             @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
+  billingPercentage  Float? // Percentage of total quote value
+  isBillingTrigger   Boolean            @default(false) // Triggers invoice when completed
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  quote              Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@index([status])
+  @@index([milestoneType])
+  @@map("quote_milestones")
+}
+
+model TaskCard {
+  id           String    @id @default(cuid())
+  jobId        String?
+  quoteId      String?
+  name         String
+  description  String?
+  assignedToId String?
+  dueDate      DateTime?
+  status       String    @default("BACKLOG") // BACKLOG, IN_PROGRESS, WAITING, COMPLETED
+  position     Int       @default(0) // For ordering within column
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  job          Job?      @relation("JobTasks", fields: [jobId], references: [id], onDelete: Cascade)
+  quote        Quote?    @relation("QuoteTasks", fields: [quoteId], references: [id], onDelete: Cascade)
+  assignedTo   User?     @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  
+  @@index([jobId])
+  @@index([quoteId])
+  @@index([status])
+  @@map("task_cards")
 }

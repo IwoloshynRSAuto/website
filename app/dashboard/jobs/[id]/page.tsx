@@ -24,7 +24,7 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
   // Handle params - could be a Promise in Next.js 15+
   const resolvedParams = params instanceof Promise ? await params : params
   const jobId = resolvedParams.id
-  
+
   const job = await prisma.job.findUnique({
     where: { id: jobId },
     include: {
@@ -147,14 +147,15 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
     <div>
       <JobDetailsEditable job={jobWithConvertedTimeEntries} users={users} customers={customers} />
       <div className="p-6">
-        <JobDetailsClient 
-          jobId={job.id} 
-          jobNumber={job.jobNumber} 
-          laborCodes={laborCodes} 
+        <JobDetailsClient
+          jobId={job.id}
+          jobNumber={job.jobNumber}
+          laborCodes={laborCodes}
           timeEntries={jobWithConvertedTimeEntries.timeEntries}
           quotedLabor={quotedLabor}
           jobType={job.type}
           relatedQuoteId={job.relatedQuoteId}
+          users={users}
           bom={job.quote?.linkedBOMs && job.quote.linkedBOMs.length > 0 ? {
             ...job.quote.linkedBOMs[0],
             parts: job.quote.linkedBOMs[0].parts.map(part => ({
@@ -179,7 +180,7 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
             isBillingTrigger: m.isBillingTrigger,
           }))}
         />
-        
+
         {/* ECO History - Show for all jobs */}
         <div className="mt-8">
           <ECOHistory jobId={job.id} jobNumber={job.jobNumber} />
