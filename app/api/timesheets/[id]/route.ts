@@ -423,12 +423,15 @@ export async function PATCH(
     // Add geolocation fields for clock-in
     if (validatedData.geoLat !== undefined) {
       updateData.geoLat = validatedData.geoLat
+      console.log('[PATCH /api/timesheets/:id] Setting geoLat:', validatedData.geoLat)
     }
     if (validatedData.geoLon !== undefined) {
       updateData.geoLon = validatedData.geoLon
+      console.log('[PATCH /api/timesheets/:id] Setting geoLon:', validatedData.geoLon)
     }
     if (validatedData.geoAccuracy !== undefined) {
       updateData.geoAccuracy = validatedData.geoAccuracy
+      console.log('[PATCH /api/timesheets/:id] Setting geoAccuracy:', validatedData.geoAccuracy)
     }
     if (validatedData.locationDenied !== undefined) {
       updateData.locationDenied = validatedData.locationDenied

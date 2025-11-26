@@ -21,9 +21,9 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId') || undefined
-    const startDate = searchParams.get('startDate') ? new Date(searchParams.get('startDate')!) : undefined
-    const endDate = searchParams.get('endDate') ? new Date(searchParams.get('endDate')!) : undefined
-
+    const startDateParam = searchParams.get('startDate')
+    const endDateParam = searchParams.get('endDate')
+    
     // Build where clause - start simple, filter geolocation in memory if needed
     const where: any = {}
 
@@ -31,11 +31,25 @@ export async function GET(request: NextRequest) {
       where.userId = userId
     }
 
-    if (startDate || endDate) {
+    if (startDateParam || endDateParam) {
       where.date = {}
-      if (startDate) where.date.gte = startDate
-      if (endDate) where.date.lte = endDate
+      if (startDateParam) {
+        const start = new Date(startDateParam)
+        start.setHours(0, 0, 0, 0)
+        where.date.gte = start
+        console.log('[API GET /timesheets/locations] Start date:', start.toISOString())
+      }
+      if (endDateParam) {
+        const end = new Date(endDateParam)
+        end.setHours(23, 59, 59, 999)
+        where.date.lte = end
+        console.log('[API GET /timesheets/locations] End date:', end.toISOString())
+      }
+    } else {
+      console.log('[API GET /timesheets/locations] No date filter - returning all timesheets with geolocation')
     }
+    
+    console.log('[API GET /timesheets/locations] Query params:', { userId, startDateParam, endDateParam, where: JSON.stringify(where) })
 
     // Query timesheets - handle missing geolocation columns gracefully
     let timesheets
@@ -56,6 +70,26 @@ export async function GET(request: NextRequest) {
         },
         take: 1000, // Limit to prevent huge responses
       })
+      console.log('[API GET /timesheets/locations] Found', timesheets.length, 'timesheets before geolocation filter')
+      
+      // Filter in memory for entries with geolocation data (even when query succeeds)
+      const beforeFilter = timesheets.length
+      timesheets = timesheets.filter((ts: any) => {
+        const hasClockIn = ts.geoLat !== null && ts.geoLat !== undefined && ts.geoLon !== null && ts.geoLon !== undefined
+        const hasClockOut = ts.clockOutGeoLat !== null && ts.clockOutGeoLat !== undefined && ts.clockOutGeoLon !== null && ts.clockOutGeoLon !== undefined
+        if (hasClockIn || hasClockOut) {
+          console.log('[API GET /timesheets/locations] Timesheet has geolocation:', {
+            id: ts.id,
+            date: ts.date,
+            hasClockIn,
+            hasClockOut,
+            geoLat: ts.geoLat,
+            geoLon: ts.geoLon
+          })
+        }
+        return hasClockIn || hasClockOut
+      })
+      console.log('[API GET /timesheets/locations] Filtered from', beforeFilter, 'to', timesheets.length, 'timesheets with geolocation')
     } catch (dbError: any) {
       // If geolocation columns don't exist, use select to exclude them
       const errorMsg = String(dbError?.message || dbError?.code || '')
@@ -114,6 +148,13 @@ export async function GET(request: NextRequest) {
       const ts = timesheet as any
       if (ts.geoLat !== null && ts.geoLat !== undefined && 
           ts.geoLon !== null && ts.geoLon !== undefined) {
+        console.log('[API GET /timesheets/locations] Found clock-in location:', {
+          timesheetId: timesheet.id,
+          userId: timesheet.userId,
+          lat: ts.geoLat,
+          lon: ts.geoLon,
+          date: timesheet.date
+        })
         result.push({
           id: `${timesheet.id}-in`,
           timesheetId: timesheet.id,
@@ -134,6 +175,13 @@ export async function GET(request: NextRequest) {
       if (timesheet.clockOutTime) {
         if (ts.clockOutGeoLat !== null && ts.clockOutGeoLat !== undefined && 
             ts.clockOutGeoLon !== null && ts.clockOutGeoLon !== undefined) {
+          console.log('[API GET /timesheets/locations] Found clock-out location:', {
+            timesheetId: timesheet.id,
+            userId: timesheet.userId,
+            lat: ts.clockOutGeoLat,
+            lon: ts.clockOutGeoLon,
+            date: timesheet.date
+          })
           result.push({
             id: `${timesheet.id}-out`,
             timesheetId: timesheet.id,
@@ -154,6 +202,8 @@ export async function GET(request: NextRequest) {
       return result
     })
 
+    console.log('[API GET /timesheets/locations] Returning', locations.length, 'location entries')
+    
     return NextResponse.json({
       success: true,
       data: locations,
