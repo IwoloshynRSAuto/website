@@ -171,9 +171,19 @@
   * {
     border-color: hsl(var(--border));
   }
+  html {
+    background-color: #f9fafb;
+  }
   body {
-    background-color: hsl(var(--background));
-    color: hsl(var(--foreground));
+    background-color: #f9fafb;
+    color: #111827;
+  }
+  html.dark {
+    background-color: #f9fafb !important;
+  }
+  html.dark body {
+    background-color: #f9fafb !important;
+    color: #111827 !important;
   }
 }
 

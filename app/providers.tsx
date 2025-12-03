@@ -98,7 +98,6 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <SessionProvider
-      // Set to 0 to completely disable automatic refetching (Next-Auth v4 requires 0, not false)
       refetchInterval={0}
       refetchOnWindowFocus={false}
     >
