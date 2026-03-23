@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -30,6 +30,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { TaskCodeSelector } from '@/components/tasks/task-code-selector'
+import { Separator } from '@/components/ui/separator'
 
 interface Task {
   id: string
@@ -213,7 +215,10 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
     title: '',
     description: '',
     assignedTo: '',
+    taskCode: null as string | null,
+    taskCodeDescription: null as string | null,
   })
+
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -312,7 +317,7 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
 
   const handleAddTask = (status: 'TO_DO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE') => {
     setSelectedStatus(status)
-    setFormData({ title: '', description: '', assignedTo: '' })
+    setFormData({ title: '', description: '', assignedTo: '', taskCode: null, taskCodeDescription: null })
     setIsAddDialogOpen(true)
   }
 
@@ -322,6 +327,8 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
       title: task.title,
       description: task.description || '',
       assignedTo: task.assignedTo || '',
+      taskCode: (task as any).taskCode || null,
+      taskCodeDescription: (task as any).taskCodeDescription || null,
     })
     setIsEditDialogOpen(true)
   }
@@ -371,6 +378,8 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
         title: formData.title,
         description: formData.description || null,
         assigned_to: formData.assignedTo || null,
+        taskCode: formData.taskCode || null,
+        taskCodeDescription: formData.taskCodeDescription || null,
       }
       
       if (!editingTask) {
@@ -401,7 +410,7 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
       setIsAddDialogOpen(false)
       setIsEditDialogOpen(false)
       setEditingTask(null)
-      setFormData({ title: '', description: '', assignedTo: '' })
+      setFormData({ title: '', description: '', assignedTo: '', taskCode: null, taskCodeDescription: null })
       await loadTasks()
     } catch (error: any) {
       console.error('Error saving task:', error)
@@ -463,7 +472,22 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
       </DndContext>
 
       {/* Add Task Dialog */}
-      <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+      <Dialog 
+        open={isAddDialogOpen} 
+        onOpenChange={(open) => {
+          // Only close if the dialog is actually closing (not just a task code dialog interaction)
+          if (!open && isAddDialogOpen) {
+            // Small delay to check if a task code dialog is open
+            setTimeout(() => {
+              const taskCodeDialog = document.querySelector('[data-task-code-dialog]')
+              if (!taskCodeDialog || window.getComputedStyle(taskCodeDialog as HTMLElement).display === 'none') {
+                setFormData({ title: '', description: '', assignedTo: '', taskCode: null, taskCodeDescription: null })
+                setIsAddDialogOpen(false)
+              }
+            }, 150)
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Task</DialogTitle>
@@ -508,6 +532,23 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
                   </SelectContent>
                 </Select>
               </div>
+
+              <Separator className="my-4" />
+
+              {/* Development Section */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-gray-900">Development</h3>
+                <TaskCodeSelector
+                  value={formData.taskCode || undefined}
+                  onChange={(code, description) => {
+                    setFormData({
+                      ...formData,
+                      taskCode: code,
+                      taskCodeDescription: description,
+                    })
+                  }}
+                />
+              </div>
             </div>
             <DialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => setIsAddDialogOpen(false)}>
@@ -520,7 +561,23 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
       </Dialog>
 
       {/* Edit Task Dialog */}
-      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+      <Dialog 
+        open={isEditDialogOpen} 
+        onOpenChange={(open) => {
+          // Only close if the dialog is actually closing (not just a task code dialog interaction)
+          if (!open && isEditDialogOpen) {
+            // Small delay to check if a task code dialog is open
+            setTimeout(() => {
+              const taskCodeDialog = document.querySelector('[data-task-code-dialog]')
+              if (!taskCodeDialog || window.getComputedStyle(taskCodeDialog as HTMLElement).display === 'none') {
+                setIsEditDialogOpen(false)
+                setEditingTask(null)
+                setFormData({ title: '', description: '', assignedTo: '', taskCode: null, taskCodeDescription: null })
+              }
+            }, 150)
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Task</DialogTitle>
@@ -564,6 +621,23 @@ export function KanbanBoard({ quoteId, jobId, users = [] }: KanbanBoardProps) {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+
+              <Separator className="my-4" />
+
+              {/* Development Section */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-gray-900">Development</h3>
+                <TaskCodeSelector
+                  value={formData.taskCode || undefined}
+                  onChange={(code, description) => {
+                    setFormData({
+                      ...formData,
+                      taskCode: code,
+                      taskCodeDescription: description,
+                    })
+                  }}
+                />
               </div>
             </div>
             <DialogFooter className="mt-4">

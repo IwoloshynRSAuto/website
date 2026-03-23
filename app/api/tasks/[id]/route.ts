@@ -18,17 +18,43 @@ export async function PUT(
     const taskId = resolvedParams.id
 
     const body = await request.json()
-    const { title, description, assigned_to, status } = body
+    const { title, name, description, assigned_to, status, taskCode, taskCodeDescription } = body
 
     const updateData: any = {}
-    if (title !== undefined) updateData.title = title
+    if (title !== undefined || name !== undefined) updateData.name = title || name
     if (description !== undefined) updateData.description = description
-    if (assigned_to !== undefined) updateData.assignedTo = assigned_to
-    if (status !== undefined) updateData.status = status
+    if (assigned_to !== undefined) updateData.assignedToId = assigned_to
+    if (status !== undefined) {
+      // Map status if needed
+      let mappedStatus = status
+      if (status === 'TO_DO') mappedStatus = 'BACKLOG'
+      else if (status === 'DONE') mappedStatus = 'COMPLETED'
+      else if (status === 'REVIEW') mappedStatus = 'WAITING'
+      updateData.status = mappedStatus
+    }
+    if (taskCode !== undefined) updateData.taskCode = taskCode
+    if (taskCodeDescription !== undefined) updateData.taskCodeDescription = taskCodeDescription
 
-    const task = await prisma.task.update({
+    const task = await prisma.taskCard.update({
       where: { id: taskId },
       data: updateData,
+      include: {
+        quote: {
+          select: {
+            id: true,
+            quoteNumber: true,
+            title: true,
+          },
+        },
+        job: {
+          select: {
+            id: true,
+            jobNumber: true,
+            title: true,
+            type: true,
+          },
+        },
+      },
     })
 
     return NextResponse.json({ success: true, data: task })
@@ -55,7 +81,7 @@ export async function DELETE(
     const resolvedParams = params instanceof Promise ? await params : params
     const taskId = resolvedParams.id
 
-    await prisma.task.delete({
+    await prisma.taskCard.delete({
       where: { id: taskId },
     })
 

@@ -10,6 +10,7 @@ import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
 import { useToast } from '@/components/ui/use-toast'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { patchClockInGeolocation } from '@/lib/utils/geolocation'
 
 interface User {
   id: string
@@ -1131,51 +1132,151 @@ export function AttendanceView({
     }, 100)
   }, [weekSubmissionStatus, timesheets, selectedUserId, currentDate, toast])
 
-  // Get current location - SIMPLIFIED VERSION for reliability
+  // Get current location - HIGH ACCURACY VERSION with multiple readings
   const getCurrentLocation = (): Promise<{ lat: number; lon: number; accuracy: number } | null> => {
     return new Promise((resolve) => {
-      console.log('[getCurrentLocation] Starting geolocation request...')
-      
       if (!navigator.geolocation) {
-        console.log('[getCurrentLocation] Geolocation API not available')
+        console.error('[getCurrentLocation] ❌ Geolocation API not available')
         resolve(null)
         return
       }
 
-      // Simple, fast approach - just get the location with reasonable timeout
-      const options = {
-        enableHighAccuracy: true,
-        timeout: 15000, // 15 seconds - reasonable timeout
-        maximumAge: 60000, // Accept cached location up to 1 minute old
+      console.log('[getCurrentLocation] Starting geolocation with fallback strategy...')
+      const positions: GeolocationPosition[] = []
+      let completedAttempts = 0
+      const maxAttempts = 4
+      const attemptDelay = 500 // Shorter delay between attempts
+
+      const tryGetPosition = (attempt: number) => {
+        // Strategy: Try fast cached first, then low accuracy, then high accuracy
+        let useHighAccuracy = false
+        let timeout = 10000
+        let maximumAge = 60000 // Accept cached positions up to 1 minute old
+        
+        if (attempt === 1) {
+          // First: Try fast cached position (quick response)
+          useHighAccuracy = false
+          timeout = 5000
+          maximumAge = 60000
+        } else if (attempt === 2) {
+          // Second: Try low accuracy fresh (faster GPS fix)
+          useHighAccuracy = false
+          timeout = 15000
+          maximumAge = 0
+        } else if (attempt === 3) {
+          // Third: Try high accuracy (best quality)
+          useHighAccuracy = true
+          timeout = 20000
+          maximumAge = 0
+        } else {
+          // Last: Try any accuracy with longer timeout
+          useHighAccuracy = false
+          timeout = 30000
+          maximumAge = 0
+        }
+        
+        console.log(`[getCurrentLocation] Attempt ${attempt}/${maxAttempts} (highAccuracy: ${useHighAccuracy}, timeout: ${timeout}ms, maxAge: ${maximumAge}ms)`)
+        
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            console.log(`[getCurrentLocation] ✅ Attempt ${attempt} success:`, {
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              timestamp: new Date(position.timestamp).toISOString()
+            })
+            positions.push(position)
+            completedAttempts++
+
+            // Accept any reading we get - even if not super accurate
+            // We'll use the best one we have
+            const best = positions.reduce((best, pos) => 
+              (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+              position
+            )
+
+            // If we have a good reading (< 50m) or this is our last attempt, use it
+            if ((best.coords.accuracy && best.coords.accuracy < 50) || attempt >= maxAttempts || positions.length >= 2) {
+              if (positions.length > 1) {
+                // Average multiple readings for better accuracy
+                const avgLat = positions.reduce((sum, p) => sum + p.coords.latitude, 0) / positions.length
+                const avgLon = positions.reduce((sum, p) => sum + p.coords.longitude, 0) / positions.length
+                const minAccuracy = Math.min(...positions.map(p => p.coords.accuracy || Infinity))
+                
+                console.log('[getCurrentLocation] ✅ Using average of', positions.length, 'readings:', {
+                  lat: avgLat,
+                  lon: avgLon,
+                  accuracy: minAccuracy
+                })
+                
+                resolve({
+                  lat: avgLat,
+                  lon: avgLon,
+                  accuracy: minAccuracy,
+                })
+              } else {
+                console.log('[getCurrentLocation] ✅ Using single reading:', {
+                  lat: best.coords.latitude,
+                  lon: best.coords.longitude,
+                  accuracy: best.coords.accuracy
+                })
+                resolve({
+                  lat: best.coords.latitude,
+                  lon: best.coords.longitude,
+                  accuracy: best.coords.accuracy || 0,
+                })
+              }
+              return
+            }
+
+            // Try again for better accuracy
+            setTimeout(() => tryGetPosition(attempt + 1), attemptDelay)
+          },
+          (error) => {
+            console.error(`[getCurrentLocation] ❌ Attempt ${attempt} error:`, {
+              code: error.code,
+              message: error.message,
+              PERMISSION_DENIED: error.code === error.PERMISSION_DENIED,
+              POSITION_UNAVAILABLE: error.code === error.POSITION_UNAVAILABLE,
+              TIMEOUT: error.code === error.TIMEOUT
+            })
+
+            // If we have some readings, use them immediately
+            if (positions.length > 0) {
+              const best = positions.reduce((best, pos) => 
+                (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
+                null as GeolocationPosition | null
+              )
+              if (best) {
+                console.log('[getCurrentLocation] ⚠️ Using best reading from previous attempts after error')
+                resolve({
+                  lat: best.coords.latitude,
+                  lon: best.coords.longitude,
+                  accuracy: best.coords.accuracy || 0,
+                })
+                return
+              }
+            }
+
+            // Try again if we have attempts left
+            if (attempt < maxAttempts) {
+              console.log(`[getCurrentLocation] Retrying with attempt ${attempt + 1}...`)
+              setTimeout(() => tryGetPosition(attempt + 1), attemptDelay)
+            } else {
+              console.error('[getCurrentLocation] ❌ All attempts failed - no location available')
+              resolve(null)
+            }
+          },
+          {
+            enableHighAccuracy: useHighAccuracy,
+            timeout: timeout,
+            maximumAge: maximumAge,
+          }
+        )
       }
 
-      console.log('[getCurrentLocation] Calling getCurrentPosition...')
-      
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          console.log('[getCurrentLocation] ✅ Success! Got location:', {
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-            accuracy: position.coords.accuracy
-          })
-          resolve({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-            accuracy: position.coords.accuracy || 0,
-          })
-        },
-        (error) => {
-          console.error('[getCurrentLocation] ❌ Error getting location:', {
-            code: error.code,
-            message: error.message,
-            PERMISSION_DENIED: error.code === error.PERMISSION_DENIED,
-            POSITION_UNAVAILABLE: error.code === error.POSITION_UNAVAILABLE,
-            TIMEOUT: error.code === error.TIMEOUT
-          })
-          resolve(null)
-        },
-        options
-      )
+      // Start first attempt
+      tryGetPosition(1)
     })
   }
 
@@ -1289,7 +1390,7 @@ export function AttendanceView({
         
         await loadTimesheets()
       } else {
-        // Clock In - send immediately, update geolocation in background
+        // Clock In - create timesheet WITHOUT geolocation (must use PATCH)
         console.log('[Clock In] Starting clock-in process...')
         
         const response = await fetch('/api/timesheets', {
@@ -1299,7 +1400,6 @@ export function AttendanceView({
             userId: selectedUserId,
             date: today.toISOString(),
             clockInTime: now.toISOString(),
-            // Don't send geolocation initially - will update in background
           }),
         })
 
@@ -1309,68 +1409,78 @@ export function AttendanceView({
         }
         
         const responseData = await response.json()
-        console.log('[Clock In] Timesheet created:', responseData.id)
         
-        toast({
-          title: 'Success',
-          description: 'Clocked in successfully',
-        })
+        // Extract timesheet ID - MUST use response.data?.id ?? response.id
+        const timesheetId = responseData.data?.id ?? responseData.id
+        console.log('[Clock In] Response data:', responseData)
+        console.log('[Clock In] Extracted timesheet ID:', timesheetId)
         
-        // Always try to get geolocation in background if enabled (don't block clock-in)
+        if (!timesheetId) {
+          console.error('[Clock In] ❌❌❌ CRITICAL: No timesheet ID found!')
+          console.error('[Clock In] Response structure:', JSON.stringify(responseData, null, 2))
+          throw new Error('Failed to get timesheet ID from response')
+        }
+        
+        // Check geolocation setting and get location BEFORE showing success
         const geoEnabledFromStorage = typeof window !== 'undefined' 
           ? localStorage.getItem('attendance-geolocation-enabled') !== 'false'
           : true
+        const localStorageValue = typeof window !== 'undefined' 
+          ? localStorage.getItem('attendance-geolocation-enabled')
+          : null
         
-        console.log('[Clock In] Geolocation enabled check:', {
-          geolocationEnabledState,
-          geoEnabledFromStorage,
-          willAttempt: geolocationEnabledState || geoEnabledFromStorage
-        })
+        console.log('[Clock In] ========== GEOLOCATION CHECK ==========')
+        console.log('[Clock In] Timesheet ID:', timesheetId)
+        console.log('[Clock In] Geolocation enabled state:', geolocationEnabledState)
+        console.log('[Clock In] Geo enabled from storage:', geoEnabledFromStorage)
+        console.log('[Clock In] LocalStorage value:', localStorageValue)
+        console.log('[Clock In] Navigator.geolocation available:', typeof navigator !== 'undefined' && !!navigator.geolocation)
         
-        if (responseData?.id && (geolocationEnabledState || geoEnabledFromStorage)) {
-          console.log('[Clock In] Starting background geolocation capture for timesheet:', responseData.id)
-          
-          // Get location in background - don't block the UI
-          getCurrentLocation()
-            .then((location) => {
-              if (location) {
-                console.log('[Clock In] Background geolocation obtained:', {
-                  lat: location.lat,
-                  lon: location.lon,
-                  accuracy: location.accuracy,
-                  timesheetId: responseData.id
-                })
-                
-                return fetch(`/api/timesheets/${responseData.id}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    geoLat: location.lat,
-                    geoLon: location.lon,
-                    geoAccuracy: location.accuracy,
-                  })
-                })
-              } else {
-                console.log('[Clock In] Geolocation returned null - user may have denied permission or location unavailable')
-                return null
+        const shouldAttemptGeolocation = timesheetId && (
+          geolocationEnabledState || 
+          geoEnabledFromStorage || 
+          (localStorageValue === null)
+        )
+        
+        console.log('[Clock In] Should attempt geolocation:', shouldAttemptGeolocation)
+        console.log('[Clock In] ========================================')
+        
+        let locationData = null
+        
+        if (shouldAttemptGeolocation && timesheetId) {
+          console.log('[Clock In] 🎯 ATTEMPTING TO GET GEOLOCATION NOW...')
+          try {
+            // Give it up to 45 seconds to try all 4 attempts
+            const locationPromise = getCurrentLocation()
+            const timeoutPromise = new Promise<null>((resolve) => {
+              setTimeout(() => {
+                console.log('[Clock In] ⏱️ Geolocation timeout after 60 seconds - giving up')
+                resolve(null)
+              }, 60000)
+            })
+            
+            locationData = await Promise.race([locationPromise, timeoutPromise])
+            
+            if (locationData) {
+              console.log('[Clock In] ✅ Location obtained:', locationData)
+              const success = await patchClockInGeolocation(timesheetId, locationData)
+              if (!success) {
+                console.error('[Clock In] ❌❌❌ FAILED to save geolocation - verification failed!')
               }
-            })
-            .then((updateResponse) => {
-              if (updateResponse && updateResponse.ok) {
-                console.log('[Clock In] ✅ Geolocation saved successfully!')
-                // Refresh timesheet data after geolocation update
-                loadTimesheets()
-              } else if (updateResponse) {
-                const errorText = updateResponse.statusText || 'Unknown error'
-                console.error('[Clock In] ❌ Failed to save geolocation - HTTP', updateResponse.status, errorText)
-              }
-            })
-            .catch((err) => {
-              console.error('[Clock In] ❌ Error in geolocation process:', err)
-            })
+            } else {
+              console.log('[Clock In] ⚠️ Geolocation returned null')
+            }
+          } catch (geoError) {
+            console.error('[Clock In] ❌ Error getting/saving geolocation:', geoError)
+          }
         } else {
-          console.log('[Clock In] Geolocation disabled or no timesheet ID - skipping geolocation capture')
+          console.log('[Clock In] ⏭️ Skipping geolocation (disabled or no timesheet ID)')
         }
+        
+        toast({
+          title: 'Success',
+          description: locationData ? 'Clocked in with location' : 'Clocked in successfully',
+        })
         
         await loadTimesheets()
       }

@@ -47,6 +47,14 @@ const DialogContent = React.forwardRef<
         "sm:translate-x-[-50%] sm:translate-y-[-50%]",
         className
       )}
+      onInteractOutside={(e) => {
+        // Prevent closing if clicking on a nested dialog
+        const target = e.target as HTMLElement
+        const nestedDialog = target.closest('[data-nested-dialog="true"]')
+        if (nestedDialog) {
+          e.preventDefault()
+        }
+      }}
       {...props}
     >
       {children}

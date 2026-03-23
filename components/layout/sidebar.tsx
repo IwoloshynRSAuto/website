@@ -22,6 +22,7 @@ import {
   MapPin,
   ShoppingCart,
   Plus,
+  Cpu,
 } from 'lucide-react'
 
 const navigation = [
@@ -43,6 +44,8 @@ const navigation = [
     ]
   },
   { name: 'Jobs', href: '/dashboard/jobs', icon: Wrench },
+  { name: 'Quotes', href: '/dashboard/quotes', icon: FileText },
+  { name: 'Tasks', href: '/dashboard/tasks', icon: CheckCircle2 },
   { 
     name: 'Parts', 
     href: '/dashboard/parts/database', 
@@ -75,6 +78,7 @@ const navigation = [
       { name: 'Employee Management', href: '/dashboard/admin/employees', icon: Users },
       { name: 'Metrics & Analytics', href: '/dashboard/metrics', icon: BarChart3 },
       { name: 'Labor Codes', href: '/dashboard/admin/labor-codes', icon: Code },
+      { name: 'Task Codes', href: '/dashboard/admin/task-codes', icon: FileText },
     ]
   },
 ]
@@ -149,6 +153,20 @@ export function Sidebar() {
         active: 'bg-amber-100 text-amber-700 border-l-2 border-amber-600',
         icon: 'text-amber-600',
         childActive: 'bg-amber-50 text-amber-600 border-l-2 border-amber-600',
+      }
+    }
+    if (href.includes('/tasks')) {
+      return {
+        active: 'bg-green-100 text-green-700 border-l-2 border-green-600',
+        icon: 'text-green-600',
+        childActive: 'bg-green-50 text-green-600 border-l-2 border-green-600',
+      }
+    }
+    if (href.includes('/development')) {
+      return {
+        active: 'bg-violet-100 text-violet-700 border-l-2 border-violet-600',
+        icon: 'text-violet-600',
+        childActive: 'bg-violet-50 text-violet-600 border-l-2 border-violet-600',
       }
     }
     if (href.includes('/ebay')) {

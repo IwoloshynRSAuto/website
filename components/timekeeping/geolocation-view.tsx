@@ -211,32 +211,34 @@ export function GeolocationView() {
                   Control whether geolocation is captured when employees clock in/out
                 </CardDescription>
               </div>
-              <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-lg border-2 border-blue-300 shadow-sm">
-                <MapPin className={`h-5 w-5 ${geolocationEnabled ? 'text-blue-600' : 'text-gray-400'}`} />
-                <div className="flex flex-col">
-                  <label htmlFor="geolocation-toggle" className="text-sm font-semibold text-gray-700 cursor-pointer">
-                    {geolocationEnabled ? 'Enabled' : 'Disabled'}
-                  </label>
-                  <span className="text-xs text-gray-500">
-                    {geolocationEnabled ? 'Location tracking active' : 'Location tracking off'}
-                  </span>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-lg border-2 border-blue-300 shadow-sm">
+                  <MapPin className={`h-5 w-5 ${geolocationEnabled ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <div className="flex flex-col">
+                    <label htmlFor="geolocation-toggle" className="text-sm font-semibold text-gray-700 cursor-pointer">
+                      {geolocationEnabled ? 'Enabled' : 'Disabled'}
+                    </label>
+                    <span className="text-xs text-gray-500">
+                      {geolocationEnabled ? 'Location tracking active' : 'Location tracking off'}
+                    </span>
+                  </div>
+                  <Switch
+                    id="geolocation-toggle"
+                    checked={geolocationEnabled}
+                    onCheckedChange={(checked) => {
+                      setGeolocationEnabled(checked)
+                      localStorage.setItem('attendance-geolocation-enabled', String(checked))
+                      window.dispatchEvent(new Event('geolocation-setting-changed'))
+                      toast({
+                        title: checked ? 'Geolocation Enabled' : 'Geolocation Disabled',
+                        description: checked 
+                          ? 'Location tracking will be captured on clock in/out'
+                          : 'Location tracking has been disabled',
+                      })
+                    }}
+                    className="data-[state=checked]:bg-blue-600"
+                  />
                 </div>
-                <Switch
-                  id="geolocation-toggle"
-                  checked={geolocationEnabled}
-                  onCheckedChange={(checked) => {
-                    setGeolocationEnabled(checked)
-                    localStorage.setItem('attendance-geolocation-enabled', String(checked))
-                    window.dispatchEvent(new Event('geolocation-setting-changed'))
-                    toast({
-                      title: checked ? 'Geolocation Enabled' : 'Geolocation Disabled',
-                      description: checked 
-                        ? 'Location tracking will be captured on clock in/out'
-                        : 'Location tracking has been disabled',
-                    })
-                  }}
-                  className="data-[state=checked]:bg-blue-600"
-                />
               </div>
             </div>
           </CardContent>
@@ -343,33 +345,35 @@ export function GeolocationView() {
                 Control whether geolocation is captured when employees clock in/out
               </CardDescription>
             </div>
-            <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-lg border-2 border-blue-300 shadow-sm">
-              <MapPin className={`h-5 w-5 ${geolocationEnabled ? 'text-blue-600' : 'text-gray-400'}`} />
-              <div className="flex flex-col">
-                <label htmlFor="geolocation-toggle" className="text-sm font-semibold text-gray-700 cursor-pointer">
-                  {geolocationEnabled ? 'Enabled' : 'Disabled'}
-                </label>
-                <span className="text-xs text-gray-500">
-                  {geolocationEnabled ? 'Location tracking active' : 'Location tracking off'}
-                </span>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-lg border-2 border-blue-300 shadow-sm">
+                <MapPin className={`h-5 w-5 ${geolocationEnabled ? 'text-blue-600' : 'text-gray-400'}`} />
+                <div className="flex flex-col">
+                  <label htmlFor="geolocation-toggle" className="text-sm font-semibold text-gray-700 cursor-pointer">
+                    {geolocationEnabled ? 'Enabled' : 'Disabled'}
+                  </label>
+                  <span className="text-xs text-gray-500">
+                    {geolocationEnabled ? 'Location tracking active' : 'Location tracking off'}
+                  </span>
+                </div>
+                <Switch
+                  id="geolocation-toggle"
+                  checked={geolocationEnabled}
+                  onCheckedChange={(checked) => {
+                    setGeolocationEnabled(checked)
+                    localStorage.setItem('attendance-geolocation-enabled', String(checked))
+                    // Dispatch custom event to notify other components
+                    window.dispatchEvent(new Event('geolocation-setting-changed'))
+                    toast({
+                      title: checked ? 'Geolocation Enabled' : 'Geolocation Disabled',
+                      description: checked 
+                        ? 'Location tracking will be captured on clock in/out'
+                        : 'Location tracking has been disabled',
+                    })
+                  }}
+                  className="data-[state=checked]:bg-blue-600"
+                />
               </div>
-              <Switch
-                id="geolocation-toggle"
-                checked={geolocationEnabled}
-                onCheckedChange={(checked) => {
-                  setGeolocationEnabled(checked)
-                  localStorage.setItem('attendance-geolocation-enabled', String(checked))
-                  // Dispatch custom event to notify other components
-                  window.dispatchEvent(new Event('geolocation-setting-changed'))
-                  toast({
-                    title: checked ? 'Geolocation Enabled' : 'Geolocation Disabled',
-                    description: checked 
-                      ? 'Location tracking will be captured on clock in/out'
-                      : 'Location tracking has been disabled',
-                  })
-                }}
-                className="data-[state=checked]:bg-blue-600"
-              />
             </div>
           </div>
         </CardContent>

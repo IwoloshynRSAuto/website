@@ -77,7 +77,7 @@ export async function POST(
         const { id } = resolvedParams
 
         const body = await request.json()
-        const { name, description, assignedToId, dueDate, status } = body
+        const { name, description, assignedToId, dueDate, status, taskCode, taskCodeDescription } = body
 
         if (!name) {
             return NextResponse.json(
@@ -104,7 +104,9 @@ export async function POST(
                 assignedToId: assignedToId || null,
                 dueDate: dueDate ? new Date(dueDate) : null,
                 status: status || 'BACKLOG',
-                position: (maxPosition?.position ?? -1) + 1
+                position: (maxPosition?.position ?? -1) + 1,
+                taskCode: taskCode || null,
+                taskCodeDescription: taskCodeDescription || null,
             },
             include: {
                 assignedTo: {

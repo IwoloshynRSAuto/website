@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/use-toast'
 import { format, startOfDay } from 'date-fns'
 import { roundTimeString, formatTime12Hour, convert12To24Hour, calculateHoursBetween } from '@/lib/utils/time-rounding'
 import { roundToNearest15Minutes } from '@/lib/utils/time-rounding'
+import { patchClockInGeolocation } from '@/lib/utils/geolocation'
 
 interface User {
   id: string
@@ -90,6 +91,38 @@ export function TimeEntryModal({
   // Modal maintains local state for editable fields but must initialize from selectedDate
   // Always normalize to startOfDay to avoid timezone issues
   const [entryDate, setEntryDate] = useState<Date>(() => startOfDay(selectedDate ?? new Date()))
+
+  // Geolocation enabled - read from localStorage (managed in geolocation settings page)
+  const [geolocationEnabledState, setGeolocationEnabledState] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('attendance-geolocation-enabled')
+      return saved !== 'false' // Default to enabled if not set
+    }
+    return true
+  })
+
+  // Listen for changes to geolocation setting from other tabs/components
+  useEffect(() => {
+    const checkGeolocationSetting = () => {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('attendance-geolocation-enabled')
+        const enabled = saved !== 'false'
+        setGeolocationEnabledState(enabled)
+      }
+    }
+    checkGeolocationSetting()
+    window.addEventListener('storage', checkGeolocationSetting)
+    window.addEventListener('geolocation-setting-changed', checkGeolocationSetting)
+    
+    // Also check periodically in case localStorage was changed in same tab
+    const interval = setInterval(checkGeolocationSetting, 1000)
+    
+    return () => {
+      window.removeEventListener('storage', checkGeolocationSetting)
+      window.removeEventListener('geolocation-setting-changed', checkGeolocationSetting)
+      clearInterval(interval)
+    }
+  }, [])
 
   // Clock In/Out fields
   const [selectedUserId, setSelectedUserId] = useState(userId)
@@ -367,17 +400,20 @@ export function TimeEntryModal({
 
       const positions: GeolocationPosition[] = []
       let watchId: number | null = null
-      const minReadings = 8 // Minimum readings before calculating average
-      const maxReadings = 15 // Maximum readings to collect
-      const minAccuracy = 5 // Target accuracy in meters (very high accuracy)
-      const maxWaitTime = 30000 // Maximum 30 seconds total
-      const stabilizationTime = 2000 // Wait 2 seconds after last reading to ensure stability
+      const minReadings = 15 // More readings for better accuracy
+      const maxReadings = 25 // Collect more samples for averaging
+      const minAccuracy = 5 // Target accuracy in meters (5m is good for most use cases)
+      const maxWaitTime = 60000 // Maximum 60 seconds total for better GPS fix
+      const stabilizationTime = 4000 // Wait 4 seconds after last reading to ensure stability
 
       const options = {
         enableHighAccuracy: true,  // Use GPS for better accuracy
-        timeout: 30000,            // Increased timeout for GPS fix
+        timeout: 60000,            // Increased timeout for GPS fix (60 seconds)
         maximumAge: 0,             // Force fresh reading, don't use cache
       }
+      
+      console.log('[getCurrentLocation] Starting high-accuracy geolocation capture...')
+      console.log('[getCurrentLocation] Settings:', { minReadings, maxReadings, minAccuracy, maxWaitTime, stabilizationTime })
 
       let lastReadingTime = 0
       let stabilizationTimer: NodeJS.Timeout | null = null
@@ -397,7 +433,7 @@ export function TimeEntryModal({
           const latDiff = Math.abs(pos.coords.latitude - medianLat) * 111000 // Convert to meters
           const lonDiff = Math.abs(pos.coords.longitude - medianLon) * 111000 * Math.cos(medianLat * Math.PI / 180)
           const distance = Math.sqrt(latDiff * latDiff + lonDiff * lonDiff)
-          return distance < 50 // Filter out readings more than 50m from median
+          return distance < 20 // Filter out readings more than 20m from median (tighter filter for accuracy)
         })
 
         if (filtered.length === 0) {
@@ -434,6 +470,8 @@ export function TimeEntryModal({
         (position) => {
           positions.push(position)
           lastReadingTime = Date.now()
+          const accuracy = position.coords.accuracy || 0
+          console.log(`[getCurrentLocation] Reading ${positions.length}: accuracy=${accuracy.toFixed(1)}m, lat=${position.coords.latitude.toFixed(6)}, lon=${position.coords.longitude.toFixed(6)}`)
 
           // Clear existing stabilization timer
           if (stabilizationTimer) {
@@ -453,8 +491,10 @@ export function TimeEntryModal({
             }
             const result = calculateWeightedAverage(positions)
             if (result) {
+              console.log(`[getCurrentLocation] ✅ High accuracy achieved: ${result.accuracy.toFixed(1)}m after ${positions.length} readings`)
               resolve(result)
             } else {
+              console.log(`[getCurrentLocation] ✅ Using best reading: ${currentBest.coords.accuracy?.toFixed(1)}m after ${positions.length} readings`)
               resolve({
                 lat: currentBest.coords.latitude,
                 lon: currentBest.coords.longitude,
@@ -610,6 +650,12 @@ export function TimeEntryModal({
   }
 
   const handleSaveClockInOut = async () => {
+    console.log('[Time Entry Modal] ========== handleSaveClockInOut CALLED ==========')
+    console.log('[Time Entry Modal] hasActiveClockIn:', hasActiveClockIn)
+    console.log('[Time Entry Modal] clockInTime:', clockInTime)
+    console.log('[Time Entry Modal] clockOutTime:', clockOutTime)
+    console.log('[Time Entry Modal] selectedEntry:', selectedEntry)
+    
     // Check if entry is locked
     if (selectedEntry && (selectedEntry as any).isLocked) {
       toast({
@@ -623,6 +669,10 @@ export function TimeEntryModal({
     // Determine if this is a clock in or clock out action
     const isClockIn = !hasActiveClockIn && clockInTime && !clockOutTime
     const isClockOut = (hasActiveClockIn || clockInTime) && clockOutTime
+    
+    console.log('[Time Entry Modal] isClockIn:', isClockIn)
+    console.log('[Time Entry Modal] isClockOut:', isClockOut)
+    console.log('[Time Entry Modal] Will enter clock-in branch?', isClockIn && !isClockOut)
 
     // If clocking in, check that user is not already clocked in
     if (isClockIn && hasActiveClockIn && !selectedEntry) {
@@ -721,8 +771,18 @@ export function TimeEntryModal({
       // If clocking out an active timesheet, use the active timesheet ID
       const timesheetIdToUpdate = activeTimesheetId || selectedEntry?.id
 
+      console.log('[Time Entry Modal] Branch decision:', {
+        timesheetIdToUpdate,
+        isClockOut,
+        isClockIn,
+        hasSelectedEntry: !!selectedEntry,
+        willEnterClockOutBranch: !!(timesheetIdToUpdate && (isClockOut || (selectedEntry && !isClockIn))),
+        willEnterClockInBranch: isClockIn
+      })
+
       if (timesheetIdToUpdate && (isClockOut || (selectedEntry && !isClockIn))) {
         // Update existing timesheet (clocking out or editing)
+        console.log('[Time Entry Modal] ✅ Entering CLOCK-OUT/EDIT branch')
         const updateData: any = {}
         if (isClockOut) {
           // Send clock-out immediately, geolocation will be updated in background
@@ -745,21 +805,75 @@ export function TimeEntryModal({
           body: JSON.stringify(updateData)
         })
 
-        // Update geolocation in background if clocking out (non-blocking)
+        // Update geolocation for clock-out (synchronous, like clock-in) - only if enabled
         if (response.ok && (isClockOut || (selectedEntry && clockOutDate))) {
-          getCurrentLocation().then((location) => {
-            if (location) {
-              fetch(`/api/timesheets/${timesheetIdToUpdate}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  clockOutGeoLat: location.lat,
-                  clockOutGeoLon: location.lon,
-                  clockOutGeoAccuracy: location.accuracy,
+          const geoEnabledFromStorage = typeof window !== 'undefined' 
+            ? localStorage.getItem('attendance-geolocation-enabled') !== 'false'
+            : true
+          const localStorageValue = typeof window !== 'undefined' 
+            ? localStorage.getItem('attendance-geolocation-enabled')
+            : null
+          
+          console.log('[Clock Out] ========== GEOLOCATION CHECK ==========')
+          console.log('[Clock Out] Timesheet ID:', timesheetIdToUpdate)
+          console.log('[Clock Out] Geolocation enabled state:', geolocationEnabledState)
+          console.log('[Clock Out] Geo enabled from storage:', geoEnabledFromStorage)
+          console.log('[Clock Out] LocalStorage value:', localStorageValue)
+          console.log('[Clock Out] Navigator.geolocation available:', typeof navigator !== 'undefined' && !!navigator.geolocation)
+          
+          const shouldAttemptGeolocation = timesheetIdToUpdate && (
+            geolocationEnabledState || 
+            geoEnabledFromStorage || 
+            (localStorageValue === null) // If not set, default to enabled
+          )
+          
+          console.log('[Clock Out] Should attempt geolocation:', shouldAttemptGeolocation)
+          console.log('[Clock Out] ========================================')
+          
+          if (shouldAttemptGeolocation && timesheetIdToUpdate) {
+            console.log('[Clock Out] 🎯 ATTEMPTING TO GET GEOLOCATION NOW...')
+            try {
+              // Give it up to 45 seconds to try all attempts
+              const locationPromise = getCurrentLocation()
+            const timeoutPromise = new Promise<null>((resolve) => {
+              setTimeout(() => {
+                console.log('[Clock Out] ⏱️ Geolocation timeout after 60 seconds - giving up')
+                resolve(null)
+              }, 60000)
+            })
+              
+              const locationData = await Promise.race([locationPromise, timeoutPromise])
+              
+              if (locationData) {
+                console.log('[Clock Out] ✅ Location obtained:', locationData)
+                console.log('[Clock Out] Saving geolocation to timesheet:', timesheetIdToUpdate)
+                
+                const geoResponse = await fetch(`/api/timesheets/${timesheetIdToUpdate}`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    clockOutGeoLat: locationData.lat,
+                    clockOutGeoLon: locationData.lon,
+                    clockOutGeoAccuracy: locationData.accuracy,
+                  })
                 })
-              }).catch(err => console.error('Failed to update geolocation:', err))
+                
+                if (geoResponse.ok) {
+                  const geoResponseData = await geoResponse.json()
+                  console.log('[Clock Out] ✅✅✅ GEOLOCATION SAVED SUCCESSFULLY!', geoResponseData)
+                } else {
+                  const errorText = await geoResponse.text()
+                  console.error('[Clock Out] ❌ Failed to save geolocation:', geoResponse.status, errorText)
+                }
+              } else {
+                console.log('[Clock Out] ⚠️ Geolocation returned null')
+              }
+            } catch (geoError) {
+              console.error('[Clock Out] ❌ Error getting/saving geolocation:', geoError)
             }
-          }).catch(err => console.error('Failed to get geolocation:', err))
+          } else {
+            console.log('[Clock Out] ⏭️ Skipping geolocation (disabled or no timesheet ID)')
+          }
         }
 
         if (!response.ok) {
@@ -794,8 +908,22 @@ export function TimeEntryModal({
           return
         }
       } else if (isClockIn) {
-        // Create new timesheet (clocking in)
-        // Include userId if admin is creating for another user
+        // USE EXACT SAME PATTERN AS CLOCK-OUT (which works):
+        // 1. Create timesheet WITHOUT geolocation first
+        // 2. Then PATCH with geolocation (same as clock-out does)
+        console.log('[Clock In] ========== STARTING CLOCK IN (SAME PATTERN AS CLOCK-OUT) ==========')
+        console.log('[Clock In] ✅ ENTERED CLOCK-IN BRANCH!')
+        console.log('[Clock In] Condition check:', {
+          isClockIn,
+          hasActiveClockIn,
+          clockInTime,
+          clockOutTime,
+          selectedEntry: !!selectedEntry
+        })
+        
+        // STEP 1: Create timesheet FIRST (without geolocation, like clock-out does)
+        console.log('[Clock In] 🎯 STEP 1: CREATING TIMESHEET (without geolocation)...')
+        
         const requestBody: any = {
           clockInTime: clockInDate.toISOString(),
           date: `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
@@ -806,78 +934,91 @@ export function TimeEntryModal({
           requestBody.userId = selectedUserId
         }
         
+        // NEVER include geolocation in POST - must use PATCH after creation
+        
+        console.log('[Clock In] POST request body:', JSON.stringify(requestBody, null, 2))
+        
         const response = await fetch('/api/timesheets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ...requestBody,
-            geoLat: null, // Will be updated in background
-            geoLon: null,
-            geoAccuracy: null,
-          })
+          body: JSON.stringify(requestBody)
         })
 
-        let responseData
-        try {
-          responseData = await response.json()
-        } catch (jsonError) {
-          // If JSON parsing fails, show a generic error
-          toast({
-            title: 'Error',
-            description: `Request failed: ${response.status} ${response.statusText}`,
-            variant: 'destructive'
-          })
-          setIsSubmitting(false)
-          return
-        }
-        
         if (!response.ok) {
-          const errorMessage = responseData.error || responseData.message || 'Failed to create timesheet'
-          const errorDetails = responseData.details ? ` ${responseData.details}` : ''
-          const fullErrorMessage = `${errorMessage}${errorDetails}`
-          const isOverlapError = fullErrorMessage.toLowerCase().includes('overlap') || 
-                                fullErrorMessage.toLowerCase().includes('overlapping')
-          
-          console.error('[Time Entry Modal] Error creating timesheet:', {
-            status: response.status,
-            errorMessage,
-            errorDetails,
-            isOverlapError,
-            fullErrorMessage,
-            responseData
-          })
-          
-          toast({
-            title: isOverlapError ? '⛔ Time Overlap Detected' : 'Error',
-            description: fullErrorMessage,
-            variant: 'destructive',
-            duration: isOverlapError ? 10000 : 5000 // Show overlap errors longer
-          })
-          setIsSubmitting(false)
-          return
+          const errorData = await response.json().catch(() => ({}))
+          console.error('[Clock In] ❌ STEP 2 ERROR: Failed to create timesheet:', errorData)
+          throw new Error(errorData.error || 'Failed to clock in')
         }
         
-        // Update geolocation in background (non-blocking)
-        if (responseData?.id) {
-          getCurrentLocation().then((location) => {
-            if (location) {
-              fetch(`/api/timesheets/${responseData.id}`, {
-                method: 'PATCH',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  geoLat: location.lat,
-                  geoLon: location.lon,
-                  geoAccuracy: location.accuracy,
-                })
-              }).catch(err => console.error('Failed to update geolocation:', err))
+        const responseData = await response.json()
+        console.log('[Clock In] ✅ STEP 1 SUCCESS: Timesheet created')
+        console.log('[Clock In] Response data:', responseData)
+        
+        // Extract timesheet ID - MUST use response.data?.id ?? response.id
+        const timesheetId = responseData.data?.id ?? responseData.id
+        console.log('[Clock In] Extracted timesheet ID:', timesheetId)
+        
+        if (!timesheetId) {
+          console.error('[Clock In] ❌❌❌ CRITICAL: No timesheet ID found!')
+          console.error('[Clock In] Response structure:', JSON.stringify(responseData, null, 2))
+          throw new Error('Failed to get timesheet ID from response')
+        }
+        
+        // STEP 2: PATCH with geolocation - EXACT SAME PATTERN AS CLOCK-OUT
+        // Check geolocation setting (same as clock-out does)
+        const geoEnabledFromStorage = typeof window !== 'undefined' 
+          ? localStorage.getItem('attendance-geolocation-enabled') !== 'false'
+          : true
+        const localStorageValue = typeof window !== 'undefined' 
+          ? localStorage.getItem('attendance-geolocation-enabled')
+          : null
+        
+        console.log('[Clock In] ========== GEOLOCATION CHECK ==========')
+        console.log('[Clock In] Timesheet ID:', timesheetId)
+        console.log('[Clock In] Geolocation enabled state:', geolocationEnabledState)
+        console.log('[Clock In] Geo enabled from storage:', geoEnabledFromStorage)
+        console.log('[Clock In] LocalStorage value:', localStorageValue)
+        console.log('[Clock In] Navigator.geolocation available:', typeof navigator !== 'undefined' && !!navigator.geolocation)
+        
+        const shouldAttemptGeolocation = timesheetId && (
+          geolocationEnabledState || 
+          geoEnabledFromStorage || 
+          (localStorageValue === null) // If not set, default to enabled
+        )
+        
+        console.log('[Clock In] Should attempt geolocation:', shouldAttemptGeolocation)
+        console.log('[Clock In] ========================================')
+        
+        if (shouldAttemptGeolocation && timesheetId) {
+          console.log('[Clock In] 🎯 ATTEMPTING TO GET GEOLOCATION NOW...')
+          try {
+            const locationPromise = getCurrentLocation()
+            const timeoutPromise = new Promise<null>((resolve) => {
+              setTimeout(() => {
+                console.log('[Clock In] ⏱️ Geolocation timeout after 60 seconds - giving up')
+                resolve(null)
+              }, 60000)
+            })
+            
+            const locationData = await Promise.race([locationPromise, timeoutPromise])
+            
+            if (locationData) {
+              console.log('[Clock In] ✅ Location obtained:', locationData)
+              const success = await patchClockInGeolocation(timesheetId, locationData)
+              if (!success) {
+                console.error('[Clock In] ❌❌❌ FAILED to save geolocation - verification failed!')
+              }
+            } else {
+              console.log('[Clock In] ⚠️ Geolocation returned null')
             }
-          }).catch(err => console.error('Failed to get geolocation:', err))
+          } catch (geoError) {
+            console.error('[Clock In] ❌ Error getting/saving geolocation:', geoError)
+          }
+        } else {
+          console.log('[Clock In] ⏭️ Skipping geolocation (disabled or no timesheet ID)')
         }
         
-        // Response is successful - verify the response structure
-        if (!responseData.success) {
-          throw new Error(responseData.error || 'Failed to create timesheet')
-        }
+        console.log('[Clock In] ✅✅✅ COMPLETE: Clock-in process finished')
       }
 
       const actionMessage = isClockIn 

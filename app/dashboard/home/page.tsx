@@ -110,6 +110,7 @@ export default async function HomePage() {
     // Fetch employee dashboard data
     const [
       assignedJobs,
+      assignedTasks,
       timeOffRequests,
       serviceReports,
       recentTimeEntries,
@@ -141,6 +142,34 @@ export default async function HomePage() {
         },
         take: 10
       }),
+      // Assigned tasks
+      prisma.taskCard.findMany({
+        where: {
+          assignedToId: userId,
+          status: { not: 'COMPLETED' }
+        },
+        include: {
+          job: {
+            select: {
+              id: true,
+              jobNumber: true,
+              title: true
+            }
+          },
+          quote: {
+            select: {
+              id: true,
+              quoteNumber: true,
+              title: true
+            }
+          }
+        },
+        orderBy: [
+          { dueDate: 'asc' },
+          { createdAt: 'desc' }
+        ],
+        take: 20
+      }).catch(() => []),
       // PTO requests
       prisma.timeOffRequest.findMany({
         where: { userId: userId },
@@ -263,6 +292,25 @@ export default async function HomePage() {
         priority: job.priority,
         nextMilestone: job.milestones?.[0] || null
       })),
+      assignedTasks: assignedTasks.map(task => ({
+        id: task.id,
+        name: task.name,
+        description: task.description,
+        status: task.status,
+        dueDate: task.dueDate?.toISOString() || null,
+        taskCode: task.taskCode,
+        taskCodeDescription: task.taskCodeDescription,
+        job: task.job ? {
+          id: task.job.id,
+          jobNumber: task.job.jobNumber,
+          title: task.job.title
+        } : null,
+        quote: task.quote ? {
+          id: task.quote.id,
+          quoteNumber: task.quote.quoteNumber,
+          title: task.quote.title
+        } : null
+      })),
       timeOffRequests: timeOffRequests.map(req => ({
         id: req.id,
         requestType: req.requestType,
@@ -316,6 +364,7 @@ export default async function HomePage() {
         pendingPTOCount={pendingPTO}
         userRole={session.user.role}
         dashboardData={dashboardData}
+        assignedTasks={dashboardData.assignedTasks}
       />
     )
   } catch (error: any) {
@@ -338,12 +387,14 @@ export default async function HomePage() {
             pendingExpensesCount: 0
           },
           assignedJobs: [],
+          assignedTasks: [],
           timeOffRequests: [],
           serviceReports: [],
           recentTimeEntries: [],
           recentAttendance: [],
           pendingExpenses: []
         }}
+        assignedTasks={[]}
       />
     )
   }

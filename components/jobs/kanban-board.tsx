@@ -197,12 +197,22 @@ export function KanbanBoard({ jobId, quoteId, jobType, users }: KanbanBoardProps
         assignedToId?: string
         dueDate?: string
         status: string
+        taskCode?: string
+        taskCodeDescription?: string
     }) => {
         try {
             const response = await fetch(`${apiBase}/tasks`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(taskData),
+                body: JSON.stringify({
+                    name: taskData.name,
+                    description: taskData.description || null,
+                    assignedToId: taskData.assignedToId || null,
+                    dueDate: taskData.dueDate || null,
+                    status: taskData.status || 'BACKLOG',
+                    taskCode: taskData.taskCode || null,
+                    taskCodeDescription: taskData.taskCodeDescription || null,
+                }),
             })
 
             if (response.ok) {

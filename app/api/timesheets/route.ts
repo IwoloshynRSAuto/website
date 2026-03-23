@@ -388,7 +388,7 @@ export async function POST(request: NextRequest) {
     // Determine status based on whether clock out time is provided
     const status = roundedClockOut ? 'completed' : 'in-progress'
     
-    // Build create data - include geolocation fields if provided
+    // Build create data - NEVER include geolocation in POST (must use PATCH)
     const createData: any = {
       userId: user.id, // Use the database user ID we just found
       date: dateForDb,
@@ -397,31 +397,8 @@ export async function POST(request: NextRequest) {
       status: status,
     }
     
-    // Add geolocation fields if provided
-    if (validatedData.geoLat !== undefined) {
-      createData.geoLat = validatedData.geoLat
-    }
-    if (validatedData.geoLon !== undefined) {
-      createData.geoLon = validatedData.geoLon
-    }
-    if (validatedData.geoAccuracy !== undefined) {
-      createData.geoAccuracy = validatedData.geoAccuracy
-    }
-    if (validatedData.locationDenied !== undefined) {
-      createData.locationDenied = validatedData.locationDenied
-    }
-    if (validatedData.clockOutGeoLat !== undefined) {
-      createData.clockOutGeoLat = validatedData.clockOutGeoLat
-    }
-    if (validatedData.clockOutGeoLon !== undefined) {
-      createData.clockOutGeoLon = validatedData.clockOutGeoLon
-    }
-    if (validatedData.clockOutGeoAccuracy !== undefined) {
-      createData.clockOutGeoAccuracy = validatedData.clockOutGeoAccuracy
-    }
-    if (validatedData.clockOutLocationDenied !== undefined) {
-      createData.clockOutLocationDenied = validatedData.clockOutLocationDenied
-    }
+    // Geolocation MUST be set via PATCH after creation, never in POST
+    // This ensures consistent behavior and allows verification
     
     // Try to add geolocation fields only if they're provided
     // We'll catch errors if they don't exist in the database
@@ -431,7 +408,7 @@ export async function POST(request: NextRequest) {
     
     let timesheet
     try {
-      // Use select to avoid Prisma trying to access missing geolocation columns
+      // Try to include geolocation fields in select
       timesheet = await prisma.timesheet.create({
         data: createData,
         select: {
@@ -444,8 +421,16 @@ export async function POST(request: NextRequest) {
           status: true,
           createdAt: true,
           updatedAt: true,
-          jobEntries: true
-          // Explicitly exclude all geolocation fields to avoid errors
+          jobEntries: true,
+          // Include geolocation fields if they exist
+          geoLat: true,
+          geoLon: true,
+          geoAccuracy: true,
+          locationDenied: true,
+          clockOutGeoLat: true,
+          clockOutGeoLon: true,
+          clockOutGeoAccuracy: true,
+          clockOutLocationDenied: true,
         }
       })
     } catch (createError: any) {
@@ -539,6 +524,29 @@ export async function POST(request: NextRequest) {
         createdAt: je.createdAt.toISOString(),
         updatedAt: je.updatedAt.toISOString(),
       })) : []
+    }
+    
+    // Include geolocation fields if they exist in the timesheet
+    if ('geoLat' in timesheet && timesheet.geoLat !== undefined && timesheet.geoLat !== null) {
+      responseData.geoLat = Number(timesheet.geoLat)
+      console.log('[API POST /timesheets] Including geoLat in response:', responseData.geoLat)
+    }
+    if ('geoLon' in timesheet && timesheet.geoLon !== undefined && timesheet.geoLon !== null) {
+      responseData.geoLon = Number(timesheet.geoLon)
+      console.log('[API POST /timesheets] Including geoLon in response:', responseData.geoLon)
+    }
+    if ('geoAccuracy' in timesheet && timesheet.geoAccuracy !== undefined && timesheet.geoAccuracy !== null) {
+      responseData.geoAccuracy = Number(timesheet.geoAccuracy)
+      console.log('[API POST /timesheets] Including geoAccuracy in response:', responseData.geoAccuracy)
+    }
+    if ('clockOutGeoLat' in timesheet && timesheet.clockOutGeoLat !== undefined && timesheet.clockOutGeoLat !== null) {
+      responseData.clockOutGeoLat = Number(timesheet.clockOutGeoLat)
+    }
+    if ('clockOutGeoLon' in timesheet && timesheet.clockOutGeoLon !== undefined && timesheet.clockOutGeoLon !== null) {
+      responseData.clockOutGeoLon = Number(timesheet.clockOutGeoLon)
+    }
+    if ('clockOutGeoAccuracy' in timesheet && timesheet.clockOutGeoAccuracy !== undefined && timesheet.clockOutGeoAccuracy !== null) {
+      responseData.clockOutGeoAccuracy = Number(timesheet.clockOutGeoAccuracy)
     }
     
     return NextResponse.json(

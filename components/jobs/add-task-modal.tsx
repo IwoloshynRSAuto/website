@@ -1,12 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { TaskCodeSelector } from '@/components/tasks/task-code-selector'
+import { Separator } from '@/components/ui/separator'
 
 interface AddTaskModalProps {
     isOpen: boolean
@@ -17,18 +19,75 @@ interface AddTaskModalProps {
         assignedToId?: string
         dueDate?: string
         status: string
+        taskCode?: string
+        taskCodeDescription?: string
     }) => void
     users: Array<{ id: string; name: string | null; email: string }>
+    jobId?: string
+    quoteId?: string
+    initialTaskCode?: string
 }
 
-export function AddTaskModal({ isOpen, onClose, onAdd, users }: AddTaskModalProps) {
+export function AddTaskModal({ isOpen, onClose, onAdd, users, jobId, initialTaskCode }: AddTaskModalProps) {
+    // Valid statuses constant
+    const VALID_STATUSES = ['BACKLOG', 'IN_PROGRESS', 'WAITING', 'COMPLETED'] as const
+    type ValidStatus = typeof VALID_STATUSES[number]
+    
     const [formData, setFormData] = useState({
         name: '',
         description: '',
-        assignedToId: null,
+        assignedToId: null as string | null,
         dueDate: '',
-        status: 'BACKLOG',
+        status: 'BACKLOG' as ValidStatus,
+        taskCode: null as string | null,
+        taskCodeDescription: null as string | null,
     })
+
+    // Auto-fill task code if provided (e.g., from job) or from localStorage
+    useEffect(() => {
+        if (isOpen) {
+            // Check localStorage for selected task code
+            const stored = localStorage.getItem('selectedTaskCode')
+            if (stored) {
+                try {
+                    const { code, description } = JSON.parse(stored)
+                    setFormData(prev => ({ 
+                        ...prev, 
+                        taskCode: code,
+                        taskCodeDescription: description,
+                    }))
+                    // Clear after using
+                    localStorage.removeItem('selectedTaskCode')
+                } catch (e) {
+                    console.error('Failed to parse stored task code:', e)
+                }
+            } else if (initialTaskCode) {
+                setFormData(prev => ({ ...prev, taskCode: initialTaskCode }))
+            }
+        }
+    }, [initialTaskCode, isOpen])
+    
+    // Reset form when dialog closes
+    useEffect(() => {
+        if (!isOpen) {
+            setFormData({
+                name: '',
+                description: '',
+                assignedToId: null,
+                dueDate: '',
+                status: 'BACKLOG',
+                taskCode: null,
+                taskCodeDescription: null,
+            })
+        } else {
+            // When opening, ensure status is valid (defensive check)
+            const currentStatus = String(formData.status || '').trim().toUpperCase()
+            if (!VALID_STATUSES.includes(currentStatus as ValidStatus)) {
+                console.warn('Invalid status on modal open:', formData.status, '- resetting to BACKLOG')
+                setFormData(prev => ({ ...prev, status: 'BACKLOG' }))
+            }
+        }
+    }, [isOpen])
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
@@ -37,12 +96,20 @@ export function AddTaskModal({ isOpen, onClose, onAdd, users }: AddTaskModalProp
             return
         }
 
+        // SIMPLIFIED APPROACH: Always use BACKLOG for new tasks
+        // This ensures we never have status corruption issues
+        const validStatus = 'BACKLOG'
+
+        console.log('[AddTaskModal] Submitting task with hardcoded status:', validStatus)
+
         onAdd({
             name: formData.name,
             description: formData.description || undefined,
             assignedToId: formData.assignedToId ?? undefined,
             dueDate: formData.dueDate || undefined,
-            status: formData.status,
+            status: validStatus,
+            taskCode: formData.taskCode || undefined,
+            taskCodeDescription: formData.taskCodeDescription || undefined,
         })
 
         // Reset form
@@ -52,22 +119,24 @@ export function AddTaskModal({ isOpen, onClose, onAdd, users }: AddTaskModalProp
             assignedToId: null,
             dueDate: '',
             status: 'BACKLOG',
+            taskCode: null,
+            taskCodeDescription: null,
         })
     }
 
     const handleClose = () => {
-        setFormData({
-            name: '',
-            description: '',
-            assignedToId: null,
-            dueDate: '',
-            status: 'BACKLOG',
-        })
         onClose()
     }
 
     return (
-        <Dialog open={isOpen} onOpenChange={handleClose}>
+        <Dialog 
+            open={isOpen} 
+            onOpenChange={(open) => {
+                if (!open) {
+                    handleClose()
+                }
+            }}
+        >
             <DialogContent className="sm:max-w-[500px]">
                 <DialogHeader>
                     <DialogTitle>Add New Task</DialogTitle>
@@ -125,22 +194,26 @@ export function AddTaskModal({ isOpen, onClose, onAdd, users }: AddTaskModalProp
                         />
                     </div>
 
-                    <div>
-                        <Label htmlFor="status">Initial Status</Label>
-                        <Select
-                            value={formData.status}
-                            onValueChange={(value) => setFormData({ ...formData, status: value })}
-                        >
-                            <SelectTrigger id="status">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="BACKLOG">Backlog</SelectItem>
-                                <SelectItem value="IN_PROGRESS">In Progress</SelectItem>
-                                <SelectItem value="WAITING">Waiting</SelectItem>
-                                <SelectItem value="COMPLETED">Completed</SelectItem>
-                            </SelectContent>
-                        </Select>
+                    {/* Status field removed - always using BACKLOG for new tasks to prevent corruption issues */}
+                    {/* Users can change status after creation via drag-and-drop */}
+
+                    <Separator className="my-4" />
+
+                    {/* Development Section */}
+                    <div className="space-y-4">
+                        <div>
+                            <h3 className="text-sm font-semibold text-gray-900 mb-3">Development</h3>
+                            <TaskCodeSelector
+                                value={formData.taskCode || undefined}
+                                onChange={(code, description) => {
+                                    setFormData({
+                                        ...formData,
+                                        taskCode: code,
+                                        taskCodeDescription: description,
+                                    })
+                                }}
+                            />
+                        </div>
                     </div>
 
                     <div className="flex gap-2 pt-4">

@@ -18,9 +18,9 @@ export async function GET(request: NextRequest) {
     const isAdmin = session.user.role === 'ADMIN' || session.user.role === 'MANAGER'
     const targetUserId = requestedUserId && isAdmin ? requestedUserId : session.user.id
 
-    const tasks = await prisma.task.findMany({
+    const tasks = await prisma.taskCard.findMany({
       where: {
-        assignedTo: targetUserId,
+        assignedToId: targetUserId,
       },
       include: {
         quote: {

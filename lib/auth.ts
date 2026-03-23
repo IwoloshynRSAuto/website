@@ -60,10 +60,21 @@ export const authOptions: NextAuthOptions = {
   },
   callbacks: {
     async signIn({ user, account, profile }) {
-      // Only allow users from rsautomation.net domain
+      // Only allow users from approved company domains
       if (account?.provider === 'azure-ad') {
-        const email = user.email as string
-        if (!email.endsWith('@rsautomation.net')) {
+        const profileData = (profile || {}) as Record<string, unknown>
+        const resolvedEmail =
+          (user?.email as string | undefined) ||
+          (profileData.preferred_username as string | undefined) ||
+          (profileData.email as string | undefined) ||
+          (profileData.upn as string | undefined) ||
+          ''
+        const email = resolvedEmail.toLowerCase().trim()
+        const isAllowedDomain =
+          email.endsWith('@rsautomation.net') ||
+          email.endsWith('@rsautom.onmicrosoft.com')
+
+        if (!isAllowedDomain) {
           return false
         }
         return true

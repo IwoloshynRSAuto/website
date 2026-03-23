@@ -164,15 +164,15 @@ model TimesheetSubmission {
 }
 
 model LaborCode {
-  id           String             @id @default(cuid())
-  code         String             @unique
-  name         String
-  description  String?
-  category     String
-  hourlyRate   Decimal            @default(0)
-  isActive     Boolean            @default(true)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  id             String               @id @default(cuid())
+  code           String               @unique
+  name           String
+  description    String?
+  category       String
+  hourlyRate     Decimal              @default(0)
+  isActive       Boolean              @default(true)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
   jobEstimates   JobLaborEstimate[]
   quoteEstimates QuoteLaborEstimate[]
   timeEntries    TimeEntry[]
@@ -181,17 +181,17 @@ model LaborCode {
 }
 
 model Quote {
-  id                   String           @id @default(cuid())
-  quoteNumber          String           @unique
+  id                   String               @id @default(cuid())
+  quoteNumber          String               @unique
   title                String
   description          String?
   customerId           String?
   assignedToId         String?
-  amount               Float            @default(0)
+  amount               Float                @default(0)
   validUntil           DateTime?
-  status               QuoteStatus      @default(DRAFT)
-  quoteType            String           @default("PROJECT") // PROJECT, PART_SALE
-  isActive             Boolean          @default(true)
+  status               QuoteStatus          @default(DRAFT)
+  quoteType            String               @default("PROJECT") // PROJECT, PART_SALE
+  isActive             Boolean              @default(true)
   paymentTerms         String?
   estimatedHours       Float?
   hourlyRate           Float?
@@ -204,18 +204,18 @@ model Quote {
   customerContactPhone String?
   lastFollowUp         DateTime?
   quoteFile            String?
-  createdAt            DateTime         @default(now())
-  updatedAt            DateTime         @updatedAt
-  linkedBOMs           BOM[]            @relation("QuoteToBOM")
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  linkedBOMs           BOM[]                @relation("QuoteToBOM")
   job                  Job?
-  customer             Customer?        @relation(fields: [customerId], references: [id])
-  assignedTo           User?            @relation("QuoteAssignedTo", fields: [assignedToId], references: [id])
-  fileRecords          FileRecord[]     @relation("QuoteFiles")
-  revisions            QuoteRevision[]  @relation("QuoteRevisions")
+  customer             Customer?            @relation(fields: [customerId], references: [id])
+  assignedTo           User?                @relation("QuoteAssignedTo", fields: [assignedToId], references: [id])
+  fileRecords          FileRecord[]         @relation("QuoteFiles")
+  revisions            QuoteRevision[]      @relation("QuoteRevisions")
   lostReason           QuoteLostReason?
   laborEstimates       QuoteLaborEstimate[]
   milestones           QuoteMilestone[]
-  tasks                TaskCard[]               @relation("QuoteTasks")
+  tasks                TaskCard[]           @relation("QuoteTasks")
 
   @@map("quotes")
 }
@@ -902,7 +902,7 @@ model QuoteLaborEstimate {
 }
 
 model QuoteMilestone {
-  id                 String             @id @default(cuid())
+  id                 String    @id @default(cuid())
   quoteId            String
   name               String
   description        String?
@@ -911,12 +911,12 @@ model QuoteMilestone {
   scheduledEndDate   DateTime?
   actualStartDate    DateTime?
   actualEndDate      DateTime?
-  status             String             @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
+  status             String    @default("NOT_STARTED") // NOT_STARTED, IN_PROGRESS, COMPLETED, BLOCKED
   billingPercentage  Float? // Percentage of total quote value
-  isBillingTrigger   Boolean            @default(false) // Triggers invoice when completed
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  quote              Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  isBillingTrigger   Boolean   @default(false) // Triggers invoice when completed
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  quote              Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
   @@index([quoteId])
   @@index([status])
@@ -925,63 +925,80 @@ model QuoteMilestone {
 }
 
 model TaskCard {
-  id           String    @id @default(cuid())
-  jobId        String?
-  quoteId      String?
-  name         String
-  description  String?
-  assignedToId String?
-  dueDate      DateTime?
-  status       String    @default("BACKLOG") // BACKLOG, IN_PROGRESS, WAITING, COMPLETED
-  position     Int       @default(0) // For ordering within column
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  
-  job          Job?      @relation("JobTasks", fields: [jobId], references: [id], onDelete: Cascade)
-  quote        Quote?    @relation("QuoteTasks", fields: [quoteId], references: [id], onDelete: Cascade)
-  assignedTo   User?     @relation("TaskAssignee", fields: [assignedToId], references: [id])
-  
+  id                  String    @id @default(cuid())
+  jobId               String?
+  quoteId             String?
+  name                String
+  description         String?
+  assignedToId        String?
+  dueDate             DateTime?
+  status              String    @default("BACKLOG") // BACKLOG, IN_PROGRESS, WAITING, COMPLETED
+  position            Int       @default(0) // For ordering within column
+  taskCode            String? // PM, SV, or AD task code (e.g., PM010-0100)
+  taskCodeDescription String? // Description of the task code
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  job        Job?   @relation("JobTasks", fields: [jobId], references: [id], onDelete: Cascade)
+  quote      Quote? @relation("QuoteTasks", fields: [quoteId], references: [id], onDelete: Cascade)
+  assignedTo User?  @relation("TaskAssignee", fields: [assignedToId], references: [id])
+
   @@index([jobId])
   @@index([quoteId])
   @@index([status])
+  @@index([taskCode])
   @@map("task_cards")
+}
+
+model TaskCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  description String
+  category    String    // PM, SV, or AD
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([category])
+  @@index([code])
+  @@map("task_codes")
 }
 
 // eBay Automation Models
 model EbayListing {
-  id                   String              @id @default(cuid())
-  code                 String               @unique
-  title                String?
-  description          String?
-  listingStatus        String               @default("draft") // draft, active_listing, active, sold, ended
-  userId               String
-  categoryId           String?
-  storageLocationId    String?
-  conditionId          String?
-  conditionText        String?
-  testStatusId         String?
-  testStatus           String? // Legacy support
-  notes                String?
-  needsInspection      Boolean              @default(false)
-  needsTesting         Boolean              @default(false)
-  postedDate           DateTime?
-  suggestedPrice       Float?
+  id                    String    @id @default(cuid())
+  code                  String    @unique
+  title                 String?
+  description           String?
+  listingStatus         String    @default("draft") // draft, active_listing, active, sold, ended
+  userId                String
+  categoryId            String?
+  storageLocationId     String?
+  conditionId           String?
+  conditionText         String?
+  testStatusId          String?
+  testStatus            String? // Legacy support
+  notes                 String?
+  needsInspection       Boolean   @default(false)
+  needsTesting          Boolean   @default(false)
+  postedDate            DateTime?
+  suggestedPrice        Float?
   suggestedAuctionPrice Float?
-  suggestedShipping    Float?
-  imageFolderPath      String?
-  ebayDraftData        String?              // JSON string for draft listing data
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  
-  images               EbayListingImage[]
-  category             EbayCategory?         @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  storageLocation      EbayStorageLocation?  @relation(fields: [storageLocationId], references: [id], onDelete: SetNull)
-  condition            EbayCondition?        @relation(fields: [conditionId], references: [id], onDelete: SetNull)
-  testStatusRelation   EbayTestStatus?       @relation(fields: [testStatusId], references: [id], onDelete: SetNull)
-  aiAnalysis           EbayAIAnalysis?
-  ebayData             EbayData?
-  alerts               EbayAlert[]
-  
+  suggestedShipping     Float?
+  imageFolderPath       String?
+  ebayDraftData         String? // JSON string for draft listing data
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  images             EbayListingImage[]
+  category           EbayCategory?        @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  storageLocation    EbayStorageLocation? @relation(fields: [storageLocationId], references: [id], onDelete: SetNull)
+  condition          EbayCondition?       @relation(fields: [conditionId], references: [id], onDelete: SetNull)
+  testStatusRelation EbayTestStatus?      @relation(fields: [testStatusId], references: [id], onDelete: SetNull)
+  aiAnalysis         EbayAIAnalysis?
+  ebayData           EbayData?
+  alerts             EbayAlert[]
+
   @@index([userId])
   @@index([categoryId])
   @@index([storageLocationId])
@@ -991,107 +1008,107 @@ model EbayListing {
 }
 
 model EbayListingImage {
-  id        String       @id @default(cuid())
+  id        String      @id @default(cuid())
   listingId String
   filename  String
   url       String
-  order     Int          @default(0)
-  createdAt DateTime     @default(now())
-  listing   EbayListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  
+  order     Int         @default(0)
+  createdAt DateTime    @default(now())
+  listing   EbayListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
   @@index([listingId])
   @@index([order])
   @@map("ebay_listing_images")
 }
 
 model EbayAIAnalysis {
-  id                 String       @id @default(cuid())
-  listingId         String       @unique
+  id                String      @id @default(cuid())
+  listingId         String      @unique
   autoTitle         String?
   autoDescription   String?
   autoCategory      String?
   detectedBrand     String?
   detectedModel     String?
-  itemSpecifics     String?      // JSON string
+  itemSpecifics     String? // JSON string
   suggestedCategory String?
   confidenceScore   Float?
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
-  listing           EbayListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  listing           EbayListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
   @@map("ebay_ai_analyses")
 }
 
 model EbayCategory {
-  id        String         @id @default(cuid())
-  name      String         @unique
-  isActive  Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id        String        @id @default(cuid())
+  name      String        @unique
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
   listings  EbayListing[]
-  
+
   @@map("ebay_categories")
 }
 
 model EbayStorageLocation {
-  id        String         @id @default(cuid())
-  name      String         @unique
-  isActive  Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id        String        @id @default(cuid())
+  name      String        @unique
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
   listings  EbayListing[]
-  
+
   @@map("ebay_storage_locations")
 }
 
 model EbayCondition {
-  id        String         @id @default(cuid())
-  name      String         @unique
-  isActive  Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id        String        @id @default(cuid())
+  name      String        @unique
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
   listings  EbayListing[]
-  
+
   @@map("ebay_conditions")
 }
 
 model EbayAlert {
-  id        String       @id @default(cuid())
+  id        String      @id @default(cuid())
   listingId String
-  type      String       // aging, inspection, testing, pricing, etc.
+  type      String // aging, inspection, testing, pricing, etc.
   message   String
-  isActive  Boolean      @default(true)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
-  listing   EbayListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  listing   EbayListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
   @@index([listingId])
   @@index([isActive])
   @@map("ebay_alerts")
 }
 
 model EbayData {
-  id              String       @id @default(cuid())
-  listingId       String       @unique
+  id             String      @id @default(cuid())
+  listingId      String      @unique
   ebayItemId     String?
   ebayListingUrl String?
-  status          String?      // draft_stub, pending, uploaded, failed
-  itemSpecifics   String?      // JSON string
-  uploadedAt      DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  listing        EbayListing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
-  
+  status         String? // draft_stub, pending, uploaded, failed
+  itemSpecifics  String? // JSON string
+  uploadedAt     DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  listing        EbayListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
   @@map("ebay_data")
 }
 
 model EbayTestStatus {
-  id        String         @id @default(cuid())
-  name      String         @unique
-  isActive  Boolean        @default(true)
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id        String        @id @default(cuid())
+  name      String        @unique
+  isActive  Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
   listings  EbayListing[]
-  
+
   @@map("ebay_test_statuses")
 }

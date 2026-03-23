@@ -219,4 +219,20 @@
   cursor: not-allowed;
 }
 
+/* Task Code Selector - Ensure items are not greyed out */
+[cmdk-item] {
+  color: #111827 !important;
+  opacity: 1 !important;
+}
+
+[cmdk-item]:hover {
+  color: #111827 !important;
+  opacity: 1 !important;
+}
+
+[cmdk-item][aria-selected="true"] {
+  color: #111827 !important;
+  opacity: 1 !important;
+}
+
 

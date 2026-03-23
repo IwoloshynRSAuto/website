@@ -1,7 +1,6 @@
 'use client'
 
 import React from 'react'
-
 import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   DndContext,
@@ -23,7 +22,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { useToast } from '@/components/ui/use-toast'
-import { Plus, Trash2, Edit2, User, FileText, Wrench, Link as LinkIcon } from 'lucide-react'
+import { Plus, Trash2, Edit2, User, FileText, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -42,12 +41,12 @@ import { AddTaskModal } from '@/components/jobs/add-task-modal'
 
 interface Task {
   id: string
-  title: string
-  name?: string // For TaskCard compatibility
+  name: string
+  title?: string
   description: string | null
-  status: 'TO_DO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE' | 'BACKLOG' | 'WAITING' | 'COMPLETED'
-  assignedTo: string | null
-  assignedToId?: string | null
+  status: 'BACKLOG' | 'IN_PROGRESS' | 'WAITING' | 'COMPLETED' | 'TO_DO' | 'REVIEW' | 'DONE'
+  assignedToId: string | null
+  assignedTo?: string | null
   createdAt: string
   updatedAt: string
   taskCode?: string | null
@@ -71,21 +70,24 @@ interface User {
   email: string
 }
 
-interface TaskBoardProps {
+interface DevelopmentTaskBoardProps {
   userId: string
   users?: User[]
   isAdmin?: boolean
 }
 
+// Development task codes: PM060, PM070, PM080, PM090
+const DEVELOPMENT_TASK_CODE_PREFIXES = ['PM060', 'PM070', 'PM080', 'PM090']
+
 const STATUS_COLUMNS: Array<{
-  id: 'TO_DO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE'
+  id: 'BACKLOG' | 'IN_PROGRESS' | 'WAITING' | 'COMPLETED'
   label: string
   color: string
 }> = [
-  { id: 'TO_DO', label: 'To Do', color: 'bg-gray-100 border-gray-300' },
+  { id: 'BACKLOG', label: 'Backlog', color: 'bg-gray-100 border-gray-300' },
   { id: 'IN_PROGRESS', label: 'In Progress', color: 'bg-blue-100 border-blue-300' },
-  { id: 'REVIEW', label: 'Review', color: 'bg-yellow-100 border-yellow-300' },
-  { id: 'DONE', label: 'Done', color: 'bg-green-100 border-green-300' },
+  { id: 'WAITING', label: 'Waiting', color: 'bg-yellow-100 border-yellow-300' },
+  { id: 'COMPLETED', label: 'Completed', color: 'bg-green-100 border-green-300' },
 ]
 
 function TaskCard({ task, isDragging, onEdit, onDelete }: { task: Task; isDragging?: boolean; onEdit: (task: Task) => void; onDelete: (taskId: string) => void }) {
@@ -108,17 +110,11 @@ function TaskCard({ task, isDragging, onEdit, onDelete }: { task: Task; isDraggi
     }
   }
 
-  const handleEditClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-    onEdit(task)
-  }
-
-  const handleDeleteClick = (e: React.MouseEvent) => {
-    e.stopPropagation()
-    e.preventDefault()
-    onDelete(task.id)
-  }
+  const displayName = task.name || task.title || 'Untitled Task'
+  const displayStatus = task.status === 'TO_DO' ? 'BACKLOG' : 
+                       task.status === 'DONE' ? 'COMPLETED' : 
+                       task.status === 'REVIEW' ? 'WAITING' : 
+                       task.status
 
   return (
     <Card
@@ -130,7 +126,7 @@ function TaskCard({ task, isDragging, onEdit, onDelete }: { task: Task; isDraggi
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex-1 min-w-0">
-          <h4 className="font-semibold text-gray-800">{task.title || task.name}</h4>
+          <h4 className="font-semibold text-gray-800">{displayName}</h4>
           {task.taskCode && (
             <div className="text-xs text-gray-500 mt-1">
               <span className="font-mono">{task.taskCode}</span>
@@ -141,7 +137,7 @@ function TaskCard({ task, isDragging, onEdit, onDelete }: { task: Task; isDraggi
           )}
         </div>
         <Badge variant="secondary" className="text-xs ml-2">
-          {task.status.replace('_', ' ')}
+          {displayStatus.replace('_', ' ')}
         </Badge>
       </div>
       {task.description && (
@@ -173,25 +169,13 @@ function TaskCard({ task, isDragging, onEdit, onDelete }: { task: Task; isDraggi
           )}
         </div>
       )}
-      <div className="flex items-center justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-gray-200">
+      <div className="flex items-center justify-between text-xs text-gray-400">
         <span>Created: {format(new Date(task.createdAt), 'MMM d, yyyy')}</span>
-        <div className="flex gap-1" onPointerDown={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-6 w-6 p-0" 
-            onClick={handleEditClick}
-            type="button"
-          >
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); onEdit(task) }}>
             <Edit2 className="h-3 w-3" />
           </Button>
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50" 
-            onClick={handleDeleteClick}
-            type="button"
-          >
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-red-500 hover:text-red-700" onClick={(e) => { e.stopPropagation(); onDelete(task.id) }}>
             <Trash2 className="h-3 w-3" />
           </Button>
         </div>
@@ -201,7 +185,7 @@ function TaskCard({ task, isDragging, onEdit, onDelete }: { task: Task; isDraggi
 }
 
 function StatusColumn({ id, label, color, tasks, onEditTask, onDeleteTask }: {
-  id: 'TO_DO' | 'IN_PROGRESS' | 'REVIEW' | 'DONE'
+  id: 'BACKLOG' | 'IN_PROGRESS' | 'WAITING' | 'COMPLETED'
   label: string
   color: string
   tasks: Task[]
@@ -235,7 +219,7 @@ function StatusColumn({ id, label, color, tasks, onEditTask, onDeleteTask }: {
   )
 }
 
-export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }: TaskBoardProps) {
+export function DevelopmentTaskBoard({ userId: initialUserId, users = [], isAdmin = false }: DevelopmentTaskBoardProps) {
   const { toast } = useToast()
   const router = useRouter()
   const { data: session } = useSession()
@@ -247,8 +231,11 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [formData, setFormData] = useState({
-    title: '',
+    name: '',
     description: '',
+    assignedToId: null as string | null,
+    dueDate: '',
+    status: 'BACKLOG',
     taskCode: null as string | null,
     taskCodeDescription: null as string | null,
   })
@@ -268,7 +255,7 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
   const loadTasks = async () => {
     try {
       setIsLoading(true)
-      // If admin and selected different user, fetch their tasks, otherwise fetch my tasks
+      // Fetch all tasks for the user
       const url = isAdmin && selectedUserId !== initialUserId 
         ? `/api/tasks/my-tasks?userId=${selectedUserId}`
         : '/api/tasks/my-tasks'
@@ -279,7 +266,15 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
       
       const data = await response.json()
       if (data.success) {
-        setTasks(data.data || [])
+        // Filter tasks by development task codes (PM060, PM070, PM080, PM090)
+        const allTasks = data.data || []
+        const developmentTasks = allTasks.filter((task: Task) => {
+          if (!task.taskCode) return false
+          return DEVELOPMENT_TASK_CODE_PREFIXES.some(prefix => 
+            task.taskCode?.startsWith(prefix)
+          )
+        })
+        setTasks(developmentTasks)
       }
     } catch (error) {
       console.error('Error loading tasks:', error)
@@ -295,26 +290,22 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
 
   const tasksByStatus = useMemo(() => {
     const grouped: Record<string, Task[]> = {
-      TO_DO: [],
+      BACKLOG: [],
       IN_PROGRESS: [],
-      REVIEW: [],
-      DONE: [],
+      WAITING: [],
+      COMPLETED: [],
     }
     tasks.forEach(task => {
-      // Map statuses from database format to board format
-      let mappedStatus: keyof typeof grouped = 'TO_DO'
-      if (task.status === 'TO_DO' || task.status === 'BACKLOG') {
-        mappedStatus = 'TO_DO'
-      } else if (task.status === 'IN_PROGRESS') {
-        mappedStatus = 'IN_PROGRESS'
-      } else if (task.status === 'REVIEW' || task.status === 'WAITING') {
-        mappedStatus = 'REVIEW'
-      } else if (task.status === 'DONE' || task.status === 'COMPLETED') {
-        mappedStatus = 'DONE'
-      }
+      // Map statuses
+      let mappedStatus: keyof typeof grouped = 'BACKLOG'
+      if (task.status === 'TO_DO') mappedStatus = 'BACKLOG'
+      else if (task.status === 'IN_PROGRESS') mappedStatus = 'IN_PROGRESS'
+      else if (task.status === 'REVIEW' || task.status === 'WAITING') mappedStatus = 'WAITING'
+      else if (task.status === 'DONE' || task.status === 'COMPLETED') mappedStatus = 'COMPLETED'
+      else if (task.status === 'BACKLOG') mappedStatus = 'BACKLOG'
       
       if (grouped[mappedStatus]) {
-        grouped[mappedStatus].push({ ...task, status: mappedStatus as Task['status'] })
+        grouped[mappedStatus].push(task)
       }
     })
     return grouped
@@ -332,24 +323,24 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
     if (!over || active.id === over.id) return
 
     const taskId = active.id as string
-    const boardStatus = over.id as string
-    
-    // Map board status back to database status format
-    let dbStatus = boardStatus
-    if (boardStatus === 'TO_DO') dbStatus = 'BACKLOG'
-    else if (boardStatus === 'REVIEW') dbStatus = 'WAITING'
-    else if (boardStatus === 'DONE') dbStatus = 'COMPLETED'
+    const newStatus = over.id as string
+
+    // Map status back
+    let mappedStatus = newStatus
+    if (newStatus === 'BACKLOG') mappedStatus = 'TO_DO'
+    else if (newStatus === 'COMPLETED') mappedStatus = 'DONE'
+    else if (newStatus === 'WAITING') mappedStatus = 'REVIEW'
 
     // Optimistic update
     setTasks(prev => prev.map(t => 
-      t.id === taskId ? { ...t, status: boardStatus as Task['status'] } : t
+      t.id === taskId ? { ...t, status: mappedStatus as Task['status'] } : t
     ))
 
     try {
       const response = await fetch(`/api/tasks/${taskId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: dbStatus }),
+        body: JSON.stringify({ status: mappedStatus }),
       })
 
       if (!response.ok) throw new Error('Failed to update task')
@@ -369,50 +360,6 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
     }
   }
 
-  const handleEditTask = (task: Task) => {
-    setEditingTask(task)
-    setFormData({
-      title: task.title || task.name || '',
-      description: task.description || '',
-      taskCode: (task as any).taskCode || null,
-      taskCodeDescription: (task as any).taskCodeDescription || null,
-    })
-    setIsEditDialogOpen(true)
-  }
-
-  const handleDeleteTask = async (taskId: string) => {
-    if (!window.confirm('Are you sure you want to delete this task?')) return
-
-    try {
-      const response = await fetch(`/api/tasks/${taskId}`, {
-        method: 'DELETE',
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.error || 'Failed to delete task')
-      }
-
-      const data = await response.json()
-      if (data.success !== false) {
-        toast({
-          title: 'Success',
-          description: 'Task deleted successfully',
-        })
-        await loadTasks()
-      } else {
-        throw new Error(data.error || 'Failed to delete task')
-      }
-    } catch (error: any) {
-      console.error('Error deleting task:', error)
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to delete task',
-        variant: 'destructive',
-      })
-    }
-  }
-
   const handleAddTask = async (taskData: {
     name: string
     description?: string
@@ -423,100 +370,50 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
     taskCodeDescription?: string
   }) => {
     try {
-      // Only send fields that the API expects - no nested objects or extra fields
-      // Use explicit null for optional fields, don't send undefined
-      const requestBody: Record<string, any> = {
-        title: taskData.name,
+      // Ensure task code is a development code
+      if (!taskData.taskCode || !DEVELOPMENT_TASK_CODE_PREFIXES.some(prefix => taskData.taskCode?.startsWith(prefix))) {
+        toast({
+          title: 'Error',
+          description: 'Please select a development task code (PM060, PM070, PM080, or PM090)',
+          variant: 'destructive',
+        })
+        return
       }
-      
-      // Only add fields if they have values (or explicitly null for optional fields)
-      if (taskData.description !== undefined && taskData.description !== '') {
-        requestBody.description = taskData.description
-      } else {
-        requestBody.description = null
-      }
-      
-      if (taskData.assignedToId !== undefined && taskData.assignedToId) {
-        requestBody.assigned_to = taskData.assignedToId
-      } else {
-        requestBody.assigned_to = null
-      }
-      
-      if (taskData.dueDate !== undefined && taskData.dueDate) {
-        requestBody.dueDate = taskData.dueDate
-      } else {
-        requestBody.dueDate = null
-      }
-      
-      // SIMPLIFIED: Always use BACKLOG for new tasks
-      // This prevents any status corruption issues
-      requestBody.status = 'BACKLOG'
-      
-      if (taskData.taskCode !== undefined && taskData.taskCode) {
-        requestBody.taskCode = taskData.taskCode
-      } else {
-        requestBody.taskCode = null
-      }
-      
-      if (taskData.taskCodeDescription !== undefined && taskData.taskCodeDescription) {
-        requestBody.taskCodeDescription = taskData.taskCodeDescription
-      } else {
-        requestBody.taskCodeDescription = null
-      }
-      
-      // Don't include quote_id or job_id for standalone tasks
-      
-      console.log('[TaskBoard] Sending task creation request:', JSON.stringify(requestBody, null, 2))
-      
+
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          title: taskData.name,
+          description: taskData.description || null,
+          assigned_to: taskData.assignedToId || null,
+          status: taskData.status === 'BACKLOG' ? 'TO_DO' : taskData.status,
+          taskCode: taskData.taskCode || null,
+          taskCodeDescription: taskData.taskCodeDescription || null,
+        }),
       })
 
-      // Get response text once (can only be consumed once)
-      const responseText = await response.text()
+      const data = await response.json()
       
-      // Handle error responses
-      if (!response.ok) {
-        let errorMessage = 'Failed to create task'
-        try {
-          if (responseText) {
-            const errorData = JSON.parse(responseText)
-            errorMessage = errorData.error || errorData.message || errorMessage
-          }
-        } catch (e) {
-          // If not JSON, use the text as error message
-          errorMessage = responseText || errorMessage
-        }
-        throw new Error(errorMessage)
-      }
-
-      // Parse successful response
-      let data
-      try {
-        if (!responseText || responseText.trim() === '') {
-          throw new Error('Empty response from server')
-        }
-        
-        data = JSON.parse(responseText)
-      } catch (parseError: any) {
-        console.error('Failed to parse JSON response:', parseError)
-        console.error('Response status:', response.status)
-        console.error('Response text:', responseText.substring(0, 500))
-        throw new Error(parseError.message || 'Invalid response from server')
-      }
-      
-      if (!data || !data.success) {
-        throw new Error(data?.error || 'Failed to create task')
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create task')
       }
 
       toast({
         title: 'Success',
-        description: 'Task created successfully',
+        description: 'Development task created successfully',
       })
       
       setIsAddModalOpen(false)
+      setFormData({
+        name: '',
+        description: '',
+        assignedToId: null,
+        dueDate: '',
+        status: 'BACKLOG',
+        taskCode: null,
+        taskCodeDescription: null,
+      })
       await loadTasks()
     } catch (error: any) {
       console.error('Error creating task:', error)
@@ -528,13 +425,57 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
     }
   }
 
+  const handleEditTask = (task: Task) => {
+    setEditingTask(task)
+    setFormData({
+      name: task.name || task.title || '',
+      description: task.description || '',
+      assignedToId: task.assignedToId || task.assignedTo || null,
+      dueDate: '',
+      status: task.status === 'TO_DO' ? 'BACKLOG' : 
+              task.status === 'DONE' ? 'COMPLETED' : 
+              task.status === 'REVIEW' ? 'WAITING' : 
+              task.status,
+      taskCode: task.taskCode || null,
+      taskCodeDescription: task.taskCodeDescription || null,
+    })
+    setIsEditDialogOpen(true)
+  }
+
+  const handleDeleteTask = async (taskId: string) => {
+    if (!confirm('Are you sure you want to delete this task?')) return
+
+    try {
+      const response = await fetch(`/api/tasks/${taskId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to delete task')
+      }
+
+      toast({
+        title: 'Success',
+        description: 'Task deleted successfully',
+      })
+      await loadTasks()
+    } catch (error: any) {
+      console.error('Error deleting task:', error)
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to delete task',
+        variant: 'destructive',
+      })
+    }
+  }
+
   const handleSubmitTask = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!formData.title.trim()) {
+    if (!formData.name.trim()) {
       toast({
         title: 'Error',
-        description: 'Title is required',
+        description: 'Task name is required',
         variant: 'destructive',
       })
       return
@@ -547,29 +488,14 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: formData.title,
-          name: formData.title, // Also send as name for TaskCard compatibility
+          title: formData.name,
           description: formData.description || null,
           taskCode: formData.taskCode || null,
           taskCodeDescription: formData.taskCodeDescription || null,
         }),
       })
 
-      // Check if response has content before trying to parse JSON
-      const contentType = response.headers.get('content-type')
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text()
-        throw new Error(`Invalid response from server: ${text || 'No content'}`)
-      }
-
-      let data
-      try {
-        const text = await response.text()
-        data = text ? JSON.parse(text) : { success: false, error: 'Empty response' }
-      } catch (parseError) {
-        console.error('Failed to parse JSON response:', parseError)
-        throw new Error('Invalid response from server')
-      }
+      const data = await response.json()
       
       if (!response.ok || !data.success) {
         throw new Error(data.error || 'Failed to update task')
@@ -582,7 +508,15 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
       
       setIsEditDialogOpen(false)
       setEditingTask(null)
-      setFormData({ title: '', description: '', taskCode: null, taskCodeDescription: null })
+      setFormData({ 
+        name: '', 
+        description: '', 
+        assignedToId: null,
+        dueDate: '',
+        status: 'BACKLOG',
+        taskCode: null,
+        taskCodeDescription: null,
+      })
       await loadTasks()
     } catch (error: any) {
       console.error('Error updating task:', error)
@@ -597,7 +531,7 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
   if (isLoading) {
     return (
       <DashboardPageContainer>
-        <DashboardHeader title="Task Board" subtitle="All your assigned tasks" />
+        <DashboardHeader title="Development Tasks" subtitle="Development task management" />
         <DashboardContent>
           <div className="text-center py-8 text-gray-500">Loading tasks...</div>
         </DashboardContent>
@@ -611,13 +545,13 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
   return (
     <DashboardPageContainer>
       <DashboardHeader 
-        title="Task Board" 
-        subtitle={`Viewing tasks assigned to ${selectedUserName} (${tasks.length} total)`}
+        title="Development Tasks" 
+        subtitle={`Development tasks for ${selectedUserName} (${tasks.length} total)`}
       />
       <DashboardContent>
-        {/* Employee Filter and Add Task Button */}
-        <div className="mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          {isAdmin && users.length > 0 && (
+        {/* Employee Filter */}
+        {isAdmin && users.length > 0 && (
+          <div className="mb-6 flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <User className="h-5 w-5 text-gray-500" />
               <Label htmlFor="employee-select">Employee:</Label>
@@ -634,12 +568,17 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
                 </SelectContent>
               </Select>
             </div>
-          )}
+          </div>
+        )}
+
+        {/* Add Task Button */}
+        <div className="mb-6">
           <Button onClick={() => setIsAddModalOpen(true)}>
             <Plus className="h-4 w-4 mr-2" />
-            Add Task
+            Add Development Task
           </Button>
         </div>
+
         <div className="w-full space-y-4">
           <DndContext
             sensors={sensors}
@@ -670,30 +609,53 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
             </DragOverlay>
           </DndContext>
 
+          {/* Add Task Modal */}
+          <AddTaskModal
+            isOpen={isAddModalOpen}
+            onClose={() => setIsAddModalOpen(false)}
+            onAdd={handleAddTask}
+            users={users}
+          />
+
           {/* Edit Task Dialog */}
           <Dialog 
             open={isEditDialogOpen} 
             onOpenChange={(open) => {
-              if (!open) {
-                setIsEditDialogOpen(false)
-                setEditingTask(null)
-                setFormData({ title: '', description: '', taskCode: null, taskCodeDescription: null })
+              // Only close if the dialog is actually closing (not just a task code dialog interaction)
+              if (!open && isEditDialogOpen) {
+                // Small delay to check if a task code dialog is open
+                setTimeout(() => {
+                  const taskCodeDialog = document.querySelector('[data-task-code-dialog]')
+                  if (!taskCodeDialog || window.getComputedStyle(taskCodeDialog as HTMLElement).display === 'none') {
+                    setIsEditDialogOpen(false)
+                    setEditingTask(null)
+                    setFormData({ 
+                      name: '', 
+                      description: '', 
+                      assignedToId: null,
+                      dueDate: '',
+                      status: 'BACKLOG',
+                      taskCode: null,
+                      taskCodeDescription: null,
+                    })
+                  }
+                }, 150)
               }
             }}
           >
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Edit Task</DialogTitle>
+                <DialogTitle>Edit Development Task</DialogTitle>
                 <DialogDescription>Update task details</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmitTask}>
                 <div className="space-y-4">
                   <div>
-                    <Label htmlFor="edit-title">Title *</Label>
+                    <Label htmlFor="edit-name">Task Name *</Label>
                     <Input
-                      id="edit-title"
-                      value={formData.title}
-                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      id="edit-name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                       required
                     />
                   </div>
@@ -736,17 +698,10 @@ export function TaskBoard({ userId: initialUserId, users = [], isAdmin = false }
               </form>
             </DialogContent>
           </Dialog>
-
-          {/* Add Task Modal */}
-          <AddTaskModal
-            isOpen={isAddModalOpen}
-            onClose={() => setIsAddModalOpen(false)}
-            onAdd={handleAddTask}
-            users={users}
-          />
         </div>
       </DashboardContent>
     </DashboardPageContainer>
   )
 }
+
 

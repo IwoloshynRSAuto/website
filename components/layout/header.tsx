@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
-import { Bell, User, LogOut, Menu, X, ArrowLeft } from 'lucide-react'
+import { User, LogOut, Menu, X, ArrowLeft } from 'lucide-react'
 import { Sidebar } from './sidebar'
 
 interface HeaderProps {
@@ -35,6 +35,16 @@ export function Header({ user }: HeaderProps) {
               {isMobileMenuOpen ? <X className="h-4 w-4 sm:h-5 sm:w-5" /> : <Menu className="h-4 w-4 sm:h-5 sm:w-5" />}
             </Button>
             
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="hidden sm:flex text-xs sm:text-sm absolute"
+              onClick={() => router.back()}
+            >
+              <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+              Back
+            </Button>
+            
             <div className="flex items-center space-x-1 sm:space-x-2 lg:space-x-4 min-w-0 flex-1">
               <h2 className="text-xs sm:text-sm lg:text-lg font-semibold text-gray-900 truncate">
                 <span className="hidden sm:inline">Welcome, </span>
@@ -47,24 +57,10 @@ export function Header({ user }: HeaderProps) {
           </div>
           
           <div className="flex items-center space-x-1 sm:space-x-2 lg:space-x-4 flex-shrink-0">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              className="hidden sm:flex text-xs sm:text-sm"
-              onClick={() => router.back()}
-            >
-              <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
-              Back
-            </Button>
-            <Button variant="ghost" size="icon" className="hidden sm:flex">
-              <Bell className="h-4 w-4 sm:h-5 sm:w-5" />
-            </Button>
-            
             <div className="hidden lg:flex items-center space-x-2">
               <User className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500" />
               <span className="text-xs sm:text-sm text-gray-700 truncate max-w-32">{user.email}</span>
             </div>
-            
             
             <Button 
               variant="ghost" 
