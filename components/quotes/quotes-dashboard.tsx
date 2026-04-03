@@ -309,7 +309,7 @@ function QuotesTable({ quotes, getStatusBadge }: { quotes: Quote[]; getStatusBad
                 quotes.map((quote) => (
                   <TableRow key={quote.id} className="hover:bg-gray-50">
                     <TableCell className="font-medium">
-                      <Link href={`/dashboard/parts/quotes/${quote.id}`} className="text-blue-600 hover:underline">
+                      <Link href={`/dashboard/jobs/quotes/${quote.id}`} className="text-blue-600 hover:underline">
                         {quote.quoteNumber}
                       </Link>
                     </TableCell>
@@ -342,7 +342,7 @@ function QuotesTable({ quotes, getStatusBadge }: { quotes: Quote[]; getStatusBad
                       {format(new Date(quote.updatedAt), 'MMM d, yyyy')}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/dashboard/parts/quotes/${quote.id}`}>
+                      <Link href={`/dashboard/jobs/quotes/${quote.id}`}>
                         <Button variant="ghost" size="sm">View</Button>
                       </Link>
                     </TableCell>
@@ -386,7 +386,7 @@ function AgingQuotesTable({ quotes, getAgingBadge, getStatusBadge }: { quotes: A
                 quotes.map((quote) => (
                   <TableRow key={quote.id} className={quote.isExpired ? 'bg-red-50' : 'bg-yellow-50'}>
                     <TableCell className="font-medium">
-                      <Link href={`/dashboard/parts/quotes/${quote.id}`} className="text-blue-600 hover:underline">
+                      <Link href={`/dashboard/jobs/quotes/${quote.id}`} className="text-blue-600 hover:underline">
                         {quote.quoteNumber}
                       </Link>
                     </TableCell>
@@ -403,7 +403,7 @@ function AgingQuotesTable({ quotes, getAgingBadge, getStatusBadge }: { quotes: A
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link href={`/dashboard/parts/quotes/${quote.id}`}>
+                      <Link href={`/dashboard/jobs/quotes/${quote.id}`}>
                         <Button variant="ghost" size="sm">View</Button>
                       </Link>
                     </TableCell>

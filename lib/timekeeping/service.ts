@@ -4,7 +4,6 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { getStorage } from '@/lib/storage'
 import {
   CreateTimeOffRequestInput,
   UpdateTimeOffRequestInput,
@@ -240,79 +239,6 @@ export class TimekeepingService {
     return report
   }
 
-  /**
-   * Upload receipt for expense report
-   */
-  static async uploadExpenseReceipt(
-    expenseReportId: string,
-    file: File,
-    userId: string
-  ): Promise<string> {
-    const report = await prisma.expenseReport.findUnique({
-      where: { id: expenseReportId },
-    })
-
-    if (!report) {
-      throw new Error('Expense report not found')
-    }
-
-    // Validate file type (images and PDFs)
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'application/pdf']
-    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.pdf']
-    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
-
-    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-      throw new Error('Invalid file type. Only images and PDFs are allowed.')
-    }
-
-    // Validate file size (max 5MB for receipts)
-    const maxSize = 5 * 1024 * 1024
-    if (file.size > maxSize) {
-      throw new Error('File size exceeds 5MB limit')
-    }
-
-    // Generate storage path
-    const timestamp = Date.now()
-    const sanitizedReportId = expenseReportId.substring(0, 8)
-    const fileExt = fileExtension.startsWith('.') ? fileExtension.substring(1) : 'pdf'
-    const filename = `expense-${sanitizedReportId}-${timestamp}.${fileExt}`
-    const storagePath = `expenses/${filename}`
-
-    // Upload to storage
-    const storage = getStorage()
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-    await storage.upload(storagePath, buffer, file.type || 'application/pdf')
-
-    // Get public URL if available
-    const publicUrl = storage.getPublicUrl(storagePath)
-
-    // Create FileRecord
-    const fileRecord = await prisma.fileRecord.create({
-      data: {
-        storagePath,
-        fileUrl: publicUrl,
-        fileName: file.name,
-        fileType: file.type || 'application/pdf',
-        fileSize: file.size,
-        createdById: userId,
-        metadata: {
-          uploadedAt: new Date().toISOString(),
-          expenseReportId,
-        },
-      },
-    })
-
-    // Update expense report with receipt file
-    await prisma.expenseReport.update({
-      where: { id: expenseReportId },
-      data: {
-        receiptFileId: fileRecord.id,
-      },
-    })
-
-    return fileRecord.id
-  }
 
   /**
    * Update expense report status

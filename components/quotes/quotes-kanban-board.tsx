@@ -172,7 +172,7 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
     return (
       <TableRow className="text-sm">
         <TableCell className="py-2 px-3 align-middle font-medium">
-          <Link href={`/dashboard/parts/quotes/${quote.id}`} className="text-blue-600 hover:underline tabular-nums">
+          <Link href={`/dashboard/jobs/quotes/${quote.id}`} className="text-blue-600 hover:underline tabular-nums">
             {quote.quoteNumber}
           </Link>
         </TableCell>
@@ -239,7 +239,7 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
               <>
                 {!quote.job ? (
                   <Button type="button" size="sm" className={rowBtnMuted} asChild>
-                    <Link href={`/dashboard/parts/quotes/${quote.id}`}>
+                    <Link href={`/dashboard/jobs/quotes/${quote.id}`}>
                       <Wrench className="h-4 w-4 mr-2" />
                       Open quote
                     </Link>

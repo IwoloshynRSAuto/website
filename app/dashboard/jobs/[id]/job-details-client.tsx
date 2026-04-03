@@ -12,7 +12,6 @@ import { Plus, Edit, Trash2, Clock, DollarSign, Calculator, RefreshCw, Save } fr
 import { toast } from 'react-hot-toast'
 import { format } from 'date-fns'
 import { SubmitECOModal } from '@/components/jobs/submit-eco-modal'
-import { BOMPartsTable } from '@/components/parts/bom-parts-table'
 import { BulkBOMUpdate } from '@/components/jobs/bulk-bom-update'
 import { MilestoneGanttView } from '@/components/jobs/milestone-gantt-view'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -1330,30 +1329,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
               <div className="text-xs text-gray-500 mb-4 italic">
                 Note: Changes to BOM pricing do not affect the Parts Database, and Parts Database changes do not affect BOM pricing.
               </div>
-              <BOMPartsTable
-                bomId={bom.id}
-                parts={bom.parts.map(part => ({
-                  id: part.id,
-                  bomId: bom.id,
-                  partId: part.originalPart?.id || null,
-                  partNumber: part.partNumber,
-                  quantity: part.quantity,
-                  purchasePrice: part.purchasePrice,
-                  markupPercent: part.markupPercent,
-                  customerPrice: part.customerPrice,
-                  manufacturer: part.manufacturer,
-                  description: part.description,
-                  source: part.source || null,
-                  notes: part.notes || null,
-                  estimatedDelivery: part.estimatedDelivery || null,
-                  status: part.status as 'HOLD' | 'ORDER' | 'PLACED' | 'HERE' | 'STOCK' | 'CUSTOMER_SUPPLIED',
-                  originalPart: part.originalPart || undefined,
-                }))}
-                onPartUpdated={() => {
-                  // Refresh the page to get updated BOM data
-                  window.location.reload()
-                }}
-              />
+              <p className="text-sm text-muted-foreground">{bom.parts.length} parts attached to this BOM.</p>
 
               {/* Bulk Status Update */}
               <div className="mt-6">

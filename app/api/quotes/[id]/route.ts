@@ -154,12 +154,8 @@ export async function DELETE(
     const resolvedParams = params instanceof Promise ? await params : params
     const { id } = resolvedParams
 
-    // Get quote with file records
     const quote = await prisma.quote.findUnique({
       where: { id },
-      include: {
-        fileRecords: true,
-      },
     })
 
     if (!quote) {
@@ -167,22 +163,6 @@ export async function DELETE(
         { success: false, error: 'Quote not found' },
         { status: 404 }
       )
-    }
-
-    // Delete all associated files using storage adapter
-    const { getStorage } = await import('@/lib/storage')
-    const storage = await getStorage()
-
-    for (const fileRecord of quote.fileRecords) {
-      try {
-        await storage.delete(fileRecord.storagePath)
-        await prisma.fileRecord.delete({
-          where: { id: fileRecord.id },
-        })
-      } catch (fileError) {
-        console.error('Error deleting file:', fileError)
-        // Continue with quote deletion even if file deletion fails
-      }
     }
 
     // Delete the quote (cascade will handle related records)

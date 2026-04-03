@@ -10,7 +10,6 @@ import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { DeleteJobButton } from '@/components/jobs/delete-job-button'
-import { QuoteFileViewerForJob } from '@/components/crm/quote-file-viewer-for-job'
 import { ArrowLeft, Calendar, User, Building, DollarSign, FileText, Clock, Plus, Save, X } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
@@ -525,28 +524,6 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
                 Enter the shared drive path (e.g., L:\Customer\Job1234)
               </p>
               
-              {/* Quote File Section - Show for quote-type jobs, integrated into Tracking section */}
-              {job.type === 'QUOTE' && (
-                <div className="pt-3 border-t">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex-1">
-                      <label className="text-sm font-medium text-gray-700 mb-1 block">Quote File</label>
-                      <p className="text-xs text-gray-500">Upload PDF or Word documents for this quote</p>
-                    </div>
-                    <div className="flex-shrink-0">
-                      <QuoteFileViewerForJob
-                        jobId={job.id}
-                        jobNumber={job.jobNumber}
-                        existingQuote={job.quote ? {
-                          id: job.quote.id,
-                          quoteNumber: job.quote.quoteNumber,
-                          quoteFile: job.quote.quoteFile,
-                        } : null}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>

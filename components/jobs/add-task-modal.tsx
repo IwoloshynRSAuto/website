@@ -7,7 +7,6 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { TaskCodeSelector } from '@/components/tasks/task-code-selector'
 import { Separator } from '@/components/ui/separator'
 
 interface AddTaskModalProps {
@@ -199,21 +198,14 @@ export function AddTaskModal({ isOpen, onClose, onAdd, users, jobId, initialTask
 
                     <Separator className="my-4" />
 
-                    {/* Development Section */}
-                    <div className="space-y-4">
-                        <div>
-                            <h3 className="text-sm font-semibold text-gray-900 mb-3">Development</h3>
-                            <TaskCodeSelector
-                                value={formData.taskCode || undefined}
-                                onChange={(code, description) => {
-                                    setFormData({
-                                        ...formData,
-                                        taskCode: code,
-                                        taskCodeDescription: description,
-                                    })
-                                }}
-                            />
-                        </div>
+                    <div>
+                        <Label htmlFor="taskCode">Task Code (optional)</Label>
+                        <Input
+                            id="taskCode"
+                            value={formData.taskCode || ''}
+                            onChange={(e) => setFormData({ ...formData, taskCode: e.target.value || null, taskCodeDescription: null })}
+                            placeholder="e.g. CD, PB, EE"
+                        />
                     </div>
 
                     <div className="flex gap-2 pt-4">

@@ -4,7 +4,6 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { getStorage } from '@/lib/storage'
 import { CreateQuoteInput, UpdateQuoteInput, QuoteFilter } from './schemas'
 import { z } from 'zod'
 
@@ -282,111 +281,6 @@ export class QuoteService {
     })
   }
 
-  /**
-   * Upload file to quote using storage adapter
-   */
-  static async uploadFile(
-    quoteId: string,
-    file: File,
-    userId: string
-  ): Promise<{ fileRecordId: string; storagePath: string }> {
-    const quote = await prisma.quote.findUnique({
-      where: { id: quoteId },
-    })
-
-    if (!quote) {
-      throw new Error('Quote not found')
-    }
-
-    // Validate file type
-    const allowedTypes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    ]
-    const allowedExtensions = ['.pdf', '.doc', '.docx']
-    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'))
-
-    if (!allowedTypes.includes(file.type) && !allowedExtensions.includes(fileExtension)) {
-      throw new Error('Invalid file type. Only PDF and Word documents are allowed.')
-    }
-
-    // Validate file size (max 10MB)
-    const maxSize = 10 * 1024 * 1024
-    if (file.size > maxSize) {
-      throw new Error('File size exceeds 10MB limit')
-    }
-
-    // Generate storage path
-    const timestamp = Date.now()
-    const sanitizedQuoteNumber = quote.quoteNumber.replace(/[^a-zA-Z0-9]/g, '-')
-    const fileExt = fileExtension.startsWith('.') ? fileExtension.substring(1) : 'pdf'
-    const filename = `quote-${sanitizedQuoteNumber}-${timestamp}.${fileExt}`
-    const storagePath = `quotes/${filename}`
-
-    // Upload to storage
-    const storage = getStorage()
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
-    await storage.upload(storagePath, buffer, file.type || 'application/pdf')
-
-    // Get public URL if available
-    const publicUrl = storage.getPublicUrl(storagePath)
-
-    // Create FileRecord
-    const fileRecord = await prisma.fileRecord.create({
-      data: {
-        storagePath,
-        fileUrl: publicUrl,
-        fileName: file.name,
-        fileType: file.type || 'application/pdf',
-        fileSize: file.size,
-        createdById: userId,
-        linkedQuoteId: quoteId,
-        metadata: {
-          uploadedAt: new Date().toISOString(),
-          quoteNumber: quote.quoteNumber,
-        },
-      },
-    })
-
-    return {
-      fileRecordId: fileRecord.id,
-      storagePath,
-    }
-  }
-
-  /**
-   * Delete a file from quote
-   */
-  static async deleteFile(fileRecordId: string, userId: string) {
-    const fileRecord = await prisma.fileRecord.findUnique({
-      where: { id: fileRecordId },
-      include: {
-        createdBy: true,
-      },
-    })
-
-    if (!fileRecord) {
-      throw new Error('File not found')
-    }
-
-    // Check permissions (user must be file creator or admin)
-    if (fileRecord.createdById !== userId && fileRecord.createdBy.role !== 'ADMIN') {
-      throw new Error('Unauthorized to delete this file')
-    }
-
-    // Delete from storage
-    const storage = getStorage()
-    await storage.delete(fileRecord.storagePath)
-
-    // Delete FileRecord
-    await prisma.fileRecord.delete({
-      where: { id: fileRecordId },
-    })
-
-    return { success: true }
-  }
 
   /**
    * Get quotes with aging alerts
