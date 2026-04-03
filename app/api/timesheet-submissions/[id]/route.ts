@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { prisma } from '@/lib/prisma'
 import { TimesheetService } from '@/lib/timekeeping/timesheet-service'
 import { z } from 'zod'
 
@@ -216,14 +217,18 @@ export async function GET(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
-    // Bypass authentication for testing
-    // const session = await getServerSession(authOptions)
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
+    const resolvedParams = await Promise.resolve(params)
+    const submissionId = resolvedParams.id
+
+    if (!submissionId) {
+      return NextResponse.json(
+        { error: 'Timesheet submission ID is required' },
+        { status: 400 }
+      )
+    }
 
     // Check if submission exists
     const submission = await prisma.timesheetSubmission.findUnique({

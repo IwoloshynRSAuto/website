@@ -38,10 +38,10 @@ export function Header({ user }: HeaderProps) {
             <Button 
               variant="outline" 
               size="sm" 
-              className="hidden sm:flex text-xs sm:text-sm absolute"
+              className="hidden sm:inline-flex items-center gap-1 border-gray-300 bg-white text-gray-700 hover:bg-gray-50 hover:text-gray-900 shadow-sm"
               onClick={() => router.back()}
             >
-              <ArrowLeft className="h-3 w-3 sm:h-4 sm:w-4 mr-1 sm:mr-2" />
+              <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               Back
             </Button>
             

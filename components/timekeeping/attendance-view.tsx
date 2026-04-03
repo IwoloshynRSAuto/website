@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Calendar, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2, AlertCircle, X, LogIn, LogOut } from 'lucide-react'
@@ -10,8 +10,6 @@ import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
 import { useToast } from '@/components/ui/use-toast'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { patchClockInGeolocation } from '@/lib/utils/geolocation'
-
 interface User {
   id: string
   name: string | null
@@ -64,7 +62,6 @@ export function AttendanceView({
   const [weekSubmissionStatus, setWeekSubmissionStatus] = useState<string | null>(null)
   const [weekSubmissionId, setWeekSubmissionId] = useState<string | null>(null)
   const [weekRejectionReason, setWeekRejectionReason] = useState<string | null>(null)
-  const [todayAttendance, setTodayAttendance] = useState<TimesheetEntry | null>(null)
   // Store submission status per week (weekStart -> status)
   const [submissionStatusCache, setSubmissionStatusCache] = useState<Map<string, { status: string | null, id: string | null, rejectionReason?: string | null }>>(new Map())
   // Store the date to use for the modal - set before opening
@@ -89,46 +86,35 @@ export function AttendanceView({
   // Track dismissals by submissionId + rejectedAt timestamp to handle re-rejections
   const [dismissedWeeklyRejections, setDismissedWeeklyRejections] = useState<Set<string>>(new Set())
   
-  // Geolocation enabled - read from localStorage (managed in geolocation settings page)
-  // Use state to make it reactive
-  const [geolocationEnabledState, setGeolocationEnabledState] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem('attendance-geolocation-enabled')
-      return saved !== null ? saved === 'true' : true // Default to enabled
-    }
-    return true
-  })
-  
-  // Listen for changes to geolocation setting from other tabs
-  useEffect(() => {
-    const checkGeolocationSetting = () => {
-      if (typeof window !== 'undefined') {
-        const saved = localStorage.getItem('attendance-geolocation-enabled')
-        const enabled = saved !== null ? saved === 'true' : true
-        setGeolocationEnabledState(enabled)
-      }
-    }
-    
-    // Check on mount and listen for storage events
-    checkGeolocationSetting()
-    window.addEventListener('storage', checkGeolocationSetting)
-    window.addEventListener('geolocation-setting-changed', checkGeolocationSetting)
-    
-    // Also check periodically in case localStorage was changed in same window
-    const interval = setInterval(checkGeolocationSetting, 1000)
-    
-    return () => {
-      window.removeEventListener('storage', checkGeolocationSetting)
-      window.removeEventListener('geolocation-setting-changed', checkGeolocationSetting)
-      clearInterval(interval)
-    }
-  }, [])
-  
   // Ref to always get the latest currentDate value
   const currentDateRef = useRef(currentDate)
   useEffect(() => {
     currentDateRef.current = currentDate
   }, [currentDate])
+
+  // Refs for clock in/out — avoid stale state when resolving today's open entry (fixes flaky "id" errors before reload)
+  const timesheetsRef = useRef<TimesheetEntry[]>([])
+  const selectedUserIdRef = useRef(selectedUserId)
+  useEffect(() => {
+    selectedUserIdRef.current = selectedUserId
+  }, [selectedUserId])
+  useEffect(() => {
+    timesheetsRef.current = timesheets
+  }, [timesheets])
+
+  /** Today's open attendance row for selected user (must have id for PATCH clock-out). */
+  const todayOpenEntry = useMemo((): TimesheetEntry | null => {
+    const todayStart = startOfDay(new Date())
+    if (!Array.isArray(timesheets)) return null
+    const found = timesheets.find(
+      (ts) =>
+        Boolean(ts?.id) &&
+        ts.userId === selectedUserId &&
+        startOfDay(new Date(ts.date)).getTime() === todayStart.getTime() &&
+        !ts.clockOutTime
+    )
+    return found ?? null
+  }, [timesheets, selectedUserId])
 
   // Stable getter — always returns the latest currentDate
   const getCurrentDate = useCallback(() => currentDateRef.current, [])
@@ -202,6 +188,10 @@ export function AttendanceView({
         // Also exclude job-only entries (midnight clock-in with no clock-out)
         const attendanceEntries = Array.isArray(timesheetsData) 
           ? timesheetsData.filter((ts: TimesheetEntry) => {
+              if (!ts?.id || !ts.userId) {
+                console.warn('[AttendanceView] Skipping timesheet row without id/userId')
+                return false
+              }
               // Check if this entry has job entries
               // jobEntries can be null, undefined, or an array
               const jobEntries = ts.jobEntries
@@ -247,18 +237,11 @@ export function AttendanceView({
             userId: ts.userId
           }))
         })
+        timesheetsRef.current = attendanceEntries
         setTimesheets(attendanceEntries)
         
         // Force a re-render check
         console.log('[AttendanceView] State updated, timesheets count:', attendanceEntries.length)
-        
-        // Find today's attendance for clock in/out button
-        const today = startOfDay(new Date())
-        const todayEntry = attendanceEntries.find((ts: TimesheetEntry) => {
-          const tsDate = startOfDay(new Date(ts.date))
-          return ts.userId === selectedUserId && tsDate.getTime() === today.getTime()
-        })
-        setTodayAttendance(todayEntry || null)
         
         // Check submission status for the current week (if in week view)
         // IMPORTANT: Only check status for entries belonging to the selected user
@@ -312,13 +295,13 @@ export function AttendanceView({
               })
               if (weekSubmission) {
                 const status = weekSubmission.status || null
-                const id = weekSubmission.id || null
+                const submissionId = weekSubmission.id || null
                 const rejectionReason = weekSubmission.rejectionReason || null
                 setWeekSubmissionStatus(status)
-                setWeekSubmissionId(id)
+                setWeekSubmissionId(submissionId)
                 setWeekRejectionReason(rejectionReason)
                 // Always update cache with API result (source of truth)
-                setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id, rejectionReason }))
+                setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id: submissionId, rejectionReason }))
               } else {
                 // Also check entries as fallback
                 const weekEntry = attendanceEntries.find((ts: TimesheetEntry) => {
@@ -328,19 +311,17 @@ export function AttendanceView({
                          tsWeekStart.getTime() === weekStart.getTime() && 
                          ts.submissionStatus && ts.submissionStatus !== 'DRAFT'
                 })
-                  if (weekEntry) {
-                    const status = weekEntry.submissionStatus || null
-                  const id = weekEntry.submissionId || null
+                if (weekEntry) {
+                  const status = weekEntry.submissionStatus || null
+                  const submissionId = weekEntry.submissionId || null
                   const rejectionReason = weekEntry.rejectionReason || null
                   setWeekSubmissionStatus(status)
-                  setWeekSubmissionId(id)
+                  setWeekSubmissionId(submissionId)
                   setWeekRejectionReason(rejectionReason)
-                  // Cache it
-                  setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id, rejectionReason }))
-                  } else {
-                    setWeekSubmissionStatus(null)
+                  setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id: submissionId, rejectionReason }))
+                } else {
+                  setWeekSubmissionStatus(null)
                   setWeekSubmissionId(null)
-                  // Cache null status
                   setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status: null, id: null }))
                 }
               }
@@ -355,12 +336,12 @@ export function AttendanceView({
               })
               if (weekEntry) {
                 const status = weekEntry.submissionStatus || null
-                const id = weekEntry.submissionId || null
+                const submissionId = weekEntry.submissionId || null
                 const rejectionReason = weekEntry.rejectionReason || null
                 setWeekSubmissionStatus(status)
-                setWeekSubmissionId(id)
+                setWeekSubmissionId(submissionId)
                 setWeekRejectionReason(rejectionReason)
-                setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id, rejectionReason }))
+                setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id: submissionId, rejectionReason }))
               } else {
                 setWeekSubmissionStatus(null)
                 setWeekSubmissionId(null)
@@ -379,10 +360,10 @@ export function AttendanceView({
             })
             if (weekEntry) {
               const status = weekEntry.submissionStatus || null
-              const id = weekEntry.submissionId || null
+              const submissionId = weekEntry.submissionId || null
               setWeekSubmissionStatus(status)
-              setWeekSubmissionId(id)
-              setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id }))
+              setWeekSubmissionId(submissionId)
+              setSubmissionStatusCache(prev => new Map(prev).set(weekKey, { status, id: submissionId }))
             } else {
               setWeekSubmissionStatus(null)
               setWeekSubmissionId(null)
@@ -1132,156 +1113,22 @@ export function AttendanceView({
     }, 100)
   }, [weekSubmissionStatus, timesheets, selectedUserId, currentDate, toast])
 
-  // Get current location - HIGH ACCURACY VERSION with multiple readings
-  const getCurrentLocation = (): Promise<{ lat: number; lon: number; accuracy: number } | null> => {
-    return new Promise((resolve) => {
-      if (!navigator.geolocation) {
-        console.error('[getCurrentLocation] ❌ Geolocation API not available')
-        resolve(null)
-        return
-      }
-
-      console.log('[getCurrentLocation] Starting geolocation with fallback strategy...')
-      const positions: GeolocationPosition[] = []
-      let completedAttempts = 0
-      const maxAttempts = 4
-      const attemptDelay = 500 // Shorter delay between attempts
-
-      const tryGetPosition = (attempt: number) => {
-        // Strategy: Try fast cached first, then low accuracy, then high accuracy
-        let useHighAccuracy = false
-        let timeout = 10000
-        let maximumAge = 60000 // Accept cached positions up to 1 minute old
-        
-        if (attempt === 1) {
-          // First: Try fast cached position (quick response)
-          useHighAccuracy = false
-          timeout = 5000
-          maximumAge = 60000
-        } else if (attempt === 2) {
-          // Second: Try low accuracy fresh (faster GPS fix)
-          useHighAccuracy = false
-          timeout = 15000
-          maximumAge = 0
-        } else if (attempt === 3) {
-          // Third: Try high accuracy (best quality)
-          useHighAccuracy = true
-          timeout = 20000
-          maximumAge = 0
-        } else {
-          // Last: Try any accuracy with longer timeout
-          useHighAccuracy = false
-          timeout = 30000
-          maximumAge = 0
-        }
-        
-        console.log(`[getCurrentLocation] Attempt ${attempt}/${maxAttempts} (highAccuracy: ${useHighAccuracy}, timeout: ${timeout}ms, maxAge: ${maximumAge}ms)`)
-        
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            console.log(`[getCurrentLocation] ✅ Attempt ${attempt} success:`, {
-              lat: position.coords.latitude,
-              lon: position.coords.longitude,
-              accuracy: position.coords.accuracy,
-              timestamp: new Date(position.timestamp).toISOString()
-            })
-            positions.push(position)
-            completedAttempts++
-
-            // Accept any reading we get - even if not super accurate
-            // We'll use the best one we have
-            const best = positions.reduce((best, pos) => 
-              (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
-              position
-            )
-
-            // If we have a good reading (< 50m) or this is our last attempt, use it
-            if ((best.coords.accuracy && best.coords.accuracy < 50) || attempt >= maxAttempts || positions.length >= 2) {
-              if (positions.length > 1) {
-                // Average multiple readings for better accuracy
-                const avgLat = positions.reduce((sum, p) => sum + p.coords.latitude, 0) / positions.length
-                const avgLon = positions.reduce((sum, p) => sum + p.coords.longitude, 0) / positions.length
-                const minAccuracy = Math.min(...positions.map(p => p.coords.accuracy || Infinity))
-                
-                console.log('[getCurrentLocation] ✅ Using average of', positions.length, 'readings:', {
-                  lat: avgLat,
-                  lon: avgLon,
-                  accuracy: minAccuracy
-                })
-                
-                resolve({
-                  lat: avgLat,
-                  lon: avgLon,
-                  accuracy: minAccuracy,
-                })
-              } else {
-                console.log('[getCurrentLocation] ✅ Using single reading:', {
-                  lat: best.coords.latitude,
-                  lon: best.coords.longitude,
-                  accuracy: best.coords.accuracy
-                })
-                resolve({
-                  lat: best.coords.latitude,
-                  lon: best.coords.longitude,
-                  accuracy: best.coords.accuracy || 0,
-                })
-              }
-              return
-            }
-
-            // Try again for better accuracy
-            setTimeout(() => tryGetPosition(attempt + 1), attemptDelay)
-          },
-          (error) => {
-            console.error(`[getCurrentLocation] ❌ Attempt ${attempt} error:`, {
-              code: error.code,
-              message: error.message,
-              PERMISSION_DENIED: error.code === error.PERMISSION_DENIED,
-              POSITION_UNAVAILABLE: error.code === error.POSITION_UNAVAILABLE,
-              TIMEOUT: error.code === error.TIMEOUT
-            })
-
-            // If we have some readings, use them immediately
-            if (positions.length > 0) {
-              const best = positions.reduce((best, pos) => 
-                (!best || (pos.coords.accuracy || Infinity) < (best.coords.accuracy || Infinity)) ? pos : best,
-                null as GeolocationPosition | null
-              )
-              if (best) {
-                console.log('[getCurrentLocation] ⚠️ Using best reading from previous attempts after error')
-                resolve({
-                  lat: best.coords.latitude,
-                  lon: best.coords.longitude,
-                  accuracy: best.coords.accuracy || 0,
-                })
-                return
-              }
-            }
-
-            // Try again if we have attempts left
-            if (attempt < maxAttempts) {
-              console.log(`[getCurrentLocation] Retrying with attempt ${attempt + 1}...`)
-              setTimeout(() => tryGetPosition(attempt + 1), attemptDelay)
-            } else {
-              console.error('[getCurrentLocation] ❌ All attempts failed - no location available')
-              resolve(null)
-            }
-          },
-          {
-            enableHighAccuracy: useHighAccuracy,
-            timeout: timeout,
-            maximumAge: maximumAge,
-          }
-        )
-      }
-
-      // Start first attempt
-      tryGetPosition(1)
-    })
-  }
-
   // Handler for "Clock In Now" button - only works for today
   const handleClockInNow = useCallback(async () => {
+    const resolveOpenToday = (): TimesheetEntry | null => {
+      const dayStart = startOfDay(new Date())
+      const uid = selectedUserIdRef.current
+      return (
+        timesheetsRef.current.find(
+          (ts) =>
+            Boolean(ts?.id) &&
+            ts.userId === uid &&
+            startOfDay(new Date(ts.date)).getTime() === dayStart.getTime() &&
+            !ts.clockOutTime
+        ) ?? null
+      )
+    }
+
     console.log('[Clock In] handleClockInNow called!')
     const today = startOfDay(new Date())
     const isToday = startOfDay(currentDateRef.current).getTime() === today.getTime()
@@ -1297,17 +1144,19 @@ export function AttendanceView({
       return
     }
 
-    // Check if week is submitted/approved
     const weekStart = startOfWeek(today, { weekStartsOn: 0 })
-    const weekEntry = Array.isArray(timesheets) ? timesheets.find(ts => {
+    const weekEntry = timesheetsRef.current.find((ts) => {
       if (!ts || !ts.date) return false
       const tsDate = startOfDay(new Date(ts.date))
       const tsWeekStart = startOfWeek(tsDate, { weekStartsOn: 0 })
-      return ts.userId === selectedUserId &&
-             tsWeekStart.getTime() === weekStart.getTime() && 
-             ts.submissionStatus && (ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED')
-    }) : null
-    
+      return (
+        ts.userId === selectedUserIdRef.current &&
+        tsWeekStart.getTime() === weekStart.getTime() &&
+        ts.submissionStatus &&
+        (ts.submissionStatus === 'SUBMITTED' || ts.submissionStatus === 'APPROVED')
+      )
+    })
+
     if (weekEntry) {
       toast({
         title: 'Week Locked',
@@ -1320,18 +1169,22 @@ export function AttendanceView({
     setIsClocking(true)
     try {
       const now = new Date()
-      const isClockedIn = todayAttendance && !todayAttendance.clockOutTime
+      let openEntry = resolveOpenToday()
+      const isClockedIn = Boolean(openEntry)
 
-      if (isClockedIn && todayAttendance) {
-        // Clock Out - send immediately, update geolocation in background
-        const response = await fetch(`/api/timesheets/${todayAttendance.id}`, {
+      if (isClockedIn) {
+        if (!openEntry?.id) {
+          await loadTimesheets()
+          openEntry = resolveOpenToday()
+        }
+        if (!openEntry?.id) {
+          throw new Error('Could not load timesheet id — wait a moment or refresh the page.')
+        }
+        const response = await fetch(`/api/timesheets/${openEntry.id}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             clockOutTime: now.toISOString(),
-            clockOutGeoLat: null, // Will be updated in background
-            clockOutGeoLon: null,
-            clockOutGeoAccuracy: null,
           }),
         })
 
@@ -1344,60 +1197,15 @@ export function AttendanceView({
           description: 'Clocked out successfully',
         })
         
-        // Update geolocation in background (non-blocking) - only if enabled
-        const geoEnabledFromStorage = typeof window !== 'undefined' 
-          ? localStorage.getItem('attendance-geolocation-enabled') !== 'false'
-          : true
-        
-        if (geolocationEnabledState || geoEnabledFromStorage) {
-          console.log('[Clock Out] Starting background geolocation capture for timesheet:', todayAttendance.id)
-          getCurrentLocation()
-            .then((location) => {
-              if (location) {
-                console.log('[Clock Out] Background geolocation obtained:', {
-                  lat: location.lat,
-                  lon: location.lon,
-                  accuracy: location.accuracy
-                })
-                return fetch(`/api/timesheets/${todayAttendance.id}`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    clockOutGeoLat: location.lat,
-                    clockOutGeoLon: location.lon,
-                    clockOutGeoAccuracy: location.accuracy,
-                  })
-                })
-              } else {
-                console.log('[Clock Out] Geolocation returned null')
-                return null
-              }
-            })
-            .then((updateResponse) => {
-              if (updateResponse && updateResponse.ok) {
-                console.log('[Clock Out] ✅ Geolocation saved successfully!')
-                loadTimesheets()
-              } else if (updateResponse) {
-                console.error('[Clock Out] ❌ Failed to save geolocation - HTTP', updateResponse.status)
-              }
-            })
-            .catch((err) => {
-              console.error('[Clock Out] ❌ Error in geolocation process:', err)
-            })
-        } else {
-          console.log('[Clock Out] Geolocation disabled - skipping')
-        }
-        
         await loadTimesheets()
       } else {
-        // Clock In - create timesheet WITHOUT geolocation (must use PATCH)
         console.log('[Clock In] Starting clock-in process...')
         
         const response = await fetch('/api/timesheets', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            userId: selectedUserId,
+            userId: selectedUserIdRef.current,
             date: today.toISOString(),
             clockInTime: now.toISOString(),
           }),
@@ -1410,7 +1218,6 @@ export function AttendanceView({
         
         const responseData = await response.json()
         
-        // Extract timesheet ID - MUST use response.data?.id ?? response.id
         const timesheetId = responseData.data?.id ?? responseData.id
         console.log('[Clock In] Response data:', responseData)
         console.log('[Clock In] Extracted timesheet ID:', timesheetId)
@@ -1421,79 +1228,24 @@ export function AttendanceView({
           throw new Error('Failed to get timesheet ID from response')
         }
         
-        // Check geolocation setting and get location BEFORE showing success
-        const geoEnabledFromStorage = typeof window !== 'undefined' 
-          ? localStorage.getItem('attendance-geolocation-enabled') !== 'false'
-          : true
-        const localStorageValue = typeof window !== 'undefined' 
-          ? localStorage.getItem('attendance-geolocation-enabled')
-          : null
-        
-        console.log('[Clock In] ========== GEOLOCATION CHECK ==========')
-        console.log('[Clock In] Timesheet ID:', timesheetId)
-        console.log('[Clock In] Geolocation enabled state:', geolocationEnabledState)
-        console.log('[Clock In] Geo enabled from storage:', geoEnabledFromStorage)
-        console.log('[Clock In] LocalStorage value:', localStorageValue)
-        console.log('[Clock In] Navigator.geolocation available:', typeof navigator !== 'undefined' && !!navigator.geolocation)
-        
-        const shouldAttemptGeolocation = timesheetId && (
-          geolocationEnabledState || 
-          geoEnabledFromStorage || 
-          (localStorageValue === null)
-        )
-        
-        console.log('[Clock In] Should attempt geolocation:', shouldAttemptGeolocation)
-        console.log('[Clock In] ========================================')
-        
-        let locationData = null
-        
-        if (shouldAttemptGeolocation && timesheetId) {
-          console.log('[Clock In] 🎯 ATTEMPTING TO GET GEOLOCATION NOW...')
-          try {
-            // Give it up to 45 seconds to try all 4 attempts
-            const locationPromise = getCurrentLocation()
-            const timeoutPromise = new Promise<null>((resolve) => {
-              setTimeout(() => {
-                console.log('[Clock In] ⏱️ Geolocation timeout after 60 seconds - giving up')
-                resolve(null)
-              }, 60000)
-            })
-            
-            locationData = await Promise.race([locationPromise, timeoutPromise])
-            
-            if (locationData) {
-              console.log('[Clock In] ✅ Location obtained:', locationData)
-              const success = await patchClockInGeolocation(timesheetId, locationData)
-              if (!success) {
-                console.error('[Clock In] ❌❌❌ FAILED to save geolocation - verification failed!')
-              }
-            } else {
-              console.log('[Clock In] ⚠️ Geolocation returned null')
-            }
-          } catch (geoError) {
-            console.error('[Clock In] ❌ Error getting/saving geolocation:', geoError)
-          }
-        } else {
-          console.log('[Clock In] ⏭️ Skipping geolocation (disabled or no timesheet ID)')
-        }
-        
         toast({
           title: 'Success',
-          description: locationData ? 'Clocked in with location' : 'Clocked in successfully',
+          description: 'Clocked in successfully',
         })
         
         await loadTimesheets()
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to clock in/out'
       toast({
         title: 'Error',
-        description: error.message || 'Failed to clock in/out',
+        description: message,
         variant: 'destructive',
       })
     } finally {
       setIsClocking(false)
     }
-  }, [selectedUserId, todayAttendance, timesheets, toast, loadTimesheets, geolocationEnabledState])
+  }, [toast, loadTimesheets])
 
   const handleEditEntry = async (entry: TimesheetEntry) => {
     // Check if entry is locked
@@ -2169,13 +1921,20 @@ export function AttendanceView({
                   const today = startOfDay(new Date())
                   const currentDay = startOfDay(currentDate)
                   const isToday = currentDay.getTime() === today.getTime()
-                  const isClockedIn = todayAttendance && !todayAttendance.clockOutTime
+                  const isClockedIn = Boolean(todayOpenEntry)
+                  const clockOutNeedsId = isClockedIn && !todayOpenEntry?.id
+                  const clockDisabled =
+                    isClocking ||
+                    isLoading ||
+                    weekSubmissionStatus === 'SUBMITTED' ||
+                    weekSubmissionStatus === 'APPROVED' ||
+                    clockOutNeedsId
                   
                   if (isToday) {
                     return (
                       <Button
                         onClick={handleClockInNow}
-                        disabled={isClocking || weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'}
+                        disabled={clockDisabled}
                         className={`font-semibold shadow-md hover:shadow-lg transition-all duration-200 min-h-[44px] px-4 py-2 rounded-lg ${
                           weekSubmissionStatus === 'SUBMITTED' || weekSubmissionStatus === 'APPROVED'
                             ? 'bg-gray-400 cursor-not-allowed opacity-60'
@@ -2185,10 +1944,10 @@ export function AttendanceView({
                         }`}
                         size="sm"
                       >
-                        {isClocking ? (
+                        {isClocking || (isLoading && isToday) ? (
                           <>
                             <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
-                            <span className="hidden sm:inline">Processing...</span>
+                            <span className="hidden sm:inline">{isLoading ? 'Loading…' : 'Processing...'}</span>
                             <span className="sm:hidden">...</span>
                           </>
                         ) : isClockedIn ? (

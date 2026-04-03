@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, ChangeEvent } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { FileText, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2 } from 'lucide-react'
+import { FileText, Plus, ChevronLeft, ChevronRight, Clock, Send, Loader2, Upload } from 'lucide-react'
 import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks, subWeeks, addDays, subDays, startOfDay, endOfDay, startOfMonth, endOfMonth, isSameMonth } from 'date-fns'
 import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
@@ -78,6 +78,7 @@ export function TimeView({
   const [timesheets, setTimesheets] = useState<TimesheetEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
   const [weekSubmissionStatus, setWeekSubmissionStatus] = useState<string | null>(null)
   const [weekSubmissionId, setWeekSubmissionId] = useState<string | null>(null)
   const [weekRejectionReason, setWeekRejectionReason] = useState<string | null>(null)
@@ -85,6 +86,7 @@ export function TimeView({
   const [isDayModalOpen, setIsDayModalOpen] = useState(false)
   const [selectedEntry, setSelectedEntry] = useState<TimesheetEntry | null>(null)
   const [selectedUserId, setSelectedUserId] = useState<string>(currentUserId)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
   // Store the date to use for the modal - set before opening
   const [modalDate, setModalDate] = useState<Date | null>(null)
   
@@ -423,6 +425,76 @@ export function TimeView({
   const handleMainAddEntry = useCallback(() => {
     handleAddEntry() // Will read latest currentDate from state setter
   }, [handleAddEntry])
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click()
+  }
+
+  const handleImportCsv = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    try {
+      setIsImporting(true)
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('userId', selectedUserId)
+      const weekStart = startOfWeek(currentDate, { weekStartsOn: 0 })
+      const weekEnd = endOfWeek(currentDate, { weekStartsOn: 0 })
+      // Use the timezone offset for the SELECTED week (not today) so that
+      // importing a December sheet in March uses EST (300) not EDT (240).
+      formData.append('timezoneOffsetMinutes', String(weekStart.getTimezoneOffset()))
+      formData.append(
+        'timeZone',
+        typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone || '' : ''
+      )
+      formData.append('importWeekStart', weekStart.toISOString())
+      formData.append('importWeekEnd', weekEnd.toISOString())
+
+      const response = await fetch('/api/timesheets/import', {
+        method: 'POST',
+        body: formData,
+      })
+      const result = await response.json()
+
+      if (!response.ok || !result.success) {
+        const detailHeaders = Array.isArray(result?.details?.detectedHeaders)
+          ? result.details.detectedHeaders.slice(0, 8).join(', ')
+          : ''
+        const detailSuffix = detailHeaders ? ` Detected headers: ${detailHeaders}` : ''
+        throw new Error((result.error || 'Import failed') + detailSuffix)
+      }
+
+      toast({
+        title: 'Import complete',
+        description: (() => {
+          const ignored = Number(result?.data?.ignoredRows || 0)
+          const base = `Inserted ${result.data.inserted}, skipped ${result.data.skippedDuplicates}, rejected ${result.data.rejected}${ignored ? `, ignored ${ignored}` : ''}.`
+          const topReason = Array.isArray(result?.data?.topReasons) ? result.data.topReasons[0] : null
+          const unknownJobs = Array.isArray(result?.data?.unknownJobNumbers) ? result.data.unknownJobNumbers.length : 0
+          const weekEnding = result?.data?.weekEnding ? ` Week ending: ${new Date(result.data.weekEnding).toLocaleDateString()}.` : ''
+          const unknownJobsText = unknownJobs ? ` Used raw job numbers for ${unknownJobs} unmatched jobs.` : ''
+          const reasonText = topReason ? ` Top reject reason: ${topReason.reason} (${topReason.count}).` : ''
+          return `${base}${reasonText}${unknownJobsText}${weekEnding}`
+        })(),
+      })
+
+      if (result.data.errors?.length) {
+        console.warn('[CSV import] Row errors:', result.data.errors)
+      }
+
+      await loadTimesheets()
+    } catch (error: any) {
+      toast({
+        title: 'Import failed',
+        description: error.message || 'Unable to import CSV',
+        variant: 'destructive',
+      })
+    } finally {
+      setIsImporting(false)
+      if (event.target) event.target.value = ''
+    }
+  }
 
   const handleEditEntry = (entry: TimesheetEntry) => {
     setIsDayModalOpen(false)
@@ -1151,6 +1223,30 @@ export function TimeView({
                     ))}
                   </select>
                 )}
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,.xls,.xlsx,.xlsm,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
+                  className="hidden"
+                  onChange={handleImportCsv}
+                />
+
+                <Button
+                  onClick={handleImportClick}
+                  disabled={isImporting}
+                  variant="outline"
+                  className="font-semibold min-h-[44px] px-4 py-2 rounded-lg"
+                  size="sm"
+                >
+                  {isImporting ? (
+                    <Loader2 className="h-4 w-4 sm:mr-2 animate-spin" />
+                  ) : (
+                    <Upload className="h-4 w-4 sm:mr-2" />
+                  )}
+                  <span className="hidden sm:inline">{isImporting ? 'Importing...' : 'Import CSV'}</span>
+                  <span className="sm:hidden">Import</span>
+                </Button>
 
                 <Button
                   onClick={handleMainAddEntry}

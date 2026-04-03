@@ -35,16 +35,6 @@ const updateTimesheetSchema = z.object({
     z.null()
   ]).optional(),
   status: z.enum(['in-progress', 'completed', 'needs-review']).optional(),
-  // Geolocation fields for clock-in
-  geoLat: z.number().optional().nullable(),
-  geoLon: z.number().optional().nullable(),
-  geoAccuracy: z.number().optional().nullable(),
-  locationDenied: z.boolean().optional().nullable(),
-  // Geolocation fields for clock-out
-  clockOutGeoLat: z.number().optional().nullable(),
-  clockOutGeoLon: z.number().optional().nullable(),
-  clockOutGeoAccuracy: z.number().optional().nullable(),
-  clockOutLocationDenied: z.boolean().optional().nullable(),
 })
 
 // GET /api/timesheets/:id - Get single timesheet
@@ -131,8 +121,7 @@ export async function GET(
       )
     }
 
-    // Serialize Date objects and handle optional geolocation fields
-    const ts = timesheet as any
+    // Serialize Date objects
     const response = {
       id: timesheet.id,
       userId: timesheet.userId,
@@ -144,15 +133,6 @@ export async function GET(
       createdAt: timesheet.createdAt.toISOString(),
       updatedAt: timesheet.updatedAt.toISOString(),
       jobEntries: timesheet.jobEntries || [],
-      // Conditionally include geolocation fields if they exist
-      ...(ts.geoLat !== undefined && ts.geoLat !== null ? { geoLat: Number(ts.geoLat) } : {}),
-      ...(ts.geoLon !== undefined && ts.geoLon !== null ? { geoLon: Number(ts.geoLon) } : {}),
-      ...(ts.geoAccuracy !== undefined && ts.geoAccuracy !== null ? { geoAccuracy: Number(ts.geoAccuracy) } : {}),
-      ...(ts.locationDenied !== undefined ? { locationDenied: ts.locationDenied } : {}),
-      ...(ts.clockOutGeoLat !== undefined && ts.clockOutGeoLat !== null ? { clockOutGeoLat: Number(ts.clockOutGeoLat) } : {}),
-      ...(ts.clockOutGeoLon !== undefined && ts.clockOutGeoLon !== null ? { clockOutGeoLon: Number(ts.clockOutGeoLon) } : {}),
-      ...(ts.clockOutGeoAccuracy !== undefined && ts.clockOutGeoAccuracy !== null ? { clockOutGeoAccuracy: Number(ts.clockOutGeoAccuracy) } : {}),
-      ...(ts.clockOutLocationDenied !== undefined ? { clockOutLocationDenied: ts.clockOutLocationDenied } : {}),
     }
 
     return NextResponse.json(response)
@@ -420,40 +400,6 @@ export async function PATCH(
       updateData.status = validatedData.status
     }
 
-    // Add geolocation fields for clock-in
-    if (validatedData.geoLat !== undefined) {
-      console.log('[PATCH /api/timesheets/:id] BEFORE UPDATE - geoLat:', validatedData.geoLat, 'timesheetId:', id)
-      updateData.geoLat = validatedData.geoLat
-      console.log('[PATCH /api/timesheets/:id] Setting geoLat:', validatedData.geoLat)
-    }
-    if (validatedData.geoLon !== undefined) {
-      console.log('[PATCH /api/timesheets/:id] BEFORE UPDATE - geoLon:', validatedData.geoLon, 'timesheetId:', id)
-      updateData.geoLon = validatedData.geoLon
-      console.log('[PATCH /api/timesheets/:id] Setting geoLon:', validatedData.geoLon)
-    }
-    if (validatedData.geoAccuracy !== undefined) {
-      console.log('[PATCH /api/timesheets/:id] BEFORE UPDATE - geoAccuracy:', validatedData.geoAccuracy, 'timesheetId:', id)
-      updateData.geoAccuracy = validatedData.geoAccuracy
-      console.log('[PATCH /api/timesheets/:id] Setting geoAccuracy:', validatedData.geoAccuracy)
-    }
-    if (validatedData.locationDenied !== undefined) {
-      updateData.locationDenied = validatedData.locationDenied
-    }
-    
-    // Add geolocation fields for clock-out
-    if (validatedData.clockOutGeoLat !== undefined) {
-      updateData.clockOutGeoLat = validatedData.clockOutGeoLat
-    }
-    if (validatedData.clockOutGeoLon !== undefined) {
-      updateData.clockOutGeoLon = validatedData.clockOutGeoLon
-    }
-    if (validatedData.clockOutGeoAccuracy !== undefined) {
-      updateData.clockOutGeoAccuracy = validatedData.clockOutGeoAccuracy
-    }
-    if (validatedData.clockOutLocationDenied !== undefined) {
-      updateData.clockOutLocationDenied = validatedData.clockOutLocationDenied
-    }
-
     // Calculate total hours if both times are present
     const clockIn = updateData.clockInTime || timesheet.clockInTime
     const clockOut = updateData.clockOutTime !== undefined ? updateData.clockOutTime : timesheet.clockOutTime
@@ -629,14 +575,6 @@ export async function PATCH(
       'clockOutTime',
       'status',
       'totalHours',
-      'geoLat',
-      'geoLon',
-      'geoAccuracy',
-      'locationDenied',
-      'clockOutGeoLat',
-      'clockOutGeoLon',
-      'clockOutGeoAccuracy'
-      // 'clockOutLocationDenied' - Commented out until database migration is run
     ]
     
     for (const field of allowedFields) {
@@ -658,30 +596,6 @@ export async function PATCH(
         }
       }
     })
-
-    // Log geolocation fields after update
-    if (validatedData.geoLat !== undefined || validatedData.geoLon !== undefined) {
-      console.log('[PATCH /api/timesheets/:id] AFTER UPDATE - Clock-in geolocation:', {
-        timesheetId: id,
-        geoLat: updated.geoLat,
-        geoLon: updated.geoLon,
-        geoAccuracy: updated.geoAccuracy
-      })
-      if (!updated.geoLat || !updated.geoLon) {
-        console.error('[PATCH /api/timesheets/:id] ❌❌❌ CRITICAL: Geolocation NOT saved to database!')
-      }
-    }
-    if (validatedData.clockOutGeoLat !== undefined || validatedData.clockOutGeoLon !== undefined) {
-      console.log('[PATCH /api/timesheets/:id] AFTER UPDATE - Clock-out geolocation:', {
-        timesheetId: id,
-        clockOutGeoLat: updated.clockOutGeoLat,
-        clockOutGeoLon: updated.clockOutGeoLon,
-        clockOutGeoAccuracy: updated.clockOutGeoAccuracy
-      })
-      if (!updated.clockOutGeoLat || !updated.clockOutGeoLon) {
-        console.error('[PATCH /api/timesheets/:id] ❌❌❌ CRITICAL: Clock-out geolocation NOT saved to database!')
-      }
-    }
 
     return NextResponse.json({
       success: true,

@@ -73,14 +73,23 @@ export function formatTime24Hour(date: Date): string {
  * Convert 12-hour time string (HH:MM AM/PM) to 24-hour format (HH:MM)
  */
 export function convert12To24Hour(time12: string): string {
-  const [time, period] = time12.split(' ')
+  const [time, periodRaw] = time12.trim().split(/\s+/)
   const [hours, minutes] = time.split(':').map(Number)
+  const period = periodRaw?.toUpperCase()
   
   let hour24 = hours
   if (period === 'PM' && hours !== 12) {
     hour24 = hours + 12
   } else if (period === 'AM' && hours === 12) {
     hour24 = 0
+  } else if (!period) {
+    // Heuristic for bare times like "4:00": default common afternoon entries to PM.
+    // Keeps typical morning values (7-11) as AM.
+    if (hours >= 1 && hours <= 6) {
+      hour24 = hours + 12
+    } else if (hours === 12) {
+      hour24 = 12
+    }
   }
   
   return `${hour24.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`

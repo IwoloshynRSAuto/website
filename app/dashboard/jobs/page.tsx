@@ -12,13 +12,16 @@ export default async function JobsPage() {
     <div className="p-3 sm:p-4 lg:p-6">
       <div className="mb-4 sm:mb-6 lg:mb-8">
         <div>
-          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Jobs & Quotes</h1>
-          <p className="text-sm sm:text-base text-gray-600">Manage active projects, quotes, timelines, and job progress</p>
+          <h1 className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Jobs</h1>
+          <p className="text-sm sm:text-base text-gray-600">
+            Jobs only (project numbers use an E prefix). Use <span className="font-medium text-gray-800">Work → Quotes</span> for the quote pipeline.
+          </p>
         </div>
       </div>
 
       <Suspense fallback={<div>Loading...</div>}>
         <JobsQuotesTabs
+          jobsOnly
           headerButtons={
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
               <MultiSOPButton 

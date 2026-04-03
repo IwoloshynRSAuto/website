@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { format, addWeeks, subWeeks, startOfDay } from 'date-fns'
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check, X, ArrowUpDown, FileText, MapPin, AlertCircle, Calendar as CalendarLucide, DollarSign } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, Check, X, ArrowUpDown, FileText, AlertCircle, Calendar as CalendarLucide, DollarSign } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -12,7 +12,6 @@ import { useToast } from '@/components/ui/use-toast'
 import { Badge } from '@/components/ui/badge'
 import { getWeekBoundariesUTC } from '@/lib/utils/date-utils'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { GeolocationView } from './geolocation-view'
 import { TimeChangeApprovals } from './time-change-approvals'
 import { PTOApprovalsPage } from '@/components/approvals/pto-approvals-page'
 import { ExpenseApprovalsPage } from '@/components/approvals/expense-approvals-page'
@@ -130,7 +129,7 @@ export function WeeklyApprovalsView() {
 
     return (
         <Tabs defaultValue="approvals" className="w-full">
-            <TabsList className="grid w-full grid-cols-5 mb-6 gap-2 bg-transparent p-0 h-auto max-w-[1000px]">
+            <TabsList className="grid w-full grid-cols-4 mb-6 gap-2 bg-transparent p-0 h-auto max-w-[900px]">
                 <TabsTrigger
                     value="approvals"
                     className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-orange-500 hover:bg-orange-50 active:bg-orange-100 font-bold text-gray-800 hover:text-orange-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:border-orange-600"
@@ -158,13 +157,6 @@ export function WeeklyApprovalsView() {
                 >
                     <DollarSign className="h-4 w-4" />
                     Expense Approvals
-                </TabsTrigger>
-                <TabsTrigger
-                    value="geolocation"
-                    className="flex items-center gap-2 bg-white border-2 border-gray-300 hover:border-orange-500 hover:bg-orange-50 active:bg-orange-100 font-bold text-gray-800 hover:text-orange-800 transition-all duration-200 min-h-[44px] rounded-lg shadow-md hover:shadow-lg active:shadow-inner px-4 py-2 data-[state=active]:bg-orange-500 data-[state=active]:text-white data-[state=active]:border-orange-600"
-                >
-                    <MapPin className="h-4 w-4" />
-                    Geolocation
                 </TabsTrigger>
             </TabsList>
 
@@ -286,9 +278,6 @@ export function WeeklyApprovalsView() {
                 <ExpenseApprovalsPage />
             </TabsContent>
 
-            <TabsContent value="geolocation" className="mt-0">
-                <GeolocationView />
-            </TabsContent>
         </Tabs>
     )
 }

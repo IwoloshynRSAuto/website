@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { toast } from 'react-hot-toast'
 import { FileText, Briefcase } from 'lucide-react'
+import { normalizeProjectJobNumber } from '@/lib/utils/job-number'
 
 interface Customer {
   id: string
@@ -281,6 +282,10 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
       const startDateISO = formData.startDate ? new Date(formData.startDate + 'T12:00:00').toISOString() : null
       const endDateISO = formData.endDate ? new Date(formData.endDate + 'T12:00:00').toISOString() : null
 
+      const rawNum = formData.jobNumber.trim()
+      const jobNumberPayload =
+        recordType === 'JOB' && rawNum ? normalizeProjectJobNumber(rawNum) : rawNum || null
+
       const response = await fetch('/api/jobs', {
         method: 'POST',
         headers: {
@@ -288,7 +293,7 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
         },
         body: JSON.stringify({
           type: recordType,
-          jobNumber: formData.jobNumber.trim() || null,
+          jobNumber: jobNumberPayload,
           title: formData.title,
           description: formData.description || null,
           customerId: formData.customerId,

@@ -6,6 +6,7 @@ import { QuoteService } from '@/lib/quotes/service'
 import { QuotesKanbanBoard } from '@/components/quotes/quotes-kanban-board'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export default async function QuotesPage() {
   const session = await getServerSession(authOptions)
@@ -62,7 +63,7 @@ export default async function QuotesPage() {
       <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Quotes</h1>
         <p className="text-sm sm:text-base text-gray-600 mt-1">
-          Manage quotes with an Agile workflow. Move quotes between Draft, Approved, and Cancelled statuses.
+          Quote pipeline only—approve, cancel, or open a quote to create a job. Use <span className="font-medium text-gray-800">Work → Jobs</span> for the jobs table.
         </p>
       </div>
 

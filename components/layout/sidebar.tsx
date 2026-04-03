@@ -8,21 +8,12 @@ import {
   Home,
   Clock,
   FileText,
-  CheckCircle2,
   Wrench,
-  Package,
-  Building2,
+  CheckCircle2,
   Settings,
-  Database,
-  Box,
-  DollarSign,
   Users,
   BarChart3,
   Code,
-  MapPin,
-  ShoppingCart,
-  Plus,
-  Cpu,
 } from 'lucide-react'
 
 const navigation = [
@@ -39,47 +30,29 @@ const navigation = [
     children: [
       { name: 'Attendance', href: '/dashboard/timesheets/attendance', icon: Clock },
       { name: 'Time', href: '/dashboard/timesheets/time', icon: FileText },
-      { name: 'Approvals', href: '/dashboard/timesheets/approvals', icon: CheckCircle2, adminOnly: true },
-      { name: 'Geolocation', href: '/dashboard/timesheets/geolocation', icon: MapPin, adminOnly: true },
+      { name: 'Approvals', href: '/dashboard/timesheets/approvals', icon: CheckCircle2 },
     ]
   },
-  { name: 'Jobs', href: '/dashboard/jobs', icon: Wrench },
-  { name: 'Quotes', href: '/dashboard/quotes', icon: FileText },
-  { name: 'Tasks', href: '/dashboard/tasks', icon: CheckCircle2 },
-  { 
-    name: 'Parts', 
-    href: '/dashboard/parts/database', 
-    icon: Package,
+  {
+    name: 'Work',
+    href: '/dashboard/quotes',
+    icon: Wrench,
     children: [
-      { name: 'Parts Database', href: '/dashboard/parts/database', icon: Database },
-      { name: 'Packages / Assemblies', href: '/dashboard/parts/packages', icon: Box },
-      { name: 'BOM', href: '/dashboard/parts/boms', icon: Package },
-      { name: 'Part Sales', href: '/dashboard/part-sales', icon: DollarSign },
-    ]
+      { name: 'Quotes', href: '/dashboard/quotes', icon: FileText },
+      { name: 'Jobs', href: '/dashboard/jobs', icon: Wrench },
+    ],
   },
-  { name: 'Customers', href: '/dashboard/customers', icon: Building2 },
-  { 
-    name: 'eBay Automation', 
-    href: '/dashboard/ebay', 
-    icon: ShoppingCart,
-    children: [
-      { name: 'Dashboard', href: '/dashboard/ebay', icon: ShoppingCart },
-      { name: 'New Listing', href: '/dashboard/ebay/listings/new', icon: Plus },
-      { name: 'Settings', href: '/dashboard/ebay/settings', icon: Settings },
-    ]
-  },
-  { 
-    name: 'Admin Dashboard', 
-    href: '/dashboard/manager', 
+  {
+    name: 'Admin Dashboard',
+    href: '/dashboard/manager',
     icon: Settings,
     adminOnly: true,
     children: [
-      { name: 'Approvals', href: '/dashboard/admin/approvals', icon: CheckCircle2 },
       { name: 'Employee Management', href: '/dashboard/admin/employees', icon: Users },
       { name: 'Metrics & Analytics', href: '/dashboard/metrics', icon: BarChart3 },
       { name: 'Labor Codes', href: '/dashboard/admin/labor-codes', icon: Code },
       { name: 'Task Codes', href: '/dashboard/admin/task-codes', icon: FileText },
-    ]
+    ],
   },
 ]
 
@@ -127,7 +100,7 @@ export function Sidebar() {
         childActive: 'bg-emerald-50 text-emerald-600 border-l-2 border-emerald-500',
       }
     }
-    if (href.includes('/jobs')) {
+    if (href.includes('/dashboard/quotes') || href.includes('/dashboard/jobs')) {
       return {
         active: 'bg-blue-100 text-blue-700 border-l-2 border-blue-600',
         icon: 'text-blue-600',
