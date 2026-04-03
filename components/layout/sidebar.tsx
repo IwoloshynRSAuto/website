@@ -8,7 +8,6 @@ import {
   FileText,
   Wrench,
   CheckCircle2,
-  Timer,
   CalendarClock,
   Briefcase,
 } from 'lucide-react'
@@ -20,7 +19,6 @@ const navigation = [
     icon: Clock,
     module: 'timekeeping',
     children: [
-      { name: 'Clock In/Out', href: '/dashboard/timekeeping/punch', icon: Timer },
       { name: 'Attendance', href: '/dashboard/timekeeping/attendance', icon: CalendarClock },
       { name: 'Time', href: '/dashboard/timekeeping/time', icon: Clock },
       { name: 'Approvals', href: '/dashboard/timekeeping/approvals/attendance', icon: CheckCircle2 },
