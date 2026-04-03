@@ -4,10 +4,68 @@
  */
 
 import { prisma } from '@/lib/prisma'
-import { CreateQuoteInput, UpdateQuoteInput, QuoteFilter } from './schemas'
+import { CreateQuoteInput, CreateQuoteSimpleInput, UpdateQuoteInput, QuoteFilter } from './schemas'
 import { z } from 'zod'
 
 export class QuoteService {
+  private static parseSimpleValidUntil(raw: string | null | undefined): Date | null {
+    if (raw == null || !String(raw).trim()) return null
+    const t = String(raw).trim()
+    if (/^\d{4}-\d{2}-\d{2}$/.test(t)) {
+      return new Date(`${t}T12:00:00`)
+    }
+    const d = new Date(t)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+
+  private static async generateNextQuoteNumber(): Promise<string> {
+    const lastQuote = await prisma.quote.findFirst({
+      orderBy: { createdAt: 'desc' },
+      where: {
+        quoteNumber: { startsWith: 'Q' },
+      },
+    })
+    let quoteNumber = 'Q0001'
+    if (lastQuote) {
+      const lastNum = parseInt(lastQuote.quoteNumber.replace(/^Q/i, ''), 10)
+      if (!isNaN(lastNum)) {
+        quoteNumber = `Q${String(lastNum + 1).padStart(4, '0')}`
+      }
+    }
+    return quoteNumber
+  }
+
+  /**
+   * Create a quote without a BOM (manual / pipeline).
+   */
+  static async createQuoteSimple(data: CreateQuoteSimpleInput, userId: string) {
+    let quoteNumber = (data.quoteNumber || '').trim() || (await this.generateNextQuoteNumber())
+    const existing = await prisma.quote.findUnique({ where: { quoteNumber } })
+    if (existing) {
+      throw new Error(`Quote number ${quoteNumber} already exists`)
+    }
+
+    const quote = await prisma.quote.create({
+      data: {
+        quoteNumber,
+        title: data.title,
+        description: data.description ?? null,
+        customerId: data.customerId || null,
+        amount: data.amount ?? 0,
+        status: 'DRAFT',
+        quoteType: 'PROJECT',
+        validUntil: QuoteService.parseSimpleValidUntil(data.validUntil),
+      },
+      include: {
+        customer: true,
+        linkedBOMs: true,
+      },
+    })
+
+    await this.createRevision(quote.id, userId, quote)
+    return quote
+  }
+
   /**
    * Create a new quote from a BOM
    */
@@ -32,20 +90,7 @@ export class QuoteService {
       return sum + Number(part.customerPrice)
     }, 0)
 
-    // Generate quote number
-    const lastQuote = await prisma.quote.findFirst({
-      orderBy: { createdAt: 'desc' },
-      where: {
-        quoteNumber: { startsWith: 'Q' },
-      },
-    })
-    let quoteNumber = 'Q0001'
-    if (lastQuote) {
-      const lastNum = parseInt(lastQuote.quoteNumber.replace('Q', ''), 10)
-      if (!isNaN(lastNum)) {
-        quoteNumber = `Q${String(lastNum + 1).padStart(4, '0')}`
-      }
-    }
+    const quoteNumber = await this.generateNextQuoteNumber()
 
     // Create quote
     const quote = await prisma.quote.create({
@@ -104,6 +149,7 @@ export class QuoteService {
     const updateData: any = {}
     if (data.title !== undefined) updateData.title = data.title
     if (data.description !== undefined) updateData.description = data.description
+    if (data.customerId !== undefined) updateData.customerId = data.customerId
     if (data.status !== undefined) updateData.status = data.status
     if (data.amount !== undefined) updateData.amount = data.amount
     if (data.lastFollowUp !== undefined) {
@@ -111,7 +157,10 @@ export class QuoteService {
     }
     if (data.paymentTerms !== undefined) updateData.paymentTerms = data.paymentTerms
     if (data.validUntil !== undefined) {
-      updateData.validUntil = data.validUntil ? new Date(data.validUntil) : null
+      updateData.validUntil =
+        data.validUntil == null || String(data.validUntil).trim() === ''
+          ? null
+          : QuoteService.parseSimpleValidUntil(String(data.validUntil))
     }
     if (data.estimatedHours !== undefined) updateData.estimatedHours = data.estimatedHours
     if (data.hourlyRate !== undefined) updateData.hourlyRate = data.hourlyRate
@@ -131,7 +180,14 @@ export class QuoteService {
     })
 
     // Create revision if significant changes
-    if (data.status || data.amount || data.title) {
+    if (
+      data.status ||
+      data.amount !== undefined ||
+      data.title ||
+      data.description !== undefined ||
+      data.customerId !== undefined ||
+      data.validUntil !== undefined
+    ) {
       await this.createRevision(updatedQuote.id, userId, updatedQuote)
     }
 

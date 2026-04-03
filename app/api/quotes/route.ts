@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { QuoteService } from '@/lib/quotes/service'
-import { createQuoteSchema, quoteFilterSchema } from '@/lib/quotes/schemas'
+import { z } from 'zod'
+import { createQuoteSchema, createQuoteSimpleSchema, quoteFilterSchema } from '@/lib/quotes/schemas'
 
 export async function GET(request: NextRequest) {
   try {
@@ -84,10 +85,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json()
-    const validatedData = createQuoteSchema.parse(body)
+    const hasBom = typeof body?.bomId === 'string' && body.bomId.trim().length > 0
 
-    // Use QuoteService to create quote
-    const quote = await QuoteService.createQuote(validatedData, session.user.id)
+    const quote = hasBom
+      ? await QuoteService.createQuote(createQuoteSchema.parse(body), session.user.id)
+      : await QuoteService.createQuoteSimple(createQuoteSimpleSchema.parse(body), session.user.id)
 
     return NextResponse.json(
       {
@@ -97,12 +99,12 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     )
   } catch (error: any) {
-    if (error instanceof Error && error.name === 'ZodError') {
+    if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
           success: false,
           error: 'Validation error',
-          details: error.message,
+          details: error.flatten(),
         },
         { status: 400 }
       )

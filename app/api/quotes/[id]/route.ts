@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { QuoteService } from '@/lib/quotes/service'
 import { updateQuoteSchema } from '@/lib/quotes/schemas'
 import { prisma } from '@/lib/prisma'
+import { z } from 'zod'
 
 // GET single quote
 export async function GET(
@@ -116,12 +117,12 @@ export async function PATCH(
       data: quote,
     })
   } catch (error: any) {
-    if (error instanceof Error && error.name === 'ZodError') {
+    if (error instanceof z.ZodError) {
       return NextResponse.json(
         {
           success: false,
           error: 'Validation error',
-          details: error.message,
+          details: error.flatten(),
         },
         { status: 400 }
       )

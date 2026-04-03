@@ -4,15 +4,39 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { JobService } from '@/lib/jobs/service'
 
-// PATCH /api/quotes/[id]/convertToJob - Convert an approved quote to a job
+async function parseJsonBody(request: NextRequest): Promise<Record<string, unknown>> {
+  try {
+    const text = await request.text()
+    if (!text.trim()) return {}
+    return JSON.parse(text) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+// PATCH / POST — convert an approved (or won) quote to a job
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> | { id: string } }
+) {
+  return convertQuoteToJob(request, context)
+}
+
 export async function PATCH(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> | { id: string } }
+) {
+  return convertQuoteToJob(request, context)
+}
+
+async function convertQuoteToJob(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
 ) {
   try {
     const session = await getServerSession(authOptions)
     if (!session) {
-      console.error('[PATCH /api/quotes/[id]/convertToJob] Unauthorized request')
+      console.error('[convertToJob] Unauthorized request')
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -22,10 +46,13 @@ export async function PATCH(
     const resolvedParams = params instanceof Promise ? await params : params
     const { id: quoteId } = resolvedParams
 
-    const body = await request.json()
-    const { assignedToId, workCode, startDate, endDate } = body || {}
+    const body = await parseJsonBody(request)
+    const assignedToId = body.assignedToId as string | undefined
+    const workCode = body.workCode as string | undefined
+    const startDate = body.startDate as string | undefined
+    const endDate = body.endDate as string | undefined
 
-    console.log('[PATCH /api/quotes/[id]/convertToJob] Converting quote to job:', {
+    console.log('[convertToJob] Converting quote to job:', {
       quoteId,
       userId: session.user.id,
       assignedToId,
@@ -48,21 +75,21 @@ export async function PATCH(
     })
 
     if (!quote) {
-      console.warn('[PATCH /api/quotes/[id]/convertToJob] Quote not found:', quoteId)
+      console.warn('[convertToJob] Quote not found:', quoteId)
       return NextResponse.json(
         { success: false, error: 'Quote not found' },
         { status: 404 }
       )
     }
 
-    // Check if quote is approved
-    if (quote.status !== 'APPROVED') {
-      console.warn('[PATCH /api/quotes/[id]/convertToJob] Quote not approved:', {
+    const canConvert = quote.status === 'APPROVED' || quote.status === 'WON'
+    if (!canConvert) {
+      console.warn('[convertToJob] Quote not in an approved state:', {
         quoteId,
         status: quote.status,
       })
       return NextResponse.json(
-        { success: false, error: 'Quote must be APPROVED before converting to a job' },
+        { success: false, error: 'Quote must be approved or won before converting to a job' },
         { status: 400 }
       )
     }
@@ -73,7 +100,7 @@ export async function PATCH(
     })
 
     if (existingJob) {
-      console.warn('[PATCH /api/quotes/[id]/convertToJob] Job already exists for quote:', {
+      console.warn('[convertToJob] Job already exists for quote:', {
         quoteId,
         jobId: existingJob.id,
       })
@@ -140,7 +167,7 @@ export async function PATCH(
       },
     })
 
-    console.log('[PATCH /api/quotes/[id]/convertToJob] Job created successfully:', {
+    console.log('[convertToJob] Job created successfully:', {
       quoteId,
       jobId: job.id,
       jobNumber: job.jobNumber,
@@ -162,7 +189,7 @@ export async function PATCH(
         },
       })
     } catch (auditError) {
-      console.warn('[PATCH /api/quotes/[id]/convertToJob] Failed to create audit log:', auditError)
+      console.warn('[convertToJob] Failed to create audit log:', auditError)
       // Don't fail the request if audit log fails
     }
 
@@ -171,7 +198,7 @@ export async function PATCH(
       data: job,
     })
   } catch (error: any) {
-    console.error('[PATCH /api/quotes/[id]/convertToJob] Error converting quote to job:', {
+    console.error('[convertToJob] Error converting quote to job:', {
       message: error.message,
       code: error.code,
       stack: error.stack,

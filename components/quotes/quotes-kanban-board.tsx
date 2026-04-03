@@ -9,6 +9,24 @@ import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/use-toast'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
   FileText,
   CheckCircle,
   XCircle,
@@ -16,6 +34,9 @@ import {
   Wrench,
   Building2,
   Loader2,
+  Plus,
+  Briefcase,
+  Search,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
@@ -48,12 +69,101 @@ interface QuotesKanbanBoardProps {
   embedded?: boolean
 }
 
+type CustomerOption = { id: string; name: string }
+
 export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedded = false }: QuotesKanbanBoardProps) {
   const router = useRouter()
   const { toast } = useToast()
   const [quotes, setQuotes] = useState<Quote[]>(initialQuotes)
   const [loadingQuotes, setLoadingQuotes] = useState<Set<string>>(new Set())
+  const [convertingQuotes, setConvertingQuotes] = useState<Set<string>>(new Set())
   const [pipelineTab, setPipelineTab] = useState<'draft' | 'approved' | 'cancelled'>('draft')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createSubmitting, setCreateSubmitting] = useState(false)
+  const [customers, setCustomers] = useState<CustomerOption[]>([])
+  const [newTitle, setNewTitle] = useState('')
+  const [newQuoteNumber, setNewQuoteNumber] = useState('')
+  const [newCustomerId, setNewCustomerId] = useState<string>('')
+  const [newAmount, setNewAmount] = useState('')
+  const [newDescription, setNewDescription] = useState('')
+  const [newValidUntil, setNewValidUntil] = useState('')
+
+  useEffect(() => {
+    if (!createOpen) return
+    void (async () => {
+      try {
+        const response = await fetch('/api/customers')
+        if (!response.ok) return
+        const result = await response.json()
+        const data = result.data || (Array.isArray(result) ? result : [])
+        setCustomers(Array.isArray(data) ? data.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })) : [])
+      } catch {
+        setCustomers([])
+      }
+    })()
+  }, [createOpen])
+
+  const resetCreateForm = () => {
+    setNewTitle('')
+    setNewQuoteNumber('')
+    setNewCustomerId('')
+    setNewAmount('')
+    setNewDescription('')
+    setNewValidUntil('')
+  }
+
+  const handleCreateQuote = async () => {
+    const title = newTitle.trim()
+    if (!title) {
+      toast({
+        title: 'Title required',
+        description: 'Enter a title for the quote.',
+        variant: 'destructive',
+      })
+      return
+    }
+
+    setCreateSubmitting(true)
+    try {
+      const amountNum = newAmount.trim() === '' ? 0 : parseFloat(newAmount)
+      const body: Record<string, unknown> = {
+        title,
+        description: newDescription.trim() || null,
+        customerId: newCustomerId && newCustomerId !== '__none__' ? newCustomerId : null,
+        amount: Number.isFinite(amountNum) ? Math.max(0, amountNum) : 0,
+        validUntil: newValidUntil.trim() || null,
+      }
+      const qn = newQuoteNumber.trim()
+      if (qn) body.quoteNumber = qn
+
+      const response = await fetch('/api/quotes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || data.message || 'Failed to create quote')
+      }
+
+      toast({ title: 'Quote created', description: `${data.data?.quoteNumber ?? ''} added to the pipeline.` })
+      resetCreateForm()
+      setCreateOpen(false)
+      await loadQuotes()
+      router.refresh()
+    } catch (e) {
+      toast({
+        title: 'Could not create quote',
+        description: e instanceof Error ? e.message : 'Unknown error',
+        variant: 'destructive',
+      })
+    } finally {
+      setCreateSubmitting(false)
+    }
+  }
 
   /** Pipeline tabs: everything not approved/won or cancelled/lost shows under Draft */
   const cancelledQuotes = quotes.filter(q => ['CANCELLED', 'LOST'].includes(q.status))
@@ -61,6 +171,21 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
   const draftQuotes = quotes.filter(
     q => !['APPROVED', 'WON', 'CANCELLED', 'LOST'].includes(q.status)
   )
+
+  const searchNorm = searchQuery.trim().toLowerCase()
+  const bySearch = (list: Quote[]) =>
+    !searchNorm
+      ? list
+      : list.filter(
+          (q) =>
+            q.quoteNumber.toLowerCase().includes(searchNorm) ||
+            q.title.toLowerCase().includes(searchNorm) ||
+            (q.customerName || '').toLowerCase().includes(searchNorm)
+        )
+
+  const draftFiltered = bySearch(draftQuotes)
+  const approvedFiltered = bySearch(approvedQuotes)
+  const cancelledFiltered = bySearch(cancelledQuotes)
 
   const loadQuotes = useCallback(async () => {
     try {
@@ -97,6 +222,45 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
       })
     }
   }, [toast])
+
+  const convertQuoteToJob = async (quoteId: string) => {
+    if (convertingQuotes.has(quoteId)) return
+    setConvertingQuotes((prev) => new Set(prev).add(quoteId))
+    try {
+      const res = await fetch(`/api/quotes/${quoteId}/convertToJob`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.success === false) {
+        throw new Error(data.error || 'Failed to convert quote to job')
+      }
+      const jobId = data.data?.id as string | undefined
+      const jobNum = data.data?.jobNumber as string | undefined
+      toast({
+        title: 'Job created',
+        description: jobNum ? `New job ${jobNum} is linked to this quote.` : 'Quote converted to a job.',
+      })
+      await loadQuotes()
+      router.refresh()
+      if (jobId) {
+        router.push(`/dashboard/jobs/${jobId}`)
+      }
+    } catch (e) {
+      toast({
+        title: 'Could not convert',
+        description: e instanceof Error ? e.message : 'Unknown error',
+        variant: 'destructive',
+      })
+    } finally {
+      setConvertingQuotes((prev) => {
+        const next = new Set(prev)
+        next.delete(quoteId)
+        return next
+      })
+    }
+  }
 
   useEffect(() => {
     if (fetchOnMount) {
@@ -167,7 +331,8 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
 
   const QuoteTableRow = ({ quote }: { quote: Quote }) => {
     const isLoading = loadingQuotes.has(quote.id)
-    const busy = isLoading
+    const isConverting = convertingQuotes.has(quote.id)
+    const busy = isLoading || isConverting
 
     return (
       <TableRow className="text-sm">
@@ -177,9 +342,13 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
           </Link>
         </TableCell>
         <TableCell className="py-2 px-3 align-middle max-w-[min(28vw,240px)]">
-          <span className="line-clamp-2 text-gray-900" title={quote.title}>
+          <Link
+            href={`/dashboard/jobs/quotes/${quote.id}`}
+            className="line-clamp-2 text-left font-medium text-blue-700 hover:text-blue-900 hover:underline"
+            title={quote.title}
+          >
             {quote.title}
-          </span>
+          </Link>
         </TableCell>
         <TableCell className="py-2 px-3 align-middle text-gray-600 max-w-[min(24vw,200px)]">
           <span className="inline-flex items-center gap-1 truncate" title={quote.customerName ?? ''}>
@@ -238,11 +407,21 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
             {['APPROVED', 'WON'].includes(quote.status) && (
               <>
                 {!quote.job ? (
-                  <Button type="button" size="sm" className={rowBtnMuted} asChild>
-                    <Link href={`/dashboard/jobs/quotes/${quote.id}`}>
-                      <Wrench className="h-4 w-4 mr-2" />
-                      Open quote
-                    </Link>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className={rowBtnPrimary}
+                    onClick={() => void convertQuoteToJob(quote.id)}
+                    disabled={busy}
+                  >
+                    {isConverting ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Briefcase className="h-4 w-4 mr-2" />
+                        Convert to job
+                      </>
+                    )}
                   </Button>
                 ) : (
                   <span className="text-xs font-medium text-muted-foreground mr-2 rounded-md border-2 border-border px-2 py-1.5 bg-muted/50 shadow-sm">
@@ -253,7 +432,7 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
                   type="button"
                   size="sm"
                   onClick={() => updateQuoteStatus(quote.id, 'CANCELLED')}
-                  disabled={isLoading}
+                  disabled={busy}
                   className={rowBtnDanger}
                 >
                   {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4 mr-2" />}
@@ -291,22 +470,17 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
     )
   }
 
-  const emptyMessage = (tab: 'draft' | 'approved' | 'cancelled') => {
-    const copy = {
-      draft: 'No quotes in draft.',
-      approved: 'No approved quotes yet. Approve a draft, then open the quote to create a job.',
-      cancelled: 'No cancelled quotes.',
-    }
-    return (
-      <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 py-12 text-center text-sm text-gray-500">
-        {copy[tab]}
-      </div>
-    )
-  }
-
   const renderQuoteList = (list: Quote[], tab: 'draft' | 'approved' | 'cancelled') =>
     list.length === 0 ? (
-      emptyMessage(tab)
+      <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 py-12 text-center text-sm text-gray-500">
+        {searchNorm
+          ? 'No quotes match your search in this tab.'
+          : {
+              draft: 'No quotes in draft.',
+              approved: 'No approved quotes yet. Approve a draft, then convert to a job.',
+              cancelled: 'No cancelled quotes.',
+            }[tab]}
+      </div>
     ) : (
       <div className="max-h-[min(70vh,720px)] overflow-auto rounded-md border border-gray-100">
         <Table>
@@ -337,19 +511,19 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
     draft: {
       label: 'Draft',
       short: 'Not yet approved',
-      count: draftQuotes.length,
+      count: draftFiltered.length,
       accent: 'border-l-amber-500 bg-amber-50/90 text-amber-950',
     },
     approved: {
       label: 'Approved',
-      short: 'Ready to open and create a job',
-      count: approvedQuotes.length,
+      short: 'Click a quote to edit, or use Convert to job',
+      count: approvedFiltered.length,
       accent: 'border-l-emerald-500 bg-emerald-50/90 text-emerald-950',
     },
     cancelled: {
       label: 'Cancelled',
       short: 'Closed or not proceeding',
-      count: cancelledQuotes.length,
+      count: cancelledFiltered.length,
       accent: 'border-l-rose-500 bg-rose-50/90 text-rose-950',
     },
   }
@@ -357,6 +531,114 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
 
   return (
     <div className={embedded ? 'space-y-4' : 'space-y-5'}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <Input
+            className="pl-9"
+            placeholder="Search by quote #, title, customer…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            aria-label="Search quotes"
+          />
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          className="w-full sm:w-auto font-semibold shadow-sm shrink-0"
+          onClick={() => setCreateOpen(true)}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          New quote
+        </Button>
+      </div>
+
+      <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) resetCreateForm() }}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>New quote</DialogTitle>
+            <DialogDescription>
+              Creates a draft in the quote pipeline. Leave quote number blank to auto-assign the next Q number.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="nq-title">Title</Label>
+              <Input
+                id="nq-title"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="e.g. Line upgrade — Acme Corp"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="nq-num">Quote number (optional)</Label>
+              <Input
+                id="nq-num"
+                value={newQuoteNumber}
+                onChange={(e) => setNewQuoteNumber(e.target.value)}
+                placeholder="Auto (Q0001, …)"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Customer</Label>
+              <Select value={newCustomerId || '__none__'} onValueChange={(v) => setNewCustomerId(v === '__none__' ? '' : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Optional" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {customers.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="nq-amt">Amount (optional)</Label>
+              <Input
+                id="nq-amt"
+                type="number"
+                min={0}
+                step="0.01"
+                value={newAmount}
+                onChange={(e) => setNewAmount(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="nq-until">Valid until (optional)</Label>
+              <Input
+                id="nq-until"
+                type="date"
+                value={newValidUntil}
+                onChange={(e) => setNewValidUntil(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="nq-desc">Description (optional)</Label>
+              <Textarea
+                id="nq-desc"
+                value={newDescription}
+                onChange={(e) => setNewDescription(e.target.value)}
+                rows={3}
+                placeholder="Scope, notes…"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => { setCreateOpen(false); resetCreateForm() }}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void handleCreateQuote()} disabled={createSubmitting}>
+              {createSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create quote'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Tabs
         value={pipelineTab}
         onValueChange={(v) => setPipelineTab(v as 'draft' | 'approved' | 'cancelled')}
@@ -377,7 +659,7 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
               variant="secondary"
               className="ml-0.5 min-w-[2rem] justify-center tabular-nums bg-slate-200/80 text-slate-800 group-data-[state=active]:bg-amber-100 group-data-[state=active]:text-amber-900"
             >
-              {draftQuotes.length}
+              {draftFiltered.length}
             </Badge>
           </TabsTrigger>
           <TabsTrigger
@@ -394,7 +676,7 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
               variant="secondary"
               className="ml-0.5 min-w-[2rem] justify-center tabular-nums bg-slate-200/80 text-slate-800 group-data-[state=active]:bg-emerald-100 group-data-[state=active]:text-emerald-900"
             >
-              {approvedQuotes.length}
+              {approvedFiltered.length}
             </Badge>
           </TabsTrigger>
           <TabsTrigger
@@ -411,7 +693,7 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
               variant="secondary"
               className="ml-0.5 min-w-[2rem] justify-center tabular-nums bg-slate-200/80 text-slate-800 group-data-[state=active]:bg-rose-100 group-data-[state=active]:text-rose-900"
             >
-              {cancelledQuotes.length}
+              {cancelledFiltered.length}
             </Badge>
           </TabsTrigger>
         </TabsList>
@@ -431,13 +713,13 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
           </CardHeader>
           <CardContent className="p-4">
             <TabsContent value="draft" className="mt-0 focus-visible:outline-none">
-              {renderQuoteList(draftQuotes, 'draft')}
+              {renderQuoteList(draftFiltered, 'draft')}
             </TabsContent>
             <TabsContent value="approved" className="mt-0 focus-visible:outline-none">
-              {renderQuoteList(approvedQuotes, 'approved')}
+              {renderQuoteList(approvedFiltered, 'approved')}
             </TabsContent>
             <TabsContent value="cancelled" className="mt-0 focus-visible:outline-none">
-              {renderQuoteList(cancelledQuotes, 'cancelled')}
+              {renderQuoteList(cancelledFiltered, 'cancelled')}
             </TabsContent>
           </CardContent>
         </Card>

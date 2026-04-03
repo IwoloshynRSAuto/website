@@ -608,10 +608,10 @@ export function TimeEntryModal({
   }
 
   const handleSaveJobEntry = async () => {
-    if (!jobNumberInput.trim() || !selectedLaborCodeId || !jobStartTime) {
+    if (!jobNumberInput.trim() || !jobStartTime) {
       toast({
         title: 'Error',
-        description: 'Please fill in all required fields',
+        description: 'Please enter a job number and start time',
         variant: 'destructive'
       })
       return
@@ -619,11 +619,12 @@ export function TimeEntryModal({
 
     setIsSubmitting(true)
     try {
-      const selectedLaborCode = Array.isArray(laborCodes) ? laborCodes.find(lc => lc.id === selectedLaborCodeId) : null
-
-      if (!selectedLaborCode) {
-        throw new Error('Selected labor code not found')
-      }
+      const selectedLaborCode =
+        selectedLaborCodeId && selectedLaborCodeId !== '__none__'
+          ? Array.isArray(laborCodes)
+            ? laborCodes.find(lc => lc.id === selectedLaborCodeId) ?? null
+            : null
+          : null
 
       const startTime24 = convert12To24Hour(jobStartTime)
       const roundedStart = roundTimeString(startTime24)
@@ -807,7 +808,7 @@ export function TimeEntryModal({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             jobNumber: jobNumberInput.trim(),
-            laborCode: selectedLaborCode.code,
+            laborCode: selectedLaborCode?.code ?? '',
             punchInTime: startDate.toISOString(),
             punchOutTime: endDate?.toISOString() || null,
             notes: notes || null
@@ -1269,13 +1270,17 @@ export function TimeEntryModal({
               <div className="space-y-2 p-3 sm:p-4 bg-purple-50 rounded-lg border border-purple-200">
                 <Label className="text-xs sm:text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <FileText className="h-3 w-3 sm:h-4 sm:w-4 text-purple-600" />
-                  Phase Code (Labor Code) *
+                  Phase Code (Labor Code)
                 </Label>
-                <Select value={selectedLaborCodeId} onValueChange={setSelectedLaborCodeId}>
+                <Select
+                  value={selectedLaborCodeId && selectedLaborCodeId !== '' ? selectedLaborCodeId : '__none__'}
+                  onValueChange={(v) => setSelectedLaborCodeId(v === '__none__' ? '' : v)}
+                >
                   <SelectTrigger className="bg-white">
-                    <SelectValue placeholder="Select Labor Code" />
+                    <SelectValue placeholder="Optional — select if applicable" />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
                     {Array.isArray(laborCodes) ? laborCodes.map((code) => (
                       <SelectItem key={code.id} value={code.id}>
                         {code.code} - {code.name}

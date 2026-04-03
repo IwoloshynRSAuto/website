@@ -618,20 +618,11 @@ export function TimeView({
       for (const ts of weekTimesheets) {
         if (!ts.jobEntries || !Array.isArray(ts.jobEntries)) continue
         for (const jobEntry of ts.jobEntries) {
-          // Find job by jobNumber
           const job = Array.isArray(jobs) ? jobs.find(j => j.jobNumber === jobEntry.jobNumber) : null
-          if (!job) {
-            toast({
-              title: 'Error',
-              description: `Job ${jobEntry.jobNumber} not found`,
-              variant: 'destructive'
-            })
-            setIsSubmitting(false)
-            return
-          }
 
-          // Find labor code by code
-          const laborCode = Array.isArray(laborCodes) ? laborCodes.find(lc => lc.code === jobEntry.laborCode) : null
+          const laborCode = Array.isArray(laborCodes)
+            ? laborCodes.find(lc => lc.code === (jobEntry.laborCode || '').trim())
+            : null
           const laborCodeId = laborCode?.id || null
 
           // Calculate hours
@@ -648,7 +639,8 @@ export function TimeView({
             overtimeHours: 0,
             notes: jobEntry.notes || null,
             billable: true,
-            jobId: job.id,
+            jobId: job?.id,
+            jobNumber: jobEntry.jobNumber,
             laborCodeId: laborCodeId
           })
         }

@@ -1,6 +1,10 @@
 /**
  * Import quotes (Quote model) and projects (Job model type=JOB) from CSV files.
- * Default paths (project root): JobList(Quotes).csv, JobList(Projects).csv
+ *
+ * Path resolution (each file): CLI arg → JOBLIST_QUOTES_CSV / JOBLIST_PROJECTS_CSV
+ * → data/import/<name> if present → project root <name>.
+ * Default names: JobList(Quotes).csv, JobList(Projects).csv
+ *
  * Usage: node scripts/import-joblist-csv.js [quotes.csv] [projects.csv]
  *
  * Project job numbers are normalized with an E prefix (see lib/utils/job-number.ts).
@@ -201,10 +205,31 @@ async function importProjects(rows, adminUser) {
   return created
 }
 
+function resolveCsvPath(root, argvPath, envKey, fileName) {
+  if (argvPath) return argvPath
+  const fromEnv = process.env[envKey]
+  if (fromEnv) return fromEnv
+  const inImport = path.join(root, 'data', 'import', fileName)
+  const inRoot = path.join(root, fileName)
+  if (fs.existsSync(inImport)) return inImport
+  if (fs.existsSync(inRoot)) return inRoot
+  return inRoot
+}
+
 async function main() {
   const root = path.join(__dirname, '..')
-  const quotesPath = process.argv[2] || path.join(root, 'JobList(Quotes).csv')
-  const projectsPath = process.argv[3] || path.join(root, 'JobList(Projects).csv')
+  const quotesPath = resolveCsvPath(
+    root,
+    process.argv[2],
+    'JOBLIST_QUOTES_CSV',
+    'JobList(Quotes).csv'
+  )
+  const projectsPath = resolveCsvPath(
+    root,
+    process.argv[3],
+    'JOBLIST_PROJECTS_CSV',
+    'JobList(Projects).csv'
+  )
 
   console.log('📥 Job list CSV import')
   console.log(`   Quotes file: ${quotesPath}`)

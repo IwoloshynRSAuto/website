@@ -62,7 +62,7 @@ export default async function QuotesPage() {
       <div className="mb-6">
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Quotes</h1>
         <p className="text-sm sm:text-base text-gray-600 mt-1">
-          Quote pipeline — approve, cancel, or open a quote to create a job.
+          Search and manage the pipeline — click a quote to edit details, approve, or convert approved quotes to jobs.
         </p>
       </div>
 

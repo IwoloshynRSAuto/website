@@ -25,16 +25,15 @@ export default async function QuoteDetailPage({ params }: PageProps) {
       customer: {
         select: { id: true, name: true, email: true, phone: true },
       },
+      job: {
+        select: { id: true, jobNumber: true, title: true },
+      },
       revisions: {
         orderBy: { revisionNumber: 'desc' },
         take: 10,
         include: {
           createdBy: { select: { id: true, name: true, email: true } },
-          laborEstimates: true,
         },
-      },
-      convertedJob: {
-        select: { id: true, jobNumber: true, title: true },
       },
     },
   })
@@ -46,23 +45,30 @@ export default async function QuoteDetailPage({ params }: PageProps) {
     quoteNumber: quote.quoteNumber,
     title: quote.title,
     description: quote.description,
-    scope: quote.scope,
+    scope: null as string | null,
     status: quote.status,
     amount: quote.amount,
     validUntil: quote.validUntil?.toISOString() || null,
+    paymentTerms: quote.paymentTerms ?? null,
+    estimatedHours: quote.estimatedHours != null ? Number(quote.estimatedHours) : null,
+    hourlyRate: quote.hourlyRate != null ? Number(quote.hourlyRate) : null,
     createdAt: quote.createdAt.toISOString(),
     updatedAt: quote.updatedAt.toISOString(),
     customer: quote.customer,
-    convertedJob: quote.convertedJob,
-    revisions: quote.revisions.map((r) => ({
-      id: r.id,
-      revisionNumber: r.revisionNumber,
-      notes: r.notes,
-      createdAt: r.createdAt.toISOString(),
-      createdBy: r.createdBy,
-      laborEstimates: r.laborEstimates,
-    })),
+    convertedJob: quote.job,
+    revisions: quote.revisions.map((r) => {
+      const snap = r.data && typeof r.data === 'object' && !Array.isArray(r.data) ? (r.data as Record<string, unknown>) : {}
+      const notes = typeof snap.notes === 'string' ? snap.notes : null
+      return {
+        id: r.id,
+        revisionNumber: r.revisionNumber,
+        notes,
+        createdAt: r.createdAt.toISOString(),
+        createdBy: r.createdBy,
+        laborEstimates: [] as { id: string; discipline: string; estimatedHours: number }[],
+      }
+    }),
   }
 
-  return <QuoteDetailClient quote={serialized} userId={session.user.id} />
+  return <QuoteDetailClient quote={serialized} />
 }

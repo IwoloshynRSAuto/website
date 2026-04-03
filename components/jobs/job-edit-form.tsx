@@ -12,6 +12,7 @@ import { SearchableSelect } from '@/components/ui/searchable-select'
 import { ArrowLeft, Save } from 'lucide-react'
 import Link from 'next/link'
 import { toast } from 'react-hot-toast'
+import { JOB_WORK_CODE_OPTIONS } from '@/lib/jobs/job-work-code-options'
 
 interface User {
   id: string
@@ -369,12 +370,11 @@ export function JobEditForm({ job, users, customers }: JobEditFormProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="no-work-code">No Work Code</SelectItem>
-                  <SelectItem value="DESIGN">Design</SelectItem>
-                  <SelectItem value="PROGRAMMING">Programming</SelectItem>
-                  <SelectItem value="INSTALLATION">Installation</SelectItem>
-                  <SelectItem value="TESTING">Testing</SelectItem>
-                  <SelectItem value="COMMISSIONING">Commissioning</SelectItem>
-                  <SelectItem value="TRAINING">Training</SelectItem>
+                  {JOB_WORK_CODE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>
+                      {o.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

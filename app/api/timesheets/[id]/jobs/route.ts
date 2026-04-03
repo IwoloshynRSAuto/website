@@ -29,7 +29,7 @@ function checkRateLimit(userId: string): boolean {
 
 const createJobEntrySchema = z.object({
   jobNumber: z.string().min(1, 'Job number is required'),
-  laborCode: z.string().min(1, 'Labor code is required'),
+  laborCode: z.string().optional().default(''),
   punchInTime: z.string().transform((val) => new Date(val)),
   punchOutTime: z.string().transform((val) => new Date(val)).optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -328,24 +328,28 @@ export async function POST(
       )
     }
 
+    const laborCodeKey = (validatedData.laborCode || '').trim()
+
     // Only check for duplicate labor code if punch out time is not provided (active job)
-    if (!roundedPunchOut) {
+    if (!roundedPunchOut && laborCodeKey) {
       const duplicateLaborCode = timesheetWithStatus.jobEntries.find(
-        job => job.laborCode === validatedData.laborCode && !job.punchOutTime
+        job => (job.laborCode || '').trim() === laborCodeKey && !job.punchOutTime
       )
 
       if (duplicateLaborCode) {
         return NextResponse.json(
           { 
             error: 'This labor code is already active on this timesheet',
-            details: `Labor code "${validatedData.laborCode}" is already being tracked. Please clock out of the existing job entry before starting a new one with the same labor code.`,
+            details: `Labor code "${laborCodeKey}" is already being tracked. Please clock out of the existing job entry before starting a new one with the same labor code.`,
             existingJobEntryId: duplicateLaborCode.id
           },
           { status: 400 }
         )
       }
+    }
 
-      // Auto-clock out any active job entries when starting a new job
+    // Auto-clock out any active job entries when starting a new open-ended job
+    if (!roundedPunchOut) {
       const activeJobs = timesheetWithStatus.jobEntries.filter(job => !job.punchOutTime)
       if (activeJobs.length > 0) {
         await prisma.jobEntry.updateMany({
@@ -365,7 +369,7 @@ export async function POST(
       data: {
         timesheetId: timesheetId,
         jobNumber: validatedData.jobNumber,
-        laborCode: validatedData.laborCode,
+        laborCode: laborCodeKey,
         punchInTime: roundedPunchIn,
         punchOutTime: roundedPunchOut,
         notes: validatedData.notes || null,

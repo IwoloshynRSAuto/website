@@ -552,6 +552,12 @@ export function EnhancedTimesheetView({ users, jobs, laborCodes, currentUserId, 
   }
 
   const updateRowLaborCode = (rowId: string, laborCodeId: string) => {
+    if (!laborCodeId || laborCodeId === '__none__') {
+      setTimesheetRows(prev => prev.map(row =>
+        row.id === rowId ? { ...row, laborCodeId: '', laborCode: '' } : row
+      ))
+      return
+    }
     const laborCode = laborCodes.find(lc => lc.id === laborCodeId)
     if (laborCode) {
       setTimesheetRows(prev => prev.map(row => 
@@ -714,7 +720,7 @@ export function EnhancedTimesheetView({ users, jobs, laborCodes, currentUserId, 
     })
       
       for (const row of timesheetRows) {
-        if (row.jobId && row.laborCodeId) {
+        if (row.jobId || row.jobNumber?.trim()) {
           for (const [dayStr, entry] of Object.entries(row.dailyEntries)) {
           // CRITICAL FIX: Always include entries with timeEntryId to preserve existing data
           // Only skip completely new empty entries (no timeEntryId AND no hours)
@@ -726,8 +732,9 @@ export function EnhancedTimesheetView({ users, jobs, laborCodes, currentUserId, 
                 overtimeHours: entry.overtimeHours,
                 notes: row.notes,
                 billable: true,
-                jobId: row.jobId,
-                laborCodeId: row.laborCodeId
+                jobId: row.jobId || undefined,
+                jobNumber: row.jobNumber?.trim() || undefined,
+                laborCodeId: row.laborCodeId || null
             }
             
             debug.timesheet('convertRowsToTimeEntries', `Processing ${dayStr}`, {
@@ -931,7 +938,7 @@ export function EnhancedTimesheetView({ users, jobs, laborCodes, currentUserId, 
                   
                   <tbody>
                     {timesheetRows.map((row) => (
-                      <tr key={`row-${row.jobId}-${row.laborCodeId}`} className="border-b hover:bg-gray-50">
+                      <tr key={`row-${row.id}`} className="border-b hover:bg-gray-50">
                         <td className="p-2 lg:p-4">
                           <div className="space-y-2">
                             <SearchableSelect
@@ -948,15 +955,16 @@ export function EnhancedTimesheetView({ users, jobs, laborCodes, currentUserId, 
                             />
                             
                             <Select 
-                              value={row.laborCodeId} 
+                              value={row.laborCodeId || '__none__'} 
                               onValueChange={(value) => updateRowLaborCode(row.id, value)}
                               disabled={isReadOnly}
                               data-testid="labor-code-select"
                             >
                               <SelectTrigger className={`text-sm ${isReadOnly ? 'bg-gray-50 cursor-not-allowed' : ''}`}>
-                                <SelectValue placeholder="Select Code" />
+                                <SelectValue placeholder="Labor code (optional)" />
                               </SelectTrigger>
                               <SelectContent>
+                                <SelectItem value="__none__">None</SelectItem>
                                 {laborCodes.map(lc => (
                                   <SelectItem key={lc.id} value={lc.id}>
                                     {lc.code} - {(lc as any).name || lc.description || 'Unnamed'}

@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   CalendarClock,
   Briefcase,
+  FlaskConical,
 } from 'lucide-react'
 
 const navigation = [
@@ -31,6 +32,7 @@ const navigation = [
     children: [
       { name: 'Active Jobs', href: '/dashboard/jobs', icon: Wrench },
       { name: 'Quotes', href: '/dashboard/jobs/quotes', icon: FileText },
+      { name: 'Jobs — Dev', href: '/dashboard/jobs/dev', icon: FlaskConical },
     ],
   },
 ]

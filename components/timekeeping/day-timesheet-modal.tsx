@@ -115,19 +115,9 @@ export function DayTimesheetModal({
       // Only process entries with job entries (skip clock in/out only entries)
       if (ts.jobEntries && Array.isArray(ts.jobEntries) && ts.jobEntries.length > 0) {
         for (const jobEntry of ts.jobEntries) {
-          // Find job by jobNumber
           const job = Array.isArray(jobs) ? jobs.find(j => j.jobNumber === jobEntry.jobNumber) : null
-          if (!job) {
-            toast({
-              title: 'Error',
-              description: `Job ${jobEntry.jobNumber} not found`,
-              variant: 'destructive'
-            })
-            return
-          }
 
-          // Find labor code by code
-          const laborCode = laborCodes.find(lc => lc.code === jobEntry.laborCode)
+          const laborCode = laborCodes.find(lc => lc.code === (jobEntry.laborCode || '').trim())
           const laborCodeId = laborCode?.id || null
 
           // Calculate hours
@@ -144,7 +134,8 @@ export function DayTimesheetModal({
             overtimeHours: 0,
             notes: jobEntry.notes || null,
             billable: true,
-            jobId: job.id,
+            jobId: job?.id,
+            jobNumber: jobEntry.jobNumber,
             laborCodeId: laborCodeId
           })
         }

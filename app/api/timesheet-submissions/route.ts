@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { startOfWeek, endOfWeek } from 'date-fns'
 import { getWeekBoundariesUTC, normalizeWeekStartToUTC, normalizeWeekEndToUTC } from '@/lib/utils/date-utils'
 import { dateStringSchema, nullableDateStringSchema, optionalDateStringSchema, validateWeekBoundaries, validateDateInWeek, validateDateRange } from '@/lib/utils/date-validation'
+import { ensureJobForTimeSubmission } from '@/lib/timekeeping/ensure-job-for-submission'
 
 const createTimesheetSubmissionSchema = z.object({
   userId: z.string().min(1, 'User is required'),
@@ -29,8 +30,9 @@ const createTimesheetSubmissionSchema = z.object({
     notes: z.string().nullable().optional(),
     billable: z.boolean().default(true),
     rate: z.number().nullable().optional(),
-    jobId: z.string().optional(), // Make optional for attendance entries
-    laborCodeId: z.string().optional()
+    jobId: z.string().optional().nullable(), // Optional when jobNumber is sent
+    jobNumber: z.string().optional().nullable(), // Resolved to Job on server if jobId missing
+    laborCodeId: z.string().optional().nullable()
   }))
 })
 
@@ -288,11 +290,29 @@ export async function POST(request: NextRequest) {
       // Update or create time entries
       // Only create TimeEntry records if jobId is provided (for job entries)
       for (const entry of validatedData.timeEntries) {
-        // Skip entries without jobId (attendance entries) - they're tracked via Timesheet records
-        if (!entry.jobId) {
+        let resolvedJobId =
+          typeof entry.jobId === 'string' && entry.jobId.trim() !== ''
+            ? entry.jobId.trim()
+            : null
+        if (resolvedJobId) {
+          const existing = await tx.job.findUnique({ where: { id: resolvedJobId } })
+          if (!existing) resolvedJobId = null
+        }
+        const jobNumberHint = entry.jobNumber?.trim() || null
+        if (!resolvedJobId && jobNumberHint) {
+          const ensured = await ensureJobForTimeSubmission(
+            tx,
+            jobNumberHint,
+            validatedData.userId
+          )
+          resolvedJobId = ensured.id
+        }
+
+        // Skip entries without a job (attendance entries) - they're tracked via Timesheet records
+        if (!resolvedJobId) {
           continue
         }
-        
+
         if (entry.id) {
           // Update existing entry
           await tx.timeEntry.update({
@@ -304,8 +324,8 @@ export async function POST(request: NextRequest) {
               notes: entry.notes,
               billable: entry.billable,
               rate: entry.rate,
-              jobId: entry.jobId,
-              laborCodeId: entry.laborCodeId,
+              jobId: resolvedJobId,
+              laborCodeId: entry.laborCodeId ?? null,
               submissionId: submission.id
             }
           })
@@ -320,8 +340,8 @@ export async function POST(request: NextRequest) {
               billable: entry.billable,
               rate: entry.rate,
               userId: validatedData.userId,
-              jobId: entry.jobId,
-              laborCodeId: entry.laborCodeId,
+              jobId: resolvedJobId,
+              laborCodeId: entry.laborCodeId ?? null,
               submissionId: submission.id
             }
           })
