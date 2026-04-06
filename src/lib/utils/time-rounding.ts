@@ -106,3 +106,31 @@ export function convert24To12Hour(time24: string): string {
   return `${hour12}:${minutes.toString().padStart(2, '0')} ${period}`
 }
 
+/**
+ * Clock-in instants used for "job-only" / container timesheets (see POST /api/timesheets).
+ * Local midnight can be stored as early-morning UTC; match that so overlap checks skip these rows.
+ */
+export function isJobOnlyClockInInstant(clockInTime: Date): boolean {
+  const utcHours = clockInTime.getUTCHours()
+  const utcMinutes = clockInTime.getUTCMinutes()
+  const isMidnightUtc =
+    (utcHours === 0 && utcMinutes === 0) || (utcHours >= 0 && utcHours <= 6 && utcMinutes === 0)
+  const isMidnightLocal = clockInTime.getHours() === 0 && clockInTime.getMinutes() === 0
+  return isMidnightUtc || isMidnightLocal
+}
+
+/**
+ * Rows to ignore when testing attendance overlap: open job containers (has job entries, no clock-out)
+ * or midnight placeholder job-only sheets. Closed rows always participate.
+ */
+export function isOverlapExcludedTimesheet(entry: {
+  clockInTime: Date
+  clockOutTime: Date | null
+  jobEntries?: { length: number } | null
+}): boolean {
+  if (entry.clockOutTime) return false
+  const jobCount = entry.jobEntries?.length ?? 0
+  if (jobCount > 0) return true
+  return isJobOnlyClockInInstant(new Date(entry.clockInTime))
+}
+

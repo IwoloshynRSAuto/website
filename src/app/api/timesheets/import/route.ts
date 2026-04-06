@@ -251,7 +251,7 @@ async function importVerticalSections(args: {
   let skipped = 0
   let ignoredRows = 0
   const errors: Array<{ line: number; reason: string }> = []
-  const unknownJobNumbers = new Set<string>()
+  const jobsCreated = { n: 0 }
 
   for (let r = 0; r < rowsFmt.length; r++) {
     const rawFmtRow = rowsFmt[r] || []
@@ -359,9 +359,12 @@ async function importVerticalSections(args: {
       continue
     }
 
-    const lookupKey = normalizeJobNumber(parsedJob.jobNumber)
-    const jobNumber = jobsByNormalized.get(lookupKey) || parsedJob.jobNumber
-    if (!jobsByNormalized.has(lookupKey)) unknownJobNumbers.add(parsedJob.jobNumber)
+    const jobNumber = await ensureJobForImport(
+      parsedJob.jobNumber,
+      args.targetUserId,
+      jobsByNormalized,
+      jobsCreated
+    )
 
     const dayStart = buildLocalDate(
       contextDate.getFullYear(),
@@ -468,7 +471,7 @@ async function importVerticalSections(args: {
         rejected: errors.length,
         errors: errors.slice(0, 200),
         topReasons,
-        unknownJobNumbers: Array.from(unknownJobNumbers).slice(0, 50),
+        jobsCreated: jobsCreated.n,
       },
     },
   }
@@ -559,7 +562,7 @@ async function importSheet1Layout(args: {
   let skipped = 0
   let ignoredRows = 0
   const errors: Array<{ line: number; reason: string }> = []
-  const unknownJobNumbers = new Set<string>()
+  const jobsCreated = { n: 0 }
   let weekEnding: Date | null = null
 
   // Section state: resets at each day-header row
@@ -706,9 +709,12 @@ async function importSheet1Layout(args: {
         continue
       }
 
-      const lookupKey = normalizeJobNumber(parsedJob.jobNumber)
-      const jobNumber = jobsByNormalized.get(lookupKey) || parsedJob.jobNumber
-      if (!jobsByNormalized.has(lookupKey)) unknownJobNumbers.add(parsedJob.jobNumber)
+      const jobNumber = await ensureJobForImport(
+        parsedJob.jobNumber,
+        args.targetUserId,
+        jobsByNormalized,
+        jobsCreated
+      )
 
       const dayStart = buildLocalDate(
         contextDate.getFullYear(),
@@ -813,7 +819,7 @@ async function importSheet1Layout(args: {
         rejected: errors.length,
         errors: errors.slice(0, 200),
         topReasons,
-        unknownJobNumbers: Array.from(unknownJobNumbers).slice(0, 50),
+        jobsCreated: jobsCreated.n,
       },
     },
   }
@@ -955,7 +961,7 @@ async function importMatrixSheet(args: {
   let skipped = 0
   let ignoredRows = 0
   const errors: Array<{ line: number; reason: string }> = []
-  const unknownJobNumbers = new Set<string>()
+  const jobsCreated = { n: 0 }
   const dayCursorMinutesByDay = new Map<number, number>()
   const jc = jobCol >= 0 ? jobCol : 0
   const pc = phaseCol >= 0 ? phaseCol : jc + 1
@@ -973,9 +979,7 @@ async function importMatrixSheet(args: {
       continue
     }
 
-    const jobLookupKey = normalizeJobNumber(jobRaw)
-    const jobNumber = jobsByNormalized.get(jobLookupKey) || jobRaw
-    if (!jobsByNormalized.has(jobLookupKey)) unknownJobNumbers.add(jobRaw)
+    const jobNumber = await ensureJobForImport(jobRaw, args.targetUserId, jobsByNormalized, jobsCreated)
     const phaseCode = parsedJob.phaseCode
 
     for (let dayIdx = 0; dayIdx < DAY_LABELS.length; dayIdx++) {
@@ -1093,7 +1097,7 @@ async function importMatrixSheet(args: {
         rejected: errors.length,
         errors: errors.slice(0, 200),
         topReasons,
-        unknownJobNumbers: Array.from(unknownJobNumbers).slice(0, 50),
+        jobsCreated: jobsCreated.n,
       },
     },
   }
@@ -1111,6 +1115,48 @@ function normalizeJobNumber(value: string): string {
   const noWhitespace = withoutQuotes.replace(/\s+/g, '')
   // Common Excel artifact for numeric-like IDs exported as text
   return noWhitespace.replace(/\.0+$/, '')
+}
+
+/** If the job number is not in the map, create a minimal Job row so imports never depend on pre-seeded jobs. */
+async function ensureJobForImport(
+  rawJobNumber: string,
+  createdById: string,
+  jobsByNormalized: Map<string, string>,
+  jobsCreated: { n: number }
+): Promise<string> {
+  const lookupKey = normalizeJobNumber(rawJobNumber)
+  if (!lookupKey) return rawJobNumber.trim()
+  const existing = jobsByNormalized.get(lookupKey)
+  if (existing) return existing
+
+  const base =
+    rawJobNumber
+      .trim()
+      .replace(/^"+|"+$/g, '')
+      .replace(/\.0+$/, '') || `IMP-${Date.now()}`
+  let jobNumber = base
+  for (let attempt = 0; attempt < 25; attempt++) {
+    try {
+      const created = await prisma.job.create({
+        data: {
+          jobNumber,
+          title: `Imported — ${jobNumber}`,
+          createdById,
+        },
+      })
+      jobsByNormalized.set(normalizeJobNumber(created.jobNumber), created.jobNumber)
+      jobsCreated.n++
+      return created.jobNumber
+    } catch (e: unknown) {
+      const code = (e as { code?: string })?.code
+      if (code === 'P2002') {
+        jobNumber = `${base}-${attempt + 1}`
+        continue
+      }
+      throw e
+    }
+  }
+  throw new Error(`Could not create job for ${base}`)
 }
 
 function splitJobAndPhaseFromCell(jobCell: string, phaseCell: string): { jobNumber: string; phaseCode: string } {
@@ -1734,10 +1780,17 @@ export async function POST(request: NextRequest) {
     const applyErrors: Array<{ line: number; reason: string }> = [...rowErrors]
     const jobs = await prisma.job.findMany({ select: { id: true, jobNumber: true } })
     const jobsByNormalizedNumber = new Map(
-      jobs.map((job) => [normalizeJobNumber(job.jobNumber), job] as const)
+      jobs.map((job) => [normalizeJobNumber(job.jobNumber), job.jobNumber] as const)
     )
-    const unknownJobNumbers = new Set<string>()
+    const jobsCreated = { n: 0 }
     const tz = Number.isFinite(timezoneOffsetMinutes) ? timezoneOffsetMinutes : 0
+    const weekFilterStart = importWeekStartRaw ? new Date(importWeekStartRaw) : null
+    const weekFilterEnd = importWeekEndRaw ? new Date(importWeekEndRaw) : null
+    const hasWeekFilter =
+      weekFilterStart &&
+      weekFilterEnd &&
+      !Number.isNaN(weekFilterStart.getTime()) &&
+      !Number.isNaN(weekFilterEnd.getTime())
 
     for (const row of parsed) {
       const startFromDateTime = parseDateTimeFlexible(row.startTime, ianaTimeZone, tz)
@@ -1765,16 +1818,29 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      if (hasWeekFilter && weekFilterStart && weekFilterEnd) {
+        const t = startAt.getTime()
+        if (t < weekFilterStart.getTime() || t > weekFilterEnd.getTime()) {
+          applyErrors.push({
+            line: row.line,
+            reason: 'Outside selected week — switch the calendar to the week that matches this file',
+          })
+          continue
+        }
+      }
+
       const day = timesheetDateNoon(startAt)
       const dayStart = new Date(day)
       dayStart.setHours(0, 0, 0, 0)
       const dayEnd = new Date(day)
       dayEnd.setHours(23, 59, 59, 999)
 
-      // Skip unknown job references (do not create implicit jobs)
-      const job = jobsByNormalizedNumber.get(normalizeJobNumber(row.jobNumber))
-      const normalizedImportJobNumber = job?.jobNumber || row.jobNumber
-      if (!job) unknownJobNumbers.add(row.jobNumber)
+      const normalizedImportJobNumber = await ensureJobForImport(
+        row.jobNumber,
+        targetUser.id,
+        jobsByNormalizedNumber,
+        jobsCreated
+      )
 
       // Use or create a job-only timesheet bucket for the day/user
       let timesheet = await prisma.timesheet.findFirst({
@@ -1882,7 +1948,7 @@ export async function POST(request: NextRequest) {
         rejected: applyErrors.length,
         errors: applyErrors.slice(0, 200),
         topReasons,
-        unknownJobNumbers: Array.from(unknownJobNumbers).slice(0, 50),
+        jobsCreated: jobsCreated.n,
       },
     })
   } catch (error: any) {

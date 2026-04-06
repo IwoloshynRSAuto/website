@@ -29,8 +29,8 @@ export default async function WeeklyEmployeeSheetPage({
 
   return (
     <DashboardPageShell
-      title="Submitted sheet"
-      description="Review clock and job time for the selected week."
+      title="Weekly sheet"
+      description="Attendance and job time for the selected week (read-only submitted data)."
     >
       <WeeklyEmployeeSheetView userId={userId} weekStartIso={weekStart} />
     </DashboardPageShell>

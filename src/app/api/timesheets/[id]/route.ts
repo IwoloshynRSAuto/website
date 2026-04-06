@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { roundToNearest15Minutes, calculateHoursBetween } from '@/lib/utils/time-rounding'
+import { roundToNearest15Minutes, calculateHoursBetween, isOverlapExcludedTimesheet } from '@/lib/utils/time-rounding'
 import { startOfWeek } from 'date-fns'
 import { z } from 'zod'
 
@@ -499,30 +499,68 @@ export async function PATCH(
         }
       }
       
-      const newIn = clockIn
-      const newOut = clockOut || new Date(year, month, day, 23, 59, 59, 999)
-      
-      const hasOverlap = existingEntries.some(entry => {
-        // Skip job-only timesheets (midnight clock-in, no clock-out)
-        const entryIn = new Date(entry.clockInTime)
-        const entryInLocal = new Date(entryIn.getFullYear(), entryIn.getMonth(), entryIn.getDate(), 
-                                      entryIn.getHours(), entryIn.getMinutes(), entryIn.getSeconds())
-        const isEntryJobOnly = entryInLocal.getHours() === 0 && 
-                               entryInLocal.getMinutes() === 0 && 
-                               !entry.clockOutTime
-        
-        if (isEntryJobOnly) {
-          return false // Job-only timesheets don't count as overlaps
+      // Use the same calendar-day normalization as POST /api/timesheets so overlap checks
+      // match user-visible local times. Raw Date comparisons (UTC) can false-positive vs job
+      // containers or same-day entries when server TZ differs from stored instant encoding.
+      const newInLocal = new Date(
+        year,
+        month,
+        day,
+        clockIn.getHours(),
+        clockIn.getMinutes(),
+        clockIn.getSeconds()
+      )
+      const newOutLocal = clockOut
+        ? new Date(year, month, day, clockOut.getHours(), clockOut.getMinutes(), clockOut.getSeconds())
+        : new Date(year, month, day, 23, 59, 59, 999)
+
+      const hasOverlap = existingEntries.some((entry) => {
+        if (isOverlapExcludedTimesheet(entry)) {
+          return false
         }
-        
-        const existingIn = entryIn
-        const existingOut = entry.clockOutTime ? new Date(entry.clockOutTime) : new Date(year, month, day, 23, 59, 59, 999)
-        
-        // Overlap occurs if: newIn < existingOut && newOut > existingIn
-        const overlaps = newIn < existingOut && newOut > existingIn
-        
-        // Block ALL overlaps for attendance entries
-        return overlaps
+
+        const entryIn = new Date(entry.clockInTime)
+        const entryInLocal = new Date(
+          entryIn.getFullYear(),
+          entryIn.getMonth(),
+          entryIn.getDate(),
+          entryIn.getHours(),
+          entryIn.getMinutes(),
+          entryIn.getSeconds()
+        )
+
+        const existingIn = new Date(
+          year,
+          month,
+          day,
+          entryInLocal.getHours(),
+          entryInLocal.getMinutes(),
+          entryInLocal.getSeconds()
+        )
+        let existingOut: Date
+        if (entry.clockOutTime) {
+          const entryOut = new Date(entry.clockOutTime)
+          const entryOutLocal = new Date(
+            entryOut.getFullYear(),
+            entryOut.getMonth(),
+            entryOut.getDate(),
+            entryOut.getHours(),
+            entryOut.getMinutes(),
+            entryOut.getSeconds()
+          )
+          existingOut = new Date(
+            year,
+            month,
+            day,
+            entryOutLocal.getHours(),
+            entryOutLocal.getMinutes(),
+            entryOutLocal.getSeconds()
+          )
+        } else {
+          existingOut = new Date(year, month, day, 23, 59, 59, 999)
+        }
+
+        return newInLocal < existingOut && newOutLocal > existingIn
       })
       
       if (hasOverlap) {

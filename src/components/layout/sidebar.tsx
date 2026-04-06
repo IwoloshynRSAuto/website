@@ -13,6 +13,7 @@ import {
   Shield,
   Building2,
   Home,
+  Database,
 } from 'lucide-react'
 
 const navigation = [
@@ -48,6 +49,7 @@ const navigation = [
     children: [
       { name: 'Employees', href: '/dashboard/admin/employees', icon: Shield, visibility: 'admin' as const },
       { name: 'Customers', href: '/dashboard/admin/customers', icon: Building2, visibility: 'admin' as const },
+      { name: 'Export / import', href: '/dashboard/admin/database', icon: Database, visibility: 'admin' as const },
     ],
   },
 ]

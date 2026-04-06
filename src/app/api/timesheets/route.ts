@@ -2,7 +2,12 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
-import { roundToNearest15Minutes, getDateOnly, calculateHoursBetween } from '@/lib/utils/time-rounding'
+import {
+  roundToNearest15Minutes,
+  getDateOnly,
+  calculateHoursBetween,
+  isOverlapExcludedTimesheet,
+} from '@/lib/utils/time-rounding'
 import { startOfWeek } from 'date-fns'
 import { z } from 'zod'
 import { dateStringSchema, optionalDateStringSchema, nullableDateStringSchema, validateDateRange } from '@/lib/utils/date-validation'
@@ -324,20 +329,13 @@ export async function POST(request: NextRequest) {
     } else {
       // Check for overlaps with existing attendance entries
       const hasOverlap = existingEntries.some(entry => {
-        // Skip overlap check for job-only timesheets
-        // These are identified by: midnight clock-in, no clock-out
+        if (isOverlapExcludedTimesheet(entry)) {
+          return false
+        }
+
         const entryIn = new Date(entry.clockInTime)
-        // Use local time components for comparison (avoid timezone issues)
         const entryInLocal = new Date(entryIn.getFullYear(), entryIn.getMonth(), entryIn.getDate(), 
                                       entryIn.getHours(), entryIn.getMinutes(), entryIn.getSeconds())
-        // Job-only timesheets are identified by midnight clock-in with no clock-out
-        const isEntryJobOnly = entryInLocal.getHours() === 0 && 
-                               entryInLocal.getMinutes() === 0 && 
-                               !entry.clockOutTime
-        
-        if (isEntryJobOnly) {
-          return false // Job-only timesheets don't count as overlaps
-        }
         
         // Use local time components for existing entry times (same day)
         const existingIn = new Date(yearNum, monthNum - 1, dayNum, 

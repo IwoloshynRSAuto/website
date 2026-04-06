@@ -471,11 +471,11 @@ export function TimeView({
           const ignored = Number(result?.data?.ignoredRows || 0)
           const base = `Inserted ${result.data.inserted}, skipped ${result.data.skippedDuplicates}, rejected ${result.data.rejected}${ignored ? `, ignored ${ignored}` : ''}.`
           const topReason = Array.isArray(result?.data?.topReasons) ? result.data.topReasons[0] : null
-          const unknownJobs = Array.isArray(result?.data?.unknownJobNumbers) ? result.data.unknownJobNumbers.length : 0
+          const jobsCreated = Number(result?.data?.jobsCreated || 0)
           const weekEnding = result?.data?.weekEnding ? ` Week ending: ${new Date(result.data.weekEnding).toLocaleDateString()}.` : ''
-          const unknownJobsText = unknownJobs ? ` Used raw job numbers for ${unknownJobs} unmatched jobs.` : ''
+          const createdText = jobsCreated > 0 ? ` Created ${jobsCreated} new job record(s) in the jobs list.` : ''
           const reasonText = topReason ? ` Top reject reason: ${topReason.reason} (${topReason.count}).` : ''
-          return `${base}${reasonText}${unknownJobsText}${weekEnding}`
+          return `${base}${reasonText}${createdText}${weekEnding}`
         })(),
       })
 

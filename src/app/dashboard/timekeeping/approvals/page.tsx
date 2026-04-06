@@ -19,7 +19,7 @@ export default async function ApprovalsDashboardPage() {
   return (
     <DashboardPageShell
       title="Approvals"
-      description="See submission status for every employee by week."
+      description="Review weekly sheets and approve or reject attendance and job-time submissions."
     >
       <WeeklyApprovalsDashboard />
     </DashboardPageShell>

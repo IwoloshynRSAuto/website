@@ -12,6 +12,7 @@ async function exportData() {
       users: await prisma.user.findMany(),
       customers: await prisma.customer.findMany(),
       jobs: await prisma.job.findMany(),
+      quotes: await prisma.quote.findMany(),
       laborCodes: await prisma.laborCode.findMany(),
       timeEntries: await prisma.timeEntry.findMany(),
       timesheetSubmissions: await prisma.timesheetSubmission.findMany(),
@@ -34,6 +35,7 @@ async function exportData() {
     console.log(`   - ${exportData.users.length} users`);
     console.log(`   - ${exportData.customers.length} customers`);
     console.log(`   - ${exportData.jobs.length} jobs`);
+    console.log(`   - ${exportData.quotes.length} quotes`);
     console.log(`   - ${exportData.laborCodes.length} labor codes`);
     console.log(`   - ${exportData.timeEntries.length} time entries`);
     console.log(`   - ${exportData.timesheetSubmissions.length} timesheet submissions`);
