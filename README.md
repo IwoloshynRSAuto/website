@@ -135,7 +135,7 @@ The app has a modular structure with the following modules:
 - `S3_REGION` - S3 region (optional, default: `us-east-1`)
 - `S3_PUBLIC_URL` - Public URL for files (optional)
 
-See `env.example` for a complete list of environment variables.
+See `config/env/env.example` for a complete list of environment variables. Copy templates from `config/env/` (e.g. `env.production.template` → `.env.production`).
 
 ## Storage Migration
 
@@ -205,10 +205,18 @@ npm run db:generate
 - Backfill scripts are provided for critical data
 - Rollback scripts are available in `prisma/migrations/`
 
+## Project layout
+
+- **`src/`** — Next.js app (`app/`), React `components/`, `lib/`, feature modules (`modules/`), tests (`tests/`), types.
+- **`config/`** — Jest, Playwright, PM2 (`ecosystem.config.js`), HTTPS dev server (`server-https.js`), env **templates** in `config/env/` (copy to `.env*` at repo root for Next.js).
+- **`deploy/`** — Docker Compose (`docker-compose.yml`), Caddy, DB tuning, PowerShell helpers.
+- **`prisma/`** — Schema and migrations.
+- **`scripts/`** — One-off DB and maintenance scripts.
+- **`e2e/`** — Playwright specs.
+
 ## Development
 
 - Run linting: `npm run lint`
 - View database: `npm run db:studio`
 - Build for production: `npm run build`
-- Test storage adapter: `GET /api/storage/test` (requires authentication)
 

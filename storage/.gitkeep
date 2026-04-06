@@ -1,0 +1,1 @@
+# Keeps `storage/` in git. Runtime files use `storage/uploads/` and `storage/quotes/` (see .gitignore).

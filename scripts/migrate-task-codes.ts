@@ -4,7 +4,7 @@
  */
 
 import { PrismaClient } from '@prisma/client'
-import { TASK_CODES } from '../lib/task-codes'
+import { TASK_CODES } from '../src/lib/task-codes'
 
 const prisma = new PrismaClient()
 

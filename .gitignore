@@ -56,6 +56,12 @@ dist/
 next-env.d.ts
 
 # ============================================
+# Playwright
+# ============================================
+playwright-report/
+test-results/
+
+# ============================================
 # Logs
 # ============================================
 *.log
@@ -98,6 +104,9 @@ $RECYCLE.BIN/
 *.code-workspace
 .history/
 
+# AI tooling (local)
+.claude/
+
 # JetBrains IDEs
 .idea/
 *.iml
@@ -112,6 +121,9 @@ $RECYCLE.BIN/
 *.swp
 *.swo
 *~
+
+# Editor / merge leftovers
+*.bak
 
 # ============================================
 # Process Management

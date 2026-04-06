@@ -10,7 +10,7 @@ console.log('🚀 Setting up Automation Firm Portal...\n');
 const envPath = path.join(process.cwd(), '.env.local');
 if (!fs.existsSync(envPath)) {
   console.log('📝 Creating .env.local file...');
-  const envExample = fs.readFileSync(path.join(process.cwd(), 'env.example'), 'utf8');
+  const envExample = fs.readFileSync(path.join(process.cwd(), 'config', 'env', 'env.example'), 'utf8');
   fs.writeFileSync(envPath, envExample);
   console.log('✅ .env.local created. Please update the database URL and other settings.\n');
 } else {

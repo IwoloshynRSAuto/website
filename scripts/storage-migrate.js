@@ -32,7 +32,7 @@ let storageAdapter = null
 async function initializeStorage() {
   // This will be initialized by the storage module
   // For now, we'll use a simple approach
-  const { initializeStorage } = require('../lib/storage')
+  const { initializeStorage } = require('../src/lib/storage')
   return initializeStorage()
 }
 
