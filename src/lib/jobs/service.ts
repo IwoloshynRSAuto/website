@@ -248,6 +248,7 @@ export class JobService {
     if (data.dueTodayPercent !== undefined) updateData.dueTodayPercent = data.dueTodayPercent
     if (data.inQuickBooks !== undefined) updateData.inQuickBooks = data.inQuickBooks
     if (data.inLDrive !== undefined) updateData.inLDrive = data.inLDrive
+    if (data.fileLink !== undefined) updateData.fileLink = data.fileLink
     if (data.startDate !== undefined) {
       updateData.startDate = data.startDate ? new Date(data.startDate) : null
     }

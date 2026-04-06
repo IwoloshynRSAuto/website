@@ -114,8 +114,12 @@ export function JobEditForm({ job, users, customers }: JobEditFormProps) {
           description: formData.description || null,
           status: formData.status,
           priority: formData.priority,
-          startDate: formData.startDate || null,
-          endDate: formData.endDate || null,
+          startDate: formData.startDate
+            ? new Date(formData.startDate + 'T12:00:00').toISOString()
+            : null,
+          endDate: formData.endDate
+            ? new Date(formData.endDate + 'T12:00:00').toISOString()
+            : null,
           estimatedHours: formData.estimatedHours ? parseFloat(formData.estimatedHours) : null,
           actualHours: formData.actualHours ? parseFloat(formData.actualHours) : null,
           assignedToId: formData.assignedToId === 'unassigned' ? null : formData.assignedToId || null,

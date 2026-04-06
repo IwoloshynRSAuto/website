@@ -27,8 +27,8 @@ export const updateJobSchema = z.object({
   description: z.string().optional().nullable(),
   status: z.string().optional(),
   priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
-  estimatedHours: z.number().positive().optional().nullable(),
-  actualHours: z.number().positive().optional().nullable(),
+  estimatedHours: z.number().nonnegative().optional().nullable(),
+  actualHours: z.number().nonnegative().optional().nullable(),
   startDate: z.string().datetime().optional().nullable(),
   endDate: z.string().datetime().optional().nullable(),
   assignedToId: z.string().optional().nullable(),
@@ -39,6 +39,7 @@ export const updateJobSchema = z.object({
   inQuickBooks: z.boolean().optional(),
   inLDrive: z.boolean().optional(),
   lastFollowUp: z.string().datetime().optional().nullable(),
+  fileLink: z.string().optional().nullable(),
 })
 
 export const convertQuoteToJobSchema = z.object({

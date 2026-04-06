@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { roundToNearest15Minutes } from '@/lib/utils/time-rounding'
+import { JobService } from '@/lib/jobs/service'
+import { updateJobSchema } from '@/lib/jobs/schemas'
 import { z } from 'zod'
 
 // Simple in-memory rate limiting
@@ -33,7 +35,7 @@ const updateJobEntrySchema = z.object({
   notes: z.string().optional().nullable(),
 })
 
-// PATCH /api/jobs/:id - Update job entry
+// PATCH /api/jobs/:id - Update job (project) or timesheet job entry
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> | { id: string } }
@@ -46,21 +48,38 @@ export async function PATCH(
 
     // Handle Next.js 15 async params
     const resolvedParams = await Promise.resolve(params)
-    const jobEntryId = resolvedParams.id
+    const id = resolvedParams.id
 
-    if (!jobEntryId) {
-      return NextResponse.json({ error: 'Job entry ID is required' }, { status: 400 })
+    if (!id) {
+      return NextResponse.json({ error: 'ID is required' }, { status: 400 })
+    }
+
+    // Job (project) first — same disambiguation as DELETE
+    const job = await prisma.job.findUnique({
+      where: { id },
+    })
+
+    if (job) {
+      if (job.createdById !== session.user.id && session.user.role !== 'ADMIN') {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+
+      const body = await request.json()
+      const validatedData = updateJobSchema.parse(body)
+
+      const updated = await JobService.updateJob(id, validatedData, session.user.id)
+      return NextResponse.json(updated)
     }
 
     const jobEntry = await prisma.jobEntry.findUnique({
-      where: { id: jobEntryId },
+      where: { id },
       include: {
         timesheet: true
       }
     })
 
     if (!jobEntry) {
-      return NextResponse.json({ error: 'Job entry not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Job or job entry not found' }, { status: 404 })
     }
 
     // Only allow users to update jobs in their own timesheets (unless admin)
@@ -122,7 +141,7 @@ export async function PATCH(
     }
 
     const updated = await prisma.jobEntry.update({
-      where: { id: jobEntryId },
+      where: { id },
       data: updateData,
       include: {
         timesheet: {
