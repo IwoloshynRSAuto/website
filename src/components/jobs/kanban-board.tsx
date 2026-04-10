@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Plus } from 'lucide-react'
 import { TaskCard } from './task-card'
 import { AddTaskModal } from './add-task-modal'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 import {
     DndContext,
     DragEndEvent,
@@ -102,6 +102,7 @@ function ColumnDroppable({
 }
 
 export function KanbanBoard({ jobId, quoteId, jobType, users }: KanbanBoardProps) {
+    const { toast } = useToast()
     const [tasks, setTasks] = useState<Task[]>([])
     const [isAddModalOpen, setIsAddModalOpen] = useState(false)
     const [activeId, setActiveId] = useState<string | null>(null)
@@ -131,7 +132,7 @@ export function KanbanBoard({ jobId, quoteId, jobType, users }: KanbanBoardProps
             }
         } catch (error) {
             console.error('Error fetching tasks:', error)
-            toast.error('Failed to load tasks')
+            toast({ title: 'Failed to load tasks', variant: 'destructive' })
         } finally {
             setIsLoading(false)
         }
@@ -178,13 +179,12 @@ export function KanbanBoard({ jobId, quoteId, jobType, users }: KanbanBoardProps
                 if (data.success) {
                     // Refresh tasks to get the latest data from server
                     await fetchTasks()
-                    toast.success('Task moved successfully')
+                    toast({ title: 'Task moved successfully' })
                 } else {
                     throw new Error(data.error || 'Failed to update task')
                 }
-            } catch (error) {
-                console.error('Error updating task:', error)
-                toast.error('Failed to move task')
+            } catch {
+                toast({ title: 'Failed to move task', variant: 'destructive' })
                 // Revert on error by refreshing from server
                 await fetchTasks()
             }
@@ -218,14 +218,13 @@ export function KanbanBoard({ jobId, quoteId, jobType, users }: KanbanBoardProps
             if (response.ok) {
                 const data = await response.json()
                 setTasks((prev) => [...prev, data.data])
-                toast.success('Task created successfully')
+                toast({ title: 'Task created successfully' })
                 setIsAddModalOpen(false)
             } else {
                 throw new Error('Failed to create task')
             }
-        } catch (error) {
-            console.error('Error creating task:', error)
-            toast.error('Failed to create task')
+        } catch {
+            toast({ title: 'Failed to create task', variant: 'destructive' })
         }
     }
 
@@ -245,13 +244,12 @@ export function KanbanBoard({ jobId, quoteId, jobType, users }: KanbanBoardProps
                 setTasks((prev) =>
                     prev.map((task) => (task.id === taskId ? data.data : task))
                 )
-                toast.success('Task updated successfully')
+                toast({ title: 'Task updated successfully' })
             } else {
                 throw new Error('Failed to update task')
             }
-        } catch (error) {
-            console.error('Error updating task:', error)
-            toast.error('Failed to update task')
+        } catch {
+            toast({ title: 'Failed to update task', variant: 'destructive' })
         }
     }
 
@@ -265,13 +263,12 @@ export function KanbanBoard({ jobId, quoteId, jobType, users }: KanbanBoardProps
 
             if (response.ok) {
                 setTasks((prev) => prev.filter((task) => task.id !== taskId))
-                toast.success('Task deleted successfully')
+                toast({ title: 'Task deleted successfully' })
             } else {
                 throw new Error('Failed to delete task')
             }
-        } catch (error) {
-            console.error('Error deleting task:', error)
-            toast.error('Failed to delete task')
+        } catch {
+            toast({ title: 'Failed to delete task', variant: 'destructive' })
         }
     }
 

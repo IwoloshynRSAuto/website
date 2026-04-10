@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/dialog'
 import { Check, X, Eye, Clock, User, Calendar, RotateCcw, Trash2 } from 'lucide-react'
 import { format } from 'date-fns'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface TimesheetSubmission {
   id: string
@@ -82,6 +82,7 @@ interface TimesheetApprovalProps {
 }
 
 export function TimesheetApproval({ submissions }: TimesheetApprovalProps) {
+  const { toast } = useToast()
   const [selectedSubmission, setSelectedSubmission] = useState<TimesheetSubmission | null>(null)
   const [isApprovalDialogOpen, setIsApprovalDialogOpen] = useState(false)
   const [isRejectionDialogOpen, setIsRejectionDialogOpen] = useState(false)
@@ -107,18 +108,16 @@ export function TimesheetApproval({ submissions }: TimesheetApprovalProps) {
       })
 
       if (response.ok) {
-        toast.success('Timesheet approved successfully!')
+        toast({ title: 'Timesheet approved successfully' })
         setIsApprovalDialogOpen(false)
         setSelectedSubmission(null)
-        // Refresh the page to show updated status
         window.location.reload()
       } else {
         const errorData = await response.json()
-        toast.error(`Failed to approve timesheet: ${errorData.error}`)
+        toast({ title: 'Failed to approve timesheet', description: errorData.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error approving timesheet:', error)
-      toast.error('Failed to approve timesheet')
+    } catch {
+      toast({ title: 'Failed to approve timesheet', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }
@@ -126,7 +125,7 @@ export function TimesheetApproval({ submissions }: TimesheetApprovalProps) {
 
   const handleReject = async (submissionId: string) => {
     if (!rejectionReason.trim()) {
-      toast.error('Please provide a reason for rejection')
+      toast({ title: 'Please provide a reason for rejection', variant: 'destructive' })
       return
     }
 
@@ -144,19 +143,17 @@ export function TimesheetApproval({ submissions }: TimesheetApprovalProps) {
       })
 
       if (response.ok) {
-        toast.success('Timesheet rejected successfully!')
+        toast({ title: 'Timesheet rejected' })
         setIsRejectionDialogOpen(false)
         setSelectedSubmission(null)
         setRejectionReason('')
-        // Refresh the page to show updated status
         window.location.reload()
       } else {
         const errorData = await response.json()
-        toast.error(`Failed to reject timesheet: ${errorData.error}`)
+        toast({ title: 'Failed to reject timesheet', description: errorData.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error rejecting timesheet:', error)
-      toast.error('Failed to reject timesheet')
+    } catch {
+      toast({ title: 'Failed to reject timesheet', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }
@@ -176,16 +173,14 @@ export function TimesheetApproval({ submissions }: TimesheetApprovalProps) {
       })
 
       if (response.ok) {
-        toast.success('Timesheet reopened for editing!')
-        // Refresh the page to show updated status
+        toast({ title: 'Timesheet reopened for editing' })
         window.location.reload()
       } else {
         const errorData = await response.json()
-        toast.error(`Failed to reopen timesheet: ${errorData.error}`)
+        toast({ title: 'Failed to reopen timesheet', description: errorData.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error reopening timesheet:', error)
-      toast.error('Failed to reopen timesheet')
+    } catch {
+      toast({ title: 'Failed to reopen timesheet', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }
@@ -203,16 +198,14 @@ export function TimesheetApproval({ submissions }: TimesheetApprovalProps) {
       })
 
       if (response.ok) {
-        toast.success('Timesheet submission deleted successfully!')
-        // Refresh the page to show updated list
+        toast({ title: 'Timesheet submission deleted' })
         window.location.reload()
       } else {
         const errorData = await response.json()
-        toast.error(`Failed to delete timesheet: ${errorData.error}`)
+        toast({ title: 'Failed to delete timesheet', description: errorData.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error deleting timesheet:', error)
-      toast.error('Failed to delete timesheet')
+    } catch {
+      toast({ title: 'Failed to delete timesheet', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { Clock, Calculator, RotateCcw, X } from 'lucide-react'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface PopupTimeSelectorProps {
   regularHours: number
@@ -23,6 +23,7 @@ export function PopupTimeSelector({
   disabled = false,
   className = ''
 }: PopupTimeSelectorProps) {
+  const { toast } = useToast()
   const [isOpen, setIsOpen] = useState(false)
   const [startTime, setStartTime] = useState('')
   const [endTime, setEndTime] = useState('')
@@ -175,7 +176,7 @@ export function PopupTimeSelector({
     setCalculatedTotal(0)
     onRegularHoursChange(0)
     onOvertimeHoursChange(0)
-    toast.success('Time inputs cleared!')
+    toast({ title: 'Time inputs cleared' })
   }
 
   // Apply calculated hours
@@ -183,7 +184,7 @@ export function PopupTimeSelector({
     onRegularHoursChange(calculatedRegular)
     onOvertimeHoursChange(calculatedOvertime)
     setIsOpen(false)
-    toast.success(`Applied: ${formatHours(calculatedRegular)} regular, ${formatHours(calculatedOvertime)} overtime`)
+    toast({ title: `Applied: ${formatHours(calculatedRegular)} regular, ${formatHours(calculatedOvertime)} overtime` })
   }
 
 

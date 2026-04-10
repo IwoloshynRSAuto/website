@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 import { TimeInputWithCalculation } from './time-input-with-calculation'
 
 interface User {
@@ -69,6 +69,7 @@ interface EditTimeEntryDialogProps {
 }
 
 export function EditTimeEntryDialog({ isOpen, onClose, timeEntry }: EditTimeEntryDialogProps) {
+  const { toast } = useToast()
   const router = useRouter()
   const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
@@ -180,12 +181,12 @@ export function EditTimeEntryDialog({ isOpen, onClose, timeEntry }: EditTimeEntr
 
     // Validate required fields
     if (!formData.userId) {
-      toast.error('Please select a user')
+      toast({ title: 'Please select a user', variant: 'destructive' })
       setIsLoading(false)
       return
     }
     if (!formData.jobId) {
-      toast.error('Please select a job')
+      toast({ title: 'Please select a job', variant: 'destructive' })
       setIsLoading(false)
       return
     }
@@ -214,24 +215,20 @@ export function EditTimeEntryDialog({ isOpen, onClose, timeEntry }: EditTimeEntr
       })
 
       if (response.ok) {
-        toast.success('Time entry updated successfully')
+        toast({ title: 'Time entry updated successfully' })
         onClose()
         router.refresh()
       } else {
         const errorData = await response.json()
-        console.error('Time entry update failed:', errorData)
-        
-        // Show detailed validation errors if available
         if (errorData.details && Array.isArray(errorData.details)) {
           const validationErrors = errorData.details.map((err: any) => `${err.path.join('.')}: ${err.message}`).join(', ')
-          toast.error(`Validation errors: ${validationErrors}`)
+          toast({ title: 'Validation error', description: validationErrors, variant: 'destructive' })
         } else {
-          toast.error(`Failed to update time entry: ${errorData.error || 'Unknown error'}`)
+          toast({ title: 'Failed to update time entry', description: errorData.error || 'Unknown error', variant: 'destructive' })
         }
       }
-    } catch (error) {
-      console.error('Error updating time entry:', error)
-      toast.error('An error occurred while updating the time entry')
+    } catch {
+      toast({ title: 'An error occurred while updating the time entry', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }
@@ -252,17 +249,15 @@ export function EditTimeEntryDialog({ isOpen, onClose, timeEntry }: EditTimeEntr
       })
 
       if (response.ok) {
-        toast.success('Time entry deleted successfully')
+        toast({ title: 'Time entry deleted successfully' })
         onClose()
         router.refresh()
       } else {
         const errorData = await response.json()
-        console.error('Time entry deletion failed:', errorData)
-        toast.error(`Failed to delete time entry: ${errorData.error || 'Unknown error'}`)
+        toast({ title: 'Failed to delete time entry', description: errorData.error || 'Unknown error', variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error deleting time entry:', error)
-      toast.error('An error occurred while deleting the time entry')
+    } catch {
+      toast({ title: 'An error occurred while deleting the time entry', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }

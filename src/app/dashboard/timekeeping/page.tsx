@@ -47,7 +47,7 @@ export default async function TimekeepingPage() {
     orderBy: { code: 'asc' }
   })
 
-  const isAdmin = session.user.role === 'ADMIN'
+  const userIsAdmin = session.user.role === 'ADMIN'
   const canViewApprovalsTab = isAdmin(session.user as AuthUser)
 
   return (
@@ -57,7 +57,7 @@ export default async function TimekeepingPage() {
         users={users}
       jobs={jobs}
       laborCodes={laborCodes}
-        isAdmin={isAdmin}
+        isAdmin={userIsAdmin}
         canViewApprovalsTab={canViewApprovalsTab}
       />
   )

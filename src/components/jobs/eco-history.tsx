@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { FileText, CheckCircle, Clock, XCircle, AlertCircle } from 'lucide-react'
 import { format } from 'date-fns'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface ECO {
   id: string
@@ -33,6 +33,7 @@ interface ECOHistoryProps {
 }
 
 export function ECOHistory({ jobId, jobNumber }: ECOHistoryProps) {
+  const { toast } = useToast()
   const [ecos, setEcos] = useState<ECO[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -65,15 +66,14 @@ export function ECOHistory({ jobId, jobNumber }: ECOHistoryProps) {
       })
 
       if (response.ok) {
-        toast.success('ECO applied successfully')
-        fetchECOs() // Refresh the list
+        toast({ title: 'ECO applied successfully' })
+        fetchECOs()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to apply ECO')
+        toast({ title: 'Failed to apply ECO', description: error.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error applying ECO:', error)
-      toast.error('Failed to apply ECO')
+    } catch {
+      toast({ title: 'Failed to apply ECO', variant: 'destructive' })
     }
   }
 

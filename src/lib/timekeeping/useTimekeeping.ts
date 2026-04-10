@@ -6,7 +6,7 @@
 'use client'
 
 import { useState } from 'react'
-import { toast } from 'react-hot-toast'
+import { toast } from '@/components/ui/use-toast'
 
 const API_BASE = '/api/timekeeping'
 
@@ -56,7 +56,7 @@ export function useTimeOffRequests() {
       const url = `${API_BASE}/time-off?${params.toString()}`
       return await apiCall<any[]>(url)
     } catch (err: any) {
-      toast.error(err.message || 'Failed to fetch time-off requests')
+      toast({ title: err.message || 'Failed to fetch time-off requests', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -70,10 +70,10 @@ export function useTimeOffRequests() {
         method: 'POST',
         body: JSON.stringify(data),
       })
-      toast.success('Time-off request created successfully')
+      toast({ title: 'Time-off request created successfully' })
       return request
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create time-off request')
+      toast({ title: err.message || 'Failed to create time-off request', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -107,7 +107,7 @@ export function useExpenseReports() {
       const url = `${API_BASE}/expenses?${params.toString()}`
       return await apiCall<any[]>(url)
     } catch (err: any) {
-      toast.error(err.message || 'Failed to fetch expense reports')
+      toast({ title: err.message || 'Failed to fetch expense reports', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -121,10 +121,10 @@ export function useExpenseReports() {
         method: 'POST',
         body: JSON.stringify(data),
       })
-      toast.success('Expense report created successfully')
+      toast({ title: 'Expense report created successfully' })
       return report
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create expense report')
+      toast({ title: err.message || 'Failed to create expense report', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -148,10 +148,10 @@ export function useExpenseReports() {
         throw new Error(result.error || 'Failed to upload receipt')
       }
 
-      toast.success('Receipt uploaded successfully')
+      toast({ title: 'Receipt uploaded successfully' })
       return result.data
     } catch (err: any) {
-      toast.error(err.message || 'Failed to upload receipt')
+      toast({ title: err.message || 'Failed to upload receipt', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -169,7 +169,7 @@ export function useServiceReports() {
     try {
       return await apiCall<any[]>(`${API_BASE}/service-reports?jobId=${jobId}`)
     } catch (err: any) {
-      toast.error(err.message || 'Failed to fetch service reports')
+      toast({ title: err.message || 'Failed to fetch service reports', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -183,10 +183,10 @@ export function useServiceReports() {
         method: 'POST',
         body: JSON.stringify(data),
       })
-      toast.success('Service report created successfully')
+      toast({ title: 'Service report created successfully' })
       return report
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create service report')
+      toast({ title: err.message || 'Failed to create service report', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)

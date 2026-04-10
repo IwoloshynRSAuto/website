@@ -5,7 +5,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Calculator, RotateCcw } from 'lucide-react'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface TimeInputWithCalculationProps {
   regularHours: number
@@ -92,7 +92,8 @@ export function TimeInputWithCalculation({
   disabled = false,
   className = ''
 }: TimeInputWithCalculationProps) {
-  // Validate callbacks are provided - do this FIRST before any hooks
+  const { toast } = useToast()
+  // Validate callbacks are provided
   if (!onRegularHoursChange || !onOvertimeHoursChange) {
     return null
   }
@@ -198,7 +199,7 @@ export function TimeInputWithCalculation({
     if (onOvertimeHoursChangeRef.current) {
       onOvertimeHoursChangeRef.current(0)
     }
-    toast.success('Time inputs cleared!')
+    toast({ title: 'Time inputs cleared' })
   }
 
 

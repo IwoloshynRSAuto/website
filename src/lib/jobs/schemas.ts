@@ -20,6 +20,7 @@ export const createJobSchema = z.object({
   workCode: z.string().optional().nullable(),
   estimatedCost: z.number().nonnegative().optional().nullable(),
   dueTodayPercent: z.number().min(0).max(100).optional().nullable(),
+  fileLink: z.string().optional().nullable(),
 })
 
 export const updateJobSchema = z.object({

@@ -6,7 +6,7 @@
 'use client'
 
 import { useState } from 'react'
-import { toast } from 'react-hot-toast'
+import { toast } from '@/components/ui/use-toast'
 
 const API_BASE = '/api/quotes'
 
@@ -63,7 +63,7 @@ export function useQuotes() {
       return quotes
     } catch (err: any) {
       setError(err.message)
-      toast.error(err.message || 'Failed to fetch quotes')
+      toast({ title: err.message || 'Failed to fetch quotes', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -87,7 +87,7 @@ export function useQuote(id: string) {
       return data
     } catch (err: any) {
       setError(err.message)
-      toast.error(err.message || 'Failed to fetch quote')
+      toast({ title: err.message || 'Failed to fetch quote', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -112,10 +112,10 @@ export function useCreateQuote() {
         method: 'POST',
         body: JSON.stringify(data),
       })
-      toast.success('Quote created successfully')
+      toast({ title: 'Quote created successfully' })
       return quote
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create quote')
+      toast({ title: err.message || 'Failed to create quote', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -135,10 +135,10 @@ export function useUpdateQuote() {
         method: 'PATCH',
         body: JSON.stringify(data),
       })
-      toast.success('Quote updated successfully')
+      toast({ title: 'Quote updated successfully' })
       return quote
     } catch (err: any) {
-      toast.error(err.message || 'Failed to update quote')
+      toast({ title: err.message || 'Failed to update quote', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -173,10 +173,10 @@ export function useExportQuotePDF() {
       window.URL.revokeObjectURL(url)
       document.body.removeChild(a)
 
-      toast.success('PDF exported successfully')
+      toast({ title: 'PDF exported successfully' })
       return blob
     } catch (err: any) {
-      toast.error(err.message || 'Failed to export PDF')
+      toast({ title: err.message || 'Failed to export PDF', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -206,10 +206,10 @@ export function useUploadQuoteFile() {
         throw new Error(data.error || 'Failed to upload file')
       }
 
-      toast.success('File uploaded successfully')
+      toast({ title: 'File uploaded successfully' })
       return data
     } catch (err: any) {
-      toast.error(err.message || 'Failed to upload file')
+      toast({ title: err.message || 'Failed to upload file', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)

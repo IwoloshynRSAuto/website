@@ -2,6 +2,104 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
+import { JobService } from '@/lib/jobs/service'
+import { createJobSchema } from '@/lib/jobs/schemas'
+import { ZodError } from 'zod'
+
+const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
+
+function normalizeCreateJobBody(raw: Record<string, unknown>) {
+  const quoted = raw['quotedAmount']
+  const estimated = raw['estimatedCost']
+  const estimatedCost =
+    typeof estimated === 'number' && !Number.isNaN(estimated)
+      ? estimated
+      : typeof quoted === 'number' && !Number.isNaN(quoted)
+        ? quoted
+        : undefined
+
+  const str = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v))
+  const optionalId = (v: unknown) => {
+    const s = str(v).trim()
+    return s.length > 0 ? s : null
+  }
+
+  const p = raw['priority']
+  const priority =
+    typeof p === 'string' && (PRIORITIES as readonly string[]).includes(p) ? p : 'MEDIUM'
+
+  return {
+    ...raw,
+    customerId: optionalId(raw['customerId']),
+    quoteId: optionalId(raw['quoteId']),
+    assignedToId: optionalId(raw['assignedToId']),
+    fileLink: optionalId(raw['fileLink']),
+    estimatedCost,
+    priority,
+  }
+}
+
+/** Create a Job or Quote row (type=QUOTE) in the jobs table; quoteId is optional for walk-in jobs. */
+export async function POST(request: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 })
+    }
+
+    const raw = (await request.json()) as Record<string, unknown>
+    const body = normalizeCreateJobBody(raw)
+    const validated = createJobSchema.parse(body)
+
+    const dbUser = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { id: true },
+    })
+    if (!dbUser) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Your login is not linked to an employee record. Sign out, sign in again, or ask an admin to check your user in the database.',
+        },
+        { status: 403 }
+      )
+    }
+
+    const job = await JobService.createJob(validated, session.user.id)
+
+    const jobResponse = {
+      ...job,
+      estimatedHours: job.estimatedHours != null ? Number(job.estimatedHours) : null,
+      actualHours: job.actualHours != null ? Number(job.actualHours) : null,
+      estimatedCost: job.estimatedCost != null ? Number(job.estimatedCost) : null,
+      dueTodayPercent: job.dueTodayPercent != null ? Number(job.dueTodayPercent) : null,
+    }
+
+    return NextResponse.json({ success: true, data: jobResponse }, { status: 201 })
+  } catch (error: unknown) {
+    if (error instanceof ZodError) {
+      const first = error.flatten().fieldErrors
+      const msg = Object.entries(first)
+        .map(([k, v]) => (Array.isArray(v) ? `${k}: ${v.join(', ')}` : k))
+        .join('; ')
+      return NextResponse.json(
+        { success: false, error: msg || 'Validation error', details: error.flatten() },
+        { status: 400 }
+      )
+    }
+    const message = error instanceof Error ? error.message : 'Failed to create job'
+    console.error('[POST /api/jobs]', error)
+    const clientSafe =
+      message === 'Quote not found' ||
+      message === 'A job is already linked to this quote' ||
+      message === 'Job number already exists'
+    return NextResponse.json(
+      { success: false, error: clientSafe ? message : 'Failed to create job' },
+      { status: clientSafe ? 400 : 500 }
+    )
+  }
+}
 
 // GET all jobs with optional search, filtering, and pagination
 export async function GET(request: NextRequest) {
@@ -12,6 +110,13 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url)
+
+    const suggest = searchParams.get('suggest')
+    if (suggest === 'job' || suggest === 'quote') {
+      const jobNumber = await JobService.peekNextJobNumber(suggest === 'quote' ? 'QUOTE' : 'JOB')
+      return NextResponse.json({ success: true, jobNumber })
+    }
+
     const search = searchParams.get('search') || ''
     const type = searchParams.get('type') || '' // 'JOB', 'QUOTE', or empty for all
     const status = searchParams.get('status') || ''

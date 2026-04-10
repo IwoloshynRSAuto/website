@@ -15,38 +15,83 @@ import {
 } from './schemas'
 
 export class JobService {
+  private static numericSuffixForPrefix(jobNumber: string, prefix: 'E' | 'Q'): number | null {
+    const s = jobNumber.trim()
+    const m = s.match(prefix === 'E' ? /^E(\d+)$/i : /^Q(\d+)$/i)
+    if (m) return parseInt(m[1], 10)
+    const fallback = parseInt(s.replace(/^[QE]/i, ''), 10)
+    return Number.isNaN(fallback) ? null : fallback
+  }
+
   /**
-   * Generate a unique job number
+   * Next E… or Q… number from the full database (not a paginated list).
+   * For Q, includes both `jobs` (quote rows) and `quotes.quoteNumber` so numbers never collide.
+   */
+  static async peekNextJobNumber(type: 'QUOTE' | 'JOB' = 'JOB'): Promise<string> {
+    const prefix: 'E' | 'Q' = type === 'QUOTE' ? 'Q' : 'E'
+
+    const jobs = await prisma.job.findMany({
+      where: {
+        jobNumber: { startsWith: prefix, mode: 'insensitive' },
+      },
+      select: { jobNumber: true },
+    })
+
+    let max = 0
+    for (const j of jobs) {
+      const n = JobService.numericSuffixForPrefix(j.jobNumber, prefix)
+      if (n != null) max = Math.max(max, n)
+    }
+
+    if (type === 'QUOTE') {
+      const quotes = await prisma.quote.findMany({
+        where: { quoteNumber: { startsWith: 'Q', mode: 'insensitive' } },
+        select: { quoteNumber: true },
+      })
+      for (const q of quotes) {
+        const n = JobService.numericSuffixForPrefix(q.quoteNumber, 'Q')
+        if (n != null) max = Math.max(max, n)
+      }
+    }
+
+    const next = max > 0 ? max + 1 : 1001
+    return `${prefix}${next}`
+  }
+
+  /**
+   * Generate a unique job number (same algorithm as peekNextJobNumber).
    */
   static async generateJobNumber(type: 'QUOTE' | 'JOB' = 'JOB'): Promise<string> {
-    const prefix = type === 'QUOTE' ? 'Q' : 'E'
-
-    // Find all jobs with the same prefix
-    const allJobs = await prisma.job.findMany({
-      where: {
-        jobNumber: {
-          startsWith: prefix,
-        },
-      },
-      select: {
-        jobNumber: true,
-      },
-    })
-
-    // Extract numbers and find the highest
-    const numbers = allJobs.map((job) => {
-      const num = parseInt(job.jobNumber.substring(1))
-      return isNaN(num) ? 0 : num
-    })
-
-    const maxNumber = numbers.length > 0 ? Math.max(...numbers) : 1000
-    return `${prefix}${maxNumber + 1}`
+    return this.peekNextJobNumber(type)
   }
 
   /**
    * Create a new job
    */
   static async createJob(data: CreateJobInput, userId: string) {
+    let customerId = data.customerId?.trim() ? data.customerId.trim() : null
+    let quoteId = data.quoteId?.trim() ? data.quoteId.trim() : null
+
+    if (quoteId) {
+      const quote = await prisma.quote.findUnique({
+        where: { id: quoteId },
+        select: { id: true, customerId: true },
+      })
+      if (!quote) {
+        throw new Error('Quote not found')
+      }
+      const jobForQuote = await prisma.job.findUnique({
+        where: { quoteId },
+        select: { id: true },
+      })
+      if (jobForQuote) {
+        throw new Error('A job is already linked to this quote')
+      }
+      if (!customerId && quote.customerId) {
+        customerId = quote.customerId
+      }
+    }
+
     // Generate job number if not provided
     let jobNumber = data.jobNumber?.trim() || ''
     if (!jobNumber) {
@@ -72,12 +117,13 @@ export class JobService {
         status: data.status || (data.type === 'QUOTE' ? 'QUOTE' : 'ACTIVE'),
         priority: data.priority || 'MEDIUM',
         estimatedHours: data.estimatedHours || null,
-        customerId: data.customerId || null,
-        quoteId: data.quoteId || null,
-        estimatedCost: data.estimatedCost || null,
-        assignedToId: data.assignedToId || null,
+        customerId,
+        quoteId,
+        estimatedCost: data.estimatedCost ?? null,
+        assignedToId: data.assignedToId?.trim() ? data.assignedToId.trim() : null,
         workCode: data.workCode || null,
-        dueTodayPercent: data.dueTodayPercent || null,
+        dueTodayPercent: data.dueTodayPercent ?? null,
+        fileLink: data.fileLink?.trim() ? data.fileLink.trim() : null,
         startDate: data.type === 'JOB' ? (data.startDate ? new Date(data.startDate) : new Date()) : data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate ? new Date(data.endDate) : null,
         createdById: userId,

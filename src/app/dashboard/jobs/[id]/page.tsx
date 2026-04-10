@@ -1,16 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { notFound } from 'next/navigation'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { ArrowLeft, Calendar, User, Building, DollarSign, FileText, Clock, Plus } from 'lucide-react'
-import { format } from 'date-fns'
-import Link from 'next/link'
-import { DeleteJobButton } from '@/components/jobs/delete-job-button'
 import { JobDetailsClient } from './job-details-client'
-import { JobDetailsSync } from './job-details-sync'
 import { JobDetailsEditable } from './job-details-editable'
 import { ECOHistory } from '@/components/jobs/eco-history'
+import { dashboardUi } from '@/components/layout/dashboard-ui'
 
 interface JobDetailsPageProps {
   params: Promise<{
@@ -144,9 +137,9 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
   }))
 
   return (
-    <div>
+    <div className={dashboardUi.pageWrap}>
       <JobDetailsEditable job={jobWithConvertedTimeEntries} users={users} customers={customers} />
-      <div className="p-6">
+      <div>
         <JobDetailsClient
           jobId={job.id}
           jobNumber={job.jobNumber}

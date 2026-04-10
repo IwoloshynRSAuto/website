@@ -1,9 +1,8 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 
-const FORM_STORAGE_KEY = 'create-job-dialog-form'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,9 +10,24 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { SearchableSelect } from '@/components/ui/searchable-select'
-import { toast } from 'react-hot-toast'
-import { FileText, Briefcase } from 'lucide-react'
-import { normalizeProjectJobNumber } from '@/lib/utils/job-number'
+import { useToast } from '@/components/ui/use-toast'
+import { normalizeProjectJobNumber, normalizeQuoteRecordNumber } from '@/lib/utils/job-number'
+
+export type QuoteDestination = 'job_row' | 'quote_pipeline'
+
+function storageKey(mode: 'job' | 'quote', quoteDestination?: QuoteDestination) {
+  if (mode === 'job') return 'create-job-dialog-v3-job'
+  const qd = quoteDestination ?? 'quote_pipeline'
+  return qd === 'job_row' ? 'create-job-dialog-v3-quote-jobrow' : 'create-job-dialog-v3-quote-pipeline'
+}
+
+/** YYYY-MM-DD from date input → ISO at noon UTC; invalid/empty → null (never throws). */
+function dateInputToNoonISO(value: string | undefined | null): string | null {
+  const v = value?.trim()
+  if (!v) return null
+  const d = new Date(`${v}T12:00:00`)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
 
 interface Customer {
   id: string
@@ -30,21 +44,37 @@ interface Quote {
   }
 }
 
-interface CreateJobDialogProps {
+export interface CreateJobDialogProps {
   isOpen: boolean
   onClose: () => void
+  /** Separate entry points: job = E… only, quote = Q… only (no in-dialog toggle). */
+  mode: 'job' | 'quote'
+  /**
+   * When `mode === 'quote'`: `quote_pipeline` = real quote in `/api/quotes` (kanban).
+   * `job_row` = legacy `jobs` row with type QUOTE (jobs board).
+   */
+  quoteDestination?: QuoteDestination
   selectedQuote?: Quote | null
+  /** After a successful create (e.g. reload kanban). */
+  onCreated?: () => void
 }
 
-export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDialogProps) {
+export function CreateJobDialog({
+  isOpen,
+  onClose,
+  mode,
+  quoteDestination = 'quote_pipeline',
+  selectedQuote,
+  onCreated,
+}: CreateJobDialogProps) {
+  const { toast } = useToast()
   const router = useRouter()
+  const recordType = mode === 'job' ? 'JOB' : 'QUOTE'
+
   const [isLoading, setIsLoading] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [quotes, setQuotes] = useState<Quote[]>([])
-  const [recordType, setRecordType] = useState<'QUOTE' | 'JOB'>('QUOTE')
-  
-  // Load initial form data from localStorage
-  const loadFormData = () => {
+
+  const loadFormData = useCallback(() => {
     if (typeof window === 'undefined') {
       return {
         jobNumber: '',
@@ -58,33 +88,33 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
         endDate: '',
         quotedAmount: '',
         assignedTo: '',
-        fileLink: ''
+        fileLink: '',
       }
     }
-    
+
     try {
-      const stored = localStorage.getItem(FORM_STORAGE_KEY)
+      const stored = localStorage.getItem(storageKey(mode, quoteDestination))
       if (stored) {
         const parsed = JSON.parse(stored)
         return {
-          jobNumber: parsed.jobNumber || '',
+          jobNumber: '',
           title: parsed.title || '',
           description: parsed.description || '',
           customerId: parsed.customerId || '',
-          quoteId: parsed.quoteId || '',
+          quoteId: '',
           status: parsed.status || 'PLANNING',
           priority: parsed.priority || 'MEDIUM',
           startDate: parsed.startDate || new Date().toISOString().split('T')[0],
           endDate: parsed.endDate || '',
           quotedAmount: parsed.quotedAmount || '',
           assignedTo: parsed.assignedTo || '',
-          fileLink: parsed.fileLink || ''
+          fileLink: parsed.fileLink || '',
         }
       }
     } catch (e) {
       console.error('[CreateJobDialog] Error loading form data:', e)
     }
-    
+
     return {
       jobNumber: '',
       title: '',
@@ -97,97 +127,107 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
       endDate: '',
       quotedAmount: '',
       assignedTo: '',
-      fileLink: ''
+      fileLink: '',
     }
-  }
-  
-  const initialData = loadFormData()
-  const [formData, setFormData] = useState(initialData)
+  }, [mode, quoteDestination])
+
+  const [formData, setFormData] = useState(() => loadFormData())
   const isInitialMount = useRef(true)
   const skipNextSave = useRef(false)
 
-  // Load form data from localStorage when dialog opens
-  useEffect(() => {
-    if (isOpen && typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(FORM_STORAGE_KEY)
-        if (stored) {
-          const parsed = JSON.parse(stored)
-          setFormData({
-            jobNumber: parsed.jobNumber || '',
-            title: parsed.title || '',
-            description: parsed.description || '',
-            customerId: parsed.customerId || '',
-            quoteId: parsed.quoteId || '',
-            status: parsed.status || 'PLANNING',
-            priority: parsed.priority || 'MEDIUM',
-            startDate: parsed.startDate || new Date().toISOString().split('T')[0],
-            endDate: parsed.endDate || '',
-            quotedAmount: parsed.quotedAmount || '',
-            assignedTo: parsed.assignedTo || '',
-            fileLink: parsed.fileLink || ''
-          })
-          setRecordType(parsed.recordType || 'QUOTE')
-          skipNextSave.current = true
-          console.log('[CreateJobDialog] ✅ Restored form data from localStorage')
-        }
-        fetchCustomers()
-        fetchQuotes()
-        generateJobNumber(recordType)
-        if (selectedQuote) {
-          setFormData(prev => ({
-            ...prev,
-            title: selectedQuote.title,
-            customerId: '', // Will be set when we find the customer
-            quoteId: selectedQuote.id,
-            quotedAmount: selectedQuote.amount.toString()
-          }))
-        }
-      } catch (e) {
-        console.error('[CreateJobDialog] ❌ Error loading form data:', e)
+  const fetchSuggestedNumber = useCallback(async () => {
+    const suggest = mode === 'job' ? 'job' : 'quote'
+    try {
+      const response = await fetch(`/api/jobs?suggest=${suggest}`)
+      if (!response.ok) return
+      const result = await response.json()
+      const next = result.jobNumber as string | undefined
+      if (next) {
+        setFormData((prev) => ({ ...prev, jobNumber: next }))
       }
+    } catch (error) {
+      console.error('Failed to fetch suggested number:', error)
+      setFormData((prev) => ({
+        ...prev,
+        jobNumber: mode === 'job' ? 'E1001' : 'Q1001',
+      }))
     }
-  }, [isOpen, selectedQuote])
+  }, [mode])
 
-  // Save form data to localStorage whenever it changes
+  // When dialog opens: restore draft fields, then always suggest next E/Q from full DB (+1 over max).
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return
+
+    try {
+      const stored = localStorage.getItem(storageKey(mode, quoteDestination))
+      if (stored) {
+        const parsed = JSON.parse(stored)
+        setFormData({
+          jobNumber: '',
+          title: parsed.title || '',
+          description: parsed.description || '',
+          customerId: parsed.customerId || '',
+          quoteId: '',
+          status: parsed.status || 'PLANNING',
+          priority: parsed.priority || 'MEDIUM',
+          startDate: parsed.startDate || new Date().toISOString().split('T')[0],
+          endDate: parsed.endDate || '',
+          quotedAmount: parsed.quotedAmount || '',
+          assignedTo: parsed.assignedTo || '',
+          fileLink: parsed.fileLink || '',
+        })
+        skipNextSave.current = true
+      } else {
+        setFormData(loadFormData())
+        skipNextSave.current = true
+      }
+
+      void fetchCustomers()
+      void fetchSuggestedNumber()
+
+      if (selectedQuote && mode === 'job') {
+        setFormData((prev) => ({
+          ...prev,
+          title: selectedQuote.title,
+          customerId: '',
+          quoteId: selectedQuote.id,
+          quotedAmount: selectedQuote.amount.toString(),
+        }))
+      }
+    } catch (e) {
+      console.error('[CreateJobDialog] Error on open:', e)
+    }
+  }, [isOpen, mode, quoteDestination, selectedQuote, fetchSuggestedNumber, loadFormData])
+
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false
       return
     }
-    
+
     if (skipNextSave.current) {
       skipNextSave.current = false
       return
     }
-    
+
     if (isOpen && typeof window !== 'undefined') {
       try {
         const dataToSave = {
           ...formData,
-          recordType,
+          quoteId: selectedQuote && mode === 'job' ? formData.quoteId : '',
         }
-        localStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(dataToSave))
-        console.log('[CreateJobDialog] 💾 Auto-saved form data to localStorage')
+        localStorage.setItem(storageKey(mode, quoteDestination), JSON.stringify(dataToSave))
       } catch (e) {
         console.error('[CreateJobDialog] Error saving form data:', e)
       }
     }
-  }, [formData, recordType, isOpen])
-
-  // Auto-generate job number when type changes
-  useEffect(() => {
-    if (isOpen) {
-      generateJobNumber(recordType)
-    }
-  }, [recordType, isOpen])
+  }, [formData, isOpen, mode, quoteDestination, selectedQuote])
 
   const fetchCustomers = async () => {
     try {
       const response = await fetch('/api/customers')
       if (response.ok) {
         const result = await response.json()
-        // Handle both wrapped { success, data } and direct array responses
         const data = result.data || (Array.isArray(result) ? result : [])
         setCustomers(Array.isArray(data) ? data : [])
       }
@@ -197,80 +237,17 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
     }
   }
 
-  const fetchQuotes = async () => {
-    try {
-      const response = await fetch('/api/quotes')
-      if (response.ok) {
-        const result = await response.json()
-        // Handle both wrapped { success, data } and direct array responses
-        const data = result.data || (Array.isArray(result) ? result : [])
-        setQuotes(Array.isArray(data) ? data : [])
-      }
-    } catch (error) {
-      console.error('Failed to fetch quotes:', error)
-      setQuotes([])
-    }
-  }
-
-  const generateJobNumber = async (type: 'QUOTE' | 'JOB') => {
-    try {
-      const response = await fetch('/api/jobs')
-      if (response.ok) {
-        const result = await response.json()
-        // Handle both wrapped { success, data } and direct array responses
-        const jobs = result.data || (Array.isArray(result) ? result : [])
-        const jobsArray = Array.isArray(jobs) ? jobs : []
-        const prefix = type === 'QUOTE' ? 'Q' : 'E'
-        
-        // Filter jobs by type prefix
-        const sameTypeJobs = jobsArray.filter((job: any) => 
-          job && job.jobNumber && job.jobNumber.startsWith(prefix)
-        )
-        
-        if (sameTypeJobs.length === 0) {
-          setFormData(prev => ({ ...prev, jobNumber: `${prefix}1001` }))
-        } else {
-          // Extract numbers and find the highest
-          const numbers = sameTypeJobs.map((job: any) => {
-            const num = parseInt(job.jobNumber.substring(1))
-            return isNaN(num) ? 0 : num
-          })
-          const maxNumber = Math.max(...numbers)
-          const nextNumber = maxNumber + 1
-          setFormData(prev => ({ ...prev, jobNumber: `${prefix}${nextNumber}` }))
-        }
-      }
-    } catch (error) {
-      console.error('Failed to generate job number:', error)
-      const prefix = type === 'QUOTE' ? 'Q' : 'E'
-      setFormData(prev => ({ ...prev, jobNumber: `${prefix}1001` }))
-    }
-  }
-
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
-    setFormData(prev => ({ ...prev, [name]: value }))
-    
-    // Auto-generate job number if the field is cleared
+    setFormData((prev) => ({ ...prev, [name]: value }))
+
     if (name === 'jobNumber' && !value.trim()) {
-      generateJobNumber(recordType)
+      void fetchSuggestedNumber()
     }
   }
 
   const handleSelectChange = (name: string, value: string) => {
-    setFormData(prev => ({ ...prev, [name]: value }))
-  }
-
-  const handleQuoteSelect = (quoteId: string) => {
-    const selectedQuote = quotes.find(q => q.id === quoteId)
-    if (selectedQuote) {
-      setFormData(prev => ({
-        ...prev,
-        quoteId: selectedQuote.id,
-        title: selectedQuote.title,
-        quotedAmount: selectedQuote.amount.toString()
-      }))
-    }
+    setFormData((prev) => ({ ...prev, [name]: value }))
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -278,50 +255,81 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
     setIsLoading(true)
 
     try {
-      // Convert date strings to ISO format with time set to noon to avoid timezone issues
-      const startDateISO = formData.startDate ? new Date(formData.startDate + 'T12:00:00').toISOString() : null
-      const endDateISO = formData.endDate ? new Date(formData.endDate + 'T12:00:00').toISOString() : null
+      const startDateISO = dateInputToNoonISO(formData.startDate)
+      const endDateISO = dateInputToNoonISO(formData.endDate)
 
       const rawNum = formData.jobNumber.trim()
       const jobNumberPayload =
-        recordType === 'JOB' && rawNum ? normalizeProjectJobNumber(rawNum) : rawNum || null
+        mode === 'job' && rawNum
+          ? normalizeProjectJobNumber(rawNum)
+          : mode === 'quote' && rawNum
+            ? normalizeQuoteRecordNumber(rawNum)
+            : rawNum || null
 
-      const response = await fetch('/api/jobs', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          type: recordType,
-          jobNumber: jobNumberPayload,
+      const quoteIdForApi = mode === 'job' ? (selectedQuote?.id ?? null) : null
+      const isQuotePipeline = mode === 'quote' && quoteDestination === 'quote_pipeline'
+
+      let response: Response
+      if (isQuotePipeline) {
+        const body: Record<string, unknown> = {
           title: formData.title,
           description: formData.description || null,
-          customerId: formData.customerId,
-          quoteId: formData.quoteId || null,
-          status: formData.status,
-          priority: formData.priority,
-          startDate: startDateISO,
-          endDate: endDateISO,
-          quotedAmount: parseFloat(formData.quotedAmount) || 0,
-          assignedToId: formData.assignedTo || null,
-          fileLink: formData.fileLink || null
-        }),
-      })
+          customerId: formData.customerId?.trim() ? formData.customerId.trim() : null,
+          amount: parseFloat(formData.quotedAmount) || 0,
+          validUntil: formData.endDate?.trim() || null,
+        }
+        if (jobNumberPayload) body.quoteNumber = jobNumberPayload
+        response = await fetch('/api/quotes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      } else {
+        response = await fetch('/api/jobs', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            type: recordType,
+            jobNumber: jobNumberPayload,
+            title: formData.title,
+            description: formData.description || null,
+            customerId: formData.customerId,
+            quoteId: quoteIdForApi,
+            status: formData.status,
+            priority: formData.priority,
+            startDate: startDateISO,
+            endDate: endDateISO,
+            quotedAmount: parseFloat(formData.quotedAmount) || 0,
+            assignedToId: formData.assignedTo || null,
+            fileLink: formData.fileLink || null,
+          }),
+        })
+      }
 
       if (response.ok) {
-        toast.success(`${recordType === 'QUOTE' ? 'Quote' : 'Job'} created successfully`)
-        
-        // Clear localStorage after successful creation
+        if (isQuotePipeline) {
+          const data = (await response.json()) as { data?: { quoteNumber?: string } }
+          const qn = data.data?.quoteNumber
+          toast({
+            title: 'Quote created',
+            description: qn ? `${qn} added to the pipeline.` : 'Added to the pipeline.',
+          })
+        } else {
+          toast({
+            title: `${recordType === 'QUOTE' ? 'Quote' : 'Job'} created successfully`,
+          })
+        }
+
         if (typeof window !== 'undefined') {
           try {
-            localStorage.removeItem(FORM_STORAGE_KEY)
-            console.log('[CreateJobDialog] ✅ Cleared form data after successful job/quote creation')
-          } catch (e) {
-            console.error('[CreateJobDialog] Error clearing form data:', e)
+            localStorage.removeItem(storageKey(mode, quoteDestination))
+          } catch (err) {
+            console.error('[CreateJobDialog] Error clearing form data:', err)
           }
         }
-        
-        // Reset form state
+
         setFormData({
           jobNumber: '',
           title: '',
@@ -334,91 +342,76 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
           endDate: '',
           quotedAmount: '',
           assignedTo: '',
-          fileLink: ''
+          fileLink: '',
         })
-        setRecordType('QUOTE')
-        
+
+        onCreated?.()
         onClose()
         router.refresh()
       } else {
-        const errorData = await response.json()
-        toast.error(`Failed to create ${recordType.toLowerCase()}: ${errorData.error || 'Unknown error'}`)
+        const text = await response.text()
+        let description = `HTTP ${response.status}`
+        try {
+          const errJson = JSON.parse(text) as { error?: string; message?: string }
+          description = errJson.error || errJson.message || description
+        } catch {
+          if (text.trim()) description = text.trim().slice(0, 280)
+        }
+        if (response.status === 405 && !isQuotePipeline) {
+          description =
+            'This server does not allow creating jobs from here yet (missing POST /api/jobs). Deploy the latest app version or contact support.'
+        }
+        console.error('[CreateJobDialog] create failed', response.status, description)
+        toast({
+          title: isQuotePipeline ? 'Failed to create quote' : `Failed to create ${recordType === 'QUOTE' ? 'quote' : 'job'}`,
+          description,
+          variant: 'destructive',
+        })
       }
-    } catch (error) {
-      toast.error('An error occurred')
+    } catch (err) {
+      console.error('[CreateJobDialog]', err)
+      toast({
+        title: 'An error occurred',
+        description: err instanceof Error ? err.message : 'Check the browser console for details.',
+        variant: 'destructive',
+      })
     } finally {
       setIsLoading(false)
     }
   }
 
+  const numberLabel = mode === 'job' ? 'Job number (E…)' : 'Quote number (Q…)'
+  const titleText = mode === 'job' ? 'Add job' : 'Add quote'
+  const descriptionText =
+    selectedQuote && mode === 'job'
+      ? `Create a job from quote ${selectedQuote.quoteNumber}`
+      : mode === 'job'
+        ? 'Creates an engineering job (E number). No quote is required — optional link only when opened from a quote.'
+        : quoteDestination === 'quote_pipeline'
+          ? 'Creates a draft in the quote pipeline (quotes module). Next Q is the highest Q in jobs or quotes, plus one. End date is saved as Valid until. File link and job-style status are not stored on the quote record.'
+          : 'Creates a legacy quote row on the jobs board (Q number on the jobs table).'
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Create New Job / Quote</DialogTitle>
-          <DialogDescription>
-            {selectedQuote ? 
-              `Create a job from quote ${selectedQuote.quoteNumber}` : 
-              'Select the type and fill in the details below.'
-            }
-          </DialogDescription>
+          <DialogTitle>{titleText}</DialogTitle>
+          <DialogDescription>{descriptionText}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="grid gap-4 py-4">
-          {/* Type Selector */}
-          <div className="mb-2">
-            <Label className="text-base font-semibold mb-3 block">Record Type</Label>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={() => setRecordType('QUOTE')}
-                className={`p-4 border-2 rounded-lg transition-all ${
-                  recordType === 'QUOTE'
-                    ? 'border-blue-500 bg-blue-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center justify-center mb-2">
-                  <FileText className={`h-6 w-6 ${recordType === 'QUOTE' ? 'text-blue-500' : 'text-gray-400'}`} />
-                </div>
-                <div className="text-center">
-                  <div className={`font-semibold ${recordType === 'QUOTE' ? 'text-blue-700' : 'text-gray-700'}`}>
-                    Quote
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">ID starts with Q</div>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setRecordType('JOB')}
-                className={`p-4 border-2 rounded-lg transition-all ${
-                  recordType === 'JOB'
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-center justify-center mb-2">
-                  <Briefcase className={`h-6 w-6 ${recordType === 'JOB' ? 'text-green-500' : 'text-gray-400'}`} />
-                </div>
-                <div className="text-center">
-                  <div className={`font-semibold ${recordType === 'JOB' ? 'text-green-700' : 'text-gray-700'}`}>
-                    Job
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1">ID starts with E</div>
-                </div>
-              </button>
-            </div>
-          </div>
-
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="jobNumber">Job Number</Label>
+              <Label htmlFor="jobNumber">{numberLabel}</Label>
               <Input
                 id="jobNumber"
                 name="jobNumber"
                 value={formData.jobNumber}
                 onChange={handleInputChange}
-                placeholder="Auto-generated if left empty"
+                placeholder={mode === 'job' ? 'E4053 (auto-filled, editable)' : 'Q2045 (auto-filled, editable)'}
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Suggested from the highest {mode === 'job' ? 'E' : 'Q'} number already in the system. Clear the field to refresh the suggestion.
+              </p>
             </div>
             <div>
               <Label htmlFor="title">Title *</Label>
@@ -428,13 +421,13 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
                 value={formData.title}
                 onChange={handleInputChange}
                 required
-                placeholder="e.g., Conveyor System Installation"
+                placeholder="e.g., Welding repair"
               />
             </div>
           </div>
 
           <div>
-            <Label htmlFor="fileLink">File Link</Label>
+            <Label htmlFor="fileLink">File link</Label>
             <Input
               id="fileLink"
               name="fileLink"
@@ -443,7 +436,7 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
               placeholder="L:\Projects\Job123 or file:///L:/Projects/Job123"
             />
             <p className="text-xs text-gray-500 mt-1">
-              Enter the shared drive path (e.g., L:\Projects\Job123) or file:// URL
+              Shared drive path or file:// URL (optional).
             </p>
           </div>
 
@@ -454,16 +447,16 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
               name="description"
               value={formData.description}
               onChange={handleInputChange}
-              placeholder="Optional detailed description of the job"
+              placeholder="Optional details"
             />
           </div>
 
           <div>
             <SearchableSelect
               label="Customer"
-              options={Array.isArray(customers) ? customers.map(customer => ({
+              options={Array.isArray(customers) ? customers.map((customer) => ({
                 value: customer.id,
-                label: customer.name
+                label: customer.name,
               })) : []}
               value={formData.customerId}
               onValueChange={(value) => handleSelectChange('customerId', value)}
@@ -507,11 +500,12 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
                   <SelectItem value="LOW">Low</SelectItem>
                   <SelectItem value="MEDIUM">Medium</SelectItem>
                   <SelectItem value="HIGH">High</SelectItem>
+                  <SelectItem value="URGENT">Urgent</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label htmlFor="quotedAmount">Quoted Amount</Label>
+              <Label htmlFor="quotedAmount">{mode === 'job' ? 'Estimated / quoted $' : 'Quoted amount'}</Label>
               <Input
                 id="quotedAmount"
                 name="quotedAmount"
@@ -524,10 +518,9 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
             </div>
           </div>
 
-          {/* Date fields for both Quotes and Jobs */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="startDate">{recordType === 'QUOTE' ? 'Quote Start Date' : 'Job Start Date'}</Label>
+              <Label htmlFor="startDate">Start date</Label>
               <Input
                 id="startDate"
                 name="startDate"
@@ -537,7 +530,9 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
               />
             </div>
             <div>
-              <Label htmlFor="endDate">{recordType === 'QUOTE' ? 'Quote End Date' : 'Job End Date'}</Label>
+              <Label htmlFor="endDate">
+                {mode === 'quote' && quoteDestination === 'quote_pipeline' ? 'Valid until' : 'End date'}
+              </Label>
               <Input
                 id="endDate"
                 name="endDate"
@@ -553,7 +548,7 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
               Cancel
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? 'Creating...' : `Create ${recordType === 'QUOTE' ? 'Quote' : 'Job'}`}
+              {isLoading ? 'Creating…' : mode === 'job' ? 'Create job' : 'Create quote'}
             </Button>
           </DialogFooter>
         </form>
@@ -561,5 +556,3 @@ export function CreateJobDialog({ isOpen, onClose, selectedQuote }: CreateJobDia
     </Dialog>
   )
 }
-
-

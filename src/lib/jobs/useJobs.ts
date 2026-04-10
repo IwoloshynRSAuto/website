@@ -6,7 +6,7 @@
 'use client'
 
 import { useState } from 'react'
-import { toast } from 'react-hot-toast'
+import { toast } from '@/components/ui/use-toast'
 
 const API_BASE = '/api/jobs'
 
@@ -66,7 +66,7 @@ export function useJobs() {
       return jobs
     } catch (err: any) {
       setError(err.message)
-      toast.error(err.message || 'Failed to fetch jobs')
+      toast({ title: err.message || 'Failed to fetch jobs', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -90,7 +90,7 @@ export function useJob(id: string) {
       return data
     } catch (err: any) {
       setError(err.message)
-      toast.error(err.message || 'Failed to fetch job')
+      toast({ title: err.message || 'Failed to fetch job', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -110,10 +110,10 @@ export function useCreateJob() {
         method: 'POST',
         body: JSON.stringify(data),
       })
-      toast.success('Job created successfully')
+      toast({ title: 'Job created successfully' })
       return job
     } catch (err: any) {
-      toast.error(err.message || 'Failed to create job')
+      toast({ title: err.message || 'Failed to create job', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -133,10 +133,10 @@ export function useUpdateJob() {
         method: 'PATCH',
         body: JSON.stringify(data),
       })
-      toast.success('Job updated successfully')
+      toast({ title: 'Job updated successfully' })
       return job
     } catch (err: any) {
-      toast.error(err.message || 'Failed to update job')
+      toast({ title: err.message || 'Failed to update job', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -156,10 +156,10 @@ export function useConvertQuoteToJob() {
         method: 'POST',
         body: JSON.stringify(data),
       })
-      toast.success('Quote converted to job successfully')
+      toast({ title: 'Quote converted to job successfully' })
       return job
     } catch (err: any) {
-      toast.error(err.message || 'Failed to convert quote to job')
+      toast({ title: err.message || 'Failed to convert quote to job', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)
@@ -180,7 +180,7 @@ export function useJobCosts() {
       })
       return costs
     } catch (err: any) {
-      toast.error(err.message || 'Failed to calculate job costs')
+      toast({ title: err.message || 'Failed to calculate job costs', variant: 'destructive' })
       throw err
     } finally {
       setLoading(false)

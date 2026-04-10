@@ -22,7 +22,7 @@ import {
   isSameDay 
 } from 'date-fns'
 import { ChevronLeft, ChevronRight, Download, Plus, X, Check, Clock } from 'lucide-react'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface TimeEntry {
   id: string
@@ -62,6 +62,7 @@ interface TimesheetViewProps {
 }
 
 export function TimesheetView({ timeEntries }: TimesheetViewProps) {
+  const { toast } = useToast()
   const [currentWeek, setCurrentWeek] = useState(new Date())
   const [selectedUser, setSelectedUser] = useState('ALL')
   const [selectedJob, setSelectedJob] = useState('ALL')
@@ -197,12 +198,12 @@ export function TimesheetView({ timeEntries }: TimesheetViewProps) {
 
   const submitTimesheet = () => {
     // Here you would implement the submit logic
-    toast.success('Timesheet submitted for approval!')
+    toast({ title: 'Timesheet submitted for approval' })
   }
 
   const exportTimesheet = () => {
     // Here you would implement the export logic
-    toast.success('Timesheet exported successfully!')
+    toast({ title: 'Timesheet exported successfully' })
   }
 
   // Calculate daily totals

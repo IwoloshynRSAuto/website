@@ -8,24 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useToast } from '@/components/ui/use-toast'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import {
   FileText,
   CheckCircle,
@@ -34,7 +17,6 @@ import {
   Wrench,
   Building2,
   Loader2,
-  Plus,
   Briefcase,
   Search,
 } from 'lucide-react'
@@ -42,6 +24,7 @@ import { format } from 'date-fns'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { dashboardUi } from '@/components/layout/dashboard-ui'
+import { CreateJobButton } from '@/components/jobs/create-job-button'
 
 interface Quote {
   id: string
@@ -70,8 +53,6 @@ interface QuotesKanbanBoardProps {
   embedded?: boolean
 }
 
-type CustomerOption = { id: string; name: string }
-
 export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedded = false }: QuotesKanbanBoardProps) {
   const router = useRouter()
   const { toast } = useToast()
@@ -80,91 +61,6 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
   const [convertingQuotes, setConvertingQuotes] = useState<Set<string>>(new Set())
   const [pipelineTab, setPipelineTab] = useState<'draft' | 'approved' | 'cancelled'>('draft')
   const [searchQuery, setSearchQuery] = useState('')
-
-  const [createOpen, setCreateOpen] = useState(false)
-  const [createSubmitting, setCreateSubmitting] = useState(false)
-  const [customers, setCustomers] = useState<CustomerOption[]>([])
-  const [newTitle, setNewTitle] = useState('')
-  const [newQuoteNumber, setNewQuoteNumber] = useState('')
-  const [newCustomerId, setNewCustomerId] = useState<string>('')
-  const [newAmount, setNewAmount] = useState('')
-  const [newDescription, setNewDescription] = useState('')
-  const [newValidUntil, setNewValidUntil] = useState('')
-
-  useEffect(() => {
-    if (!createOpen) return
-    void (async () => {
-      try {
-        const response = await fetch('/api/customers')
-        if (!response.ok) return
-        const result = await response.json()
-        const data = result.data || (Array.isArray(result) ? result : [])
-        setCustomers(Array.isArray(data) ? data.map((c: { id: string; name: string }) => ({ id: c.id, name: c.name })) : [])
-      } catch {
-        setCustomers([])
-      }
-    })()
-  }, [createOpen])
-
-  const resetCreateForm = () => {
-    setNewTitle('')
-    setNewQuoteNumber('')
-    setNewCustomerId('')
-    setNewAmount('')
-    setNewDescription('')
-    setNewValidUntil('')
-  }
-
-  const handleCreateQuote = async () => {
-    const title = newTitle.trim()
-    if (!title) {
-      toast({
-        title: 'Title required',
-        description: 'Enter a title for the quote.',
-        variant: 'destructive',
-      })
-      return
-    }
-
-    setCreateSubmitting(true)
-    try {
-      const amountNum = newAmount.trim() === '' ? 0 : parseFloat(newAmount)
-      const body: Record<string, unknown> = {
-        title,
-        description: newDescription.trim() || null,
-        customerId: newCustomerId && newCustomerId !== '__none__' ? newCustomerId : null,
-        amount: Number.isFinite(amountNum) ? Math.max(0, amountNum) : 0,
-        validUntil: newValidUntil.trim() || null,
-      }
-      const qn = newQuoteNumber.trim()
-      if (qn) body.quoteNumber = qn
-
-      const response = await fetch('/api/quotes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const data = await response.json()
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || data.message || 'Failed to create quote')
-      }
-
-      toast({ title: 'Quote created', description: `${data.data?.quoteNumber ?? ''} added to the pipeline.` })
-      resetCreateForm()
-      setCreateOpen(false)
-      await loadQuotes()
-      router.refresh()
-    } catch (e) {
-      toast({
-        title: 'Could not create quote',
-        description: e instanceof Error ? e.message : 'Unknown error',
-        variant: 'destructive',
-      })
-    } finally {
-      setCreateSubmitting(false)
-    }
-  }
 
   /** Pipeline tabs: everything not approved/won or cancelled/lost shows under Draft */
   const cancelledQuotes = quotes.filter(q => ['CANCELLED', 'LOST'].includes(q.status))
@@ -538,101 +434,17 @@ export function QuotesKanbanBoard({ initialQuotes, fetchOnMount = false, embedde
             aria-label="Search quotes"
           />
         </div>
-        <Button
-          type="button"
-          className={cn(dashboardUi.primaryButton, 'w-full sm:w-auto shrink-0')}
-          onClick={() => setCreateOpen(true)}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          New quote
-        </Button>
+        <CreateJobButton
+          variant="quote"
+          quoteDestination="quote_pipeline"
+          label="Add quote"
+          className="w-full sm:w-auto shrink-0"
+          onCreated={() => {
+            void loadQuotes()
+            router.refresh()
+          }}
+        />
       </div>
-
-      <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) resetCreateForm() }}>
-        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>New quote</DialogTitle>
-            <DialogDescription>
-              Creates a draft in the quote pipeline. Leave quote number blank to auto-assign the next Q number.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3 py-2">
-            <div className="space-y-2">
-              <Label htmlFor="nq-title">Title</Label>
-              <Input
-                id="nq-title"
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="e.g. Line upgrade — Acme Corp"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="nq-num">Quote number (optional)</Label>
-              <Input
-                id="nq-num"
-                value={newQuoteNumber}
-                onChange={(e) => setNewQuoteNumber(e.target.value)}
-                placeholder="Auto (Q0001, …)"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>Customer</Label>
-              <Select value={newCustomerId || '__none__'} onValueChange={(v) => setNewCustomerId(v === '__none__' ? '' : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Optional" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None</SelectItem>
-                  {customers.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="nq-amt">Amount (optional)</Label>
-              <Input
-                id="nq-amt"
-                type="number"
-                min={0}
-                step="0.01"
-                value={newAmount}
-                onChange={(e) => setNewAmount(e.target.value)}
-                placeholder="0"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="nq-until">Valid until (optional)</Label>
-              <Input
-                id="nq-until"
-                type="date"
-                value={newValidUntil}
-                onChange={(e) => setNewValidUntil(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="nq-desc">Description (optional)</Label>
-              <Textarea
-                id="nq-desc"
-                value={newDescription}
-                onChange={(e) => setNewDescription(e.target.value)}
-                rows={3}
-                placeholder="Scope, notes…"
-              />
-            </div>
-          </div>
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button type="button" variant="outline" onClick={() => { setCreateOpen(false); resetCreateForm() }}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => void handleCreateQuote()} disabled={createSubmitting}>
-              {createSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create quote'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       <Tabs
         value={pipelineTab}

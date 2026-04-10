@@ -9,6 +9,8 @@ import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Plus, Search } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
+import { dashboardUi } from '@/components/layout/dashboard-ui'
+import { cn } from '@/lib/utils'
 
 type Employee = {
   id: string
@@ -34,7 +36,8 @@ export function EmployeesAdminClient() {
       const res = await fetch(url)
       const json = await res.json()
       if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load employees')
-      setEmployees((json.data || []) as Employee[])
+      const rows = json.data
+      setEmployees(Array.isArray(rows) ? (rows as Employee[]) : [])
     } catch (e: any) {
       toast({ title: 'Could not load employees', description: e?.message, variant: 'destructive' })
       setEmployees([])
@@ -54,16 +57,16 @@ export function EmployeesAdminClient() {
     return employees.filter(
       (e) =>
         (e.name || '').toLowerCase().includes(norm) ||
-        e.email.toLowerCase().includes(norm) ||
+        (e.email || '').toLowerCase().includes(norm) ||
         (e.position || '').toLowerCase().includes(norm) ||
-        e.role.toLowerCase().includes(norm)
+        (e.role || '').toLowerCase().includes(norm)
     )
   }, [employees, norm])
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative w-full max-w-lg">
+      <div className={dashboardUi.toolbarRow}>
+        <div className={dashboardUi.searchInputWrap}>
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <Input
             className="pl-9"
@@ -75,9 +78,9 @@ export function EmployeesAdminClient() {
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => setShowInactive((v) => !v)} disabled={loading}>
-            {showInactive ? 'Hide inactive' : 'Show inactive'}
+            {showInactive ? 'Active only' : 'Include inactive'}
           </Button>
-          <Button asChild>
+          <Button asChild className={dashboardUi.primaryButton}>
             <Link href="/dashboard/admin/employees/new">
               <Plus className="h-4 w-4 mr-2" />
               Add employee
@@ -96,11 +99,11 @@ export function EmployeesAdminClient() {
             <Table>
               <TableHeader>
                 <TableRow className="hover:bg-transparent">
-                  <TableHead className="py-2 px-3 text-xs font-semibold">Name</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold">Email</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold whitespace-nowrap">Role</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold whitespace-nowrap">Status</TableHead>
-                  <TableHead className="py-2 px-3 text-xs font-semibold text-right">Edit</TableHead>
+                  <TableHead className={dashboardUi.tableHead}>Name</TableHead>
+                  <TableHead className={dashboardUi.tableHead}>Email</TableHead>
+                  <TableHead className={cn(dashboardUi.tableHead, 'whitespace-nowrap')}>Role</TableHead>
+                  <TableHead className={cn(dashboardUi.tableHead, 'whitespace-nowrap')}>Status</TableHead>
+                  <TableHead className={cn(dashboardUi.tableHead, 'text-right')}>Edit</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

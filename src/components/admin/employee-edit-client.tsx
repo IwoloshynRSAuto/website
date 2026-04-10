@@ -22,6 +22,13 @@ type Employee = {
   wage: number | null
 }
 
+const ROLE_VALUES = ['USER', 'MANAGER', 'ADMIN'] as const
+
+function normalizeRole(value: unknown): (typeof ROLE_VALUES)[number] {
+  const u = String(value ?? 'USER').toUpperCase()
+  return (ROLE_VALUES as readonly string[]).includes(u) ? (u as (typeof ROLE_VALUES)[number]) : 'USER'
+}
+
 export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: string }) {
   const { toast } = useToast()
   const router = useRouter()
@@ -45,7 +52,10 @@ export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: stri
         const res = await fetch(`/api/users/${userId}`)
         if (!res.ok) throw new Error('Failed to load employee')
         const data = (await res.json()) as Employee
-        setForm(data)
+        setForm({
+          ...data,
+          role: normalizeRole(data.role),
+        })
       } catch (e: any) {
         toast({ title: 'Could not load employee', description: e?.message, variant: 'destructive' })
       } finally {
@@ -145,7 +155,10 @@ export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: stri
 
               <div className="space-y-1.5">
                 <Label htmlFor="role">Role</Label>
-                <Select value={(form.role as string) || 'USER'} onValueChange={(v) => setForm((p) => ({ ...p, role: v as any }))}>
+                <Select
+                  value={normalizeRole(form.role)}
+                  onValueChange={(v) => setForm((p) => ({ ...p, role: v as Employee['role'] }))}
+                >
                   <SelectTrigger id="role">
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
@@ -177,8 +190,13 @@ export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: stri
                   id="wage"
                   type="number"
                   step="0.01"
-                  value={form.wage ?? ''}
-                  onChange={(e) => setForm((p) => ({ ...p, wage: e.target.value === '' ? null : Number(e.target.value) }))} 
+                  value={form.wage != null && Number.isFinite(form.wage) ? String(form.wage) : ''}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      wage: e.target.value === '' ? null : Number(e.target.value),
+                    }))
+                  }
                 />
               </div>
             </div>

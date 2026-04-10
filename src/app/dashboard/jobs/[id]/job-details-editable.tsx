@@ -1,19 +1,19 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Badge } from '@/components/ui/badge'
+import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { DeleteJobButton } from '@/components/jobs/delete-job-button'
-import { ArrowLeft, Calendar, User, Building, DollarSign, FileText, Clock, Plus, Save, X } from 'lucide-react'
+import { ArrowLeft, Calendar, Save, X } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface Job {
   id: string
@@ -86,7 +86,7 @@ interface JobDetailsEditableProps {
 }
 
 export function JobDetailsEditable({ job, users, customers }: JobDetailsEditableProps) {
-  const [isEditing, setIsEditing] = useState(true) // Always start in editing mode
+  const { toast } = useToast()
   const [formData, setFormData] = useState({
     title: job.title,
     description: job.description || '',
@@ -114,15 +114,14 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
       const response = await fetch(`/api/jobs/convert-quote/${job.id}`, { method: 'POST' })
       if (response.ok) {
         const newJob = await response.json()
-        toast.success(`Quote converted to job ${newJob.jobNumber}`)
+        toast({ title: `Quote converted to job ${newJob.jobNumber}` })
         window.location.href = `/dashboard/jobs/${newJob.id}`
       } else {
         const errorData = await response.json()
-        toast.error(errorData.error || 'Failed to convert quote')
+        toast({ title: 'Failed to convert quote', description: errorData.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Upgrade error:', error)
-      toast.error('Failed to convert quote')
+    } catch {
+      toast({ title: 'Failed to convert quote', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }
@@ -153,17 +152,14 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
       })
 
       if (response.ok) {
-        toast.success('Job updated successfully!')
-        // No need to set isEditing to false since we're always in editing mode
-        // Refresh the page to show updated data
+        toast({ title: 'Job updated successfully' })
         window.location.reload()
       } else {
         const errorData = await response.json()
-        toast.error(`Failed to update job: ${errorData.error}`)
+        toast({ title: 'Failed to update job', description: errorData.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error updating job:', error)
-      toast.error('Failed to update job')
+    } catch {
+      toast({ title: 'Failed to update job', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }
@@ -185,33 +181,10 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
       notes: '',
       fileLink: job.fileLink || '',
     })
-    // No need to set isEditing to false since we're always in editing mode
-  }
-
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'QUOTE': return 'bg-yellow-100 text-yellow-800'
-      case 'ACTIVE': return 'bg-green-100 text-green-800'
-      case 'COMPLETED': return 'bg-blue-100 text-blue-800'
-      case 'ON_HOLD': return 'bg-orange-100 text-orange-800'
-      case 'CANCELLED': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  }
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'LOW': return 'bg-green-100 text-green-800'
-      case 'MEDIUM': return 'bg-yellow-100 text-yellow-800'
-      case 'HIGH': return 'bg-orange-100 text-orange-800'
-      case 'URGENT': return 'bg-red-100 text-red-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
   }
 
   return (
-    <div className="p-6">
+    <div>
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center space-x-4">
           <Link href="/dashboard/jobs">
@@ -250,145 +223,82 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
             <CardTitle>Basic Information</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <label className="text-sm font-medium text-gray-500">Job Title</label>
-              {isEditing ? (
-                <Input
-                  value={formData.title}
-                  onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
-                  className="mt-1"
-                />
-              ) : (
-                <input
-                  type="text"
-                  value={job.title}
-                  readOnly
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                />
-              )}
+            <div className="space-y-1">
+              <Label htmlFor="job-title">Job Title</Label>
+              <Input
+                id="job-title"
+                value={formData.title}
+                onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+              />
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Description</label>
-              {isEditing ? (
-                <Textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
-                  rows={3}
-                  className="mt-1"
-                />
-              ) : (
-                <textarea
-                  value={job.description || ''}
-                  readOnly
-                  rows={3}
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                />
-              )}
+            <div className="space-y-1">
+              <Label htmlFor="job-desc">Description</Label>
+              <Textarea
+                id="job-desc"
+                value={formData.description}
+                onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
+                rows={3}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Status</label>
-                {isEditing ? (
-                  <Select value={formData.status} onValueChange={(value) => setFormData(prev => ({ ...prev, status: value }))}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="QUOTE">Quote</SelectItem>
-                      <SelectItem value="ACTIVE">Active</SelectItem>
-                      <SelectItem value="COMPLETED">Completed</SelectItem>
-                      <SelectItem value="ON_HOLD">On Hold</SelectItem>
-                      <SelectItem value="CANCELLED">Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <select
-                    value={job.status}
-                    disabled
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                  >
-                    <option value="QUOTE">Quote</option>
-                    <option value="ACTIVE">Active</option>
-                    <option value="COMPLETED">Completed</option>
-                    <option value="ON_HOLD">On Hold</option>
-                    <option value="CANCELLED">Cancelled</option>
-                  </select>
-                )}
+              <div className="space-y-1">
+                <Label htmlFor="job-status">Status</Label>
+                <Select value={formData.status} onValueChange={(value) => setFormData(prev => ({ ...prev, status: value }))}>
+                  <SelectTrigger id="job-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="QUOTE">Quote</SelectItem>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="COMPLETED">Completed</SelectItem>
+                    <SelectItem value="ON_HOLD">On Hold</SelectItem>
+                    <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">Priority</label>
-                {isEditing ? (
-                  <Select value={formData.priority} onValueChange={(value) => setFormData(prev => ({ ...prev, priority: value }))}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="LOW">Low</SelectItem>
-                      <SelectItem value="MEDIUM">Medium</SelectItem>
-                      <SelectItem value="HIGH">High</SelectItem>
-                      <SelectItem value="URGENT">Urgent</SelectItem>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <select
-                    value={job.priority}
-                    disabled
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                  >
-                    <option value="LOW">Low</option>
-                    <option value="MEDIUM">Medium</option>
-                    <option value="HIGH">High</option>
-                    <option value="URGENT">Urgent</option>
-                  </select>
-                )}
+              <div className="space-y-1">
+                <Label htmlFor="job-priority">Priority</Label>
+                <Select value={formData.priority} onValueChange={(value) => setFormData(prev => ({ ...prev, priority: value }))}>
+                  <SelectTrigger id="job-priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="LOW">Low</SelectItem>
+                    <SelectItem value="MEDIUM">Medium</SelectItem>
+                    <SelectItem value="HIGH">High</SelectItem>
+                    <SelectItem value="URGENT">Urgent</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium text-gray-500">Start Date</label>
-                <div className="mt-1 flex items-center">
-                  <Calendar className="h-4 w-4 mr-2 text-gray-400" />
-                  {isEditing ? (
-                    <Input
-                      type="date"
-                      value={formData.startDate}
-                      onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={job.startDate ? format(new Date(job.startDate), 'MM/dd/yyyy') : ''}
-                      readOnly
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                    />
-                  )}
+              <div className="space-y-1">
+                <Label htmlFor="job-start">Start Date</Label>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
+                  <Input
+                    id="job-start"
+                    type="date"
+                    value={formData.startDate}
+                    onChange={(e) => setFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                  />
                 </div>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-500">End Date</label>
-                <div className="mt-1 flex items-center">
-                  <Calendar className="h-4 w-4 mr-2 text-gray-400" />
-                  {isEditing ? (
-                    <Input
-                      type="date"
-                      value={formData.endDate}
-                      onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={job.endDate ? format(new Date(job.endDate), 'MM/dd/yyyy') : ''}
-                      placeholder="mm/dd/yyyy"
-                      readOnly
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                    />
-                  )}
+              <div className="space-y-1">
+                <Label htmlFor="job-end">End Date</Label>
+                <div className="flex items-center gap-2">
+                  <Calendar className="h-4 w-4 text-gray-400 shrink-0" />
+                  <Input
+                    id="job-end"
+                    type="date"
+                    value={formData.endDate}
+                    onChange={(e) => setFormData(prev => ({ ...prev, endDate: e.target.value }))}
+                  />
                 </div>
               </div>
             </div>
           </CardContent>
         </Card>
-
 
         {/* Team & Customer */}
         <Card>
@@ -396,89 +306,49 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
             <CardTitle>Team & Customer</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              {isEditing ? (
-                <SearchableSelect
-                  label="Customer"
-                  options={[
-                    { value: 'no-customer', label: 'No Customer' },
-                    ...customers.map(customer => ({
-                      value: customer.id,
-                      label: customer.name,
-                      searchText: `${customer.name} ${customer.email || ''} ${customer.phone || ''}`
-                    }))
-                  ]}
-                  value={formData.customerId}
-                  onValueChange={(value) => setFormData(prev => ({ ...prev, customerId: value }))}
-                  placeholder="Select a customer"
-                  emptyMessage="No customers found."
-                />
-              ) : (
-                <div>
-                  <label className="text-sm font-medium text-gray-500">Customer</label>
-                  <input
-                    type="text"
-                    value={job.customer?.name || 'No Customer'}
-                    readOnly
-                    className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                  />
-                </div>
-              )}
+            <SearchableSelect
+              label="Customer"
+              options={[
+                { value: 'no-customer', label: 'No Customer' },
+                ...customers.map(customer => ({
+                  value: customer.id,
+                  label: customer.name,
+                  searchText: `${customer.name} ${customer.email || ''} ${customer.phone || ''}`
+                }))
+              ]}
+              value={formData.customerId}
+              onValueChange={(value) => setFormData(prev => ({ ...prev, customerId: value }))}
+              placeholder="Select a customer"
+              emptyMessage="No customers found."
+            />
+            <div className="space-y-1">
+              <Label htmlFor="job-assigned">Assigned To</Label>
+              <Select value={formData.assignedToId} onValueChange={(value) => setFormData(prev => ({ ...prev, assignedToId: value }))}>
+                <SelectTrigger id="job-assigned">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                  {users.map((user) => (
+                    <SelectItem key={user.id} value={user.id}>
+                      {user.name} ({user.email})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Assigned To</label>
-              {isEditing ? (
-                <Select value={formData.assignedToId} onValueChange={(value) => setFormData(prev => ({ ...prev, assignedToId: value }))}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="unassigned">Unassigned</SelectItem>
-                    {users.map((user) => (
-                      <SelectItem key={user.id} value={user.id}>
-                        {user.name} ({user.email})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <select
-                  value={job.assignedTo?.id || 'unassigned'}
-                  disabled
-                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                >
-                  <option value="unassigned">Unassigned</option>
-                  {job.assignedTo && (
-                    <option value={job.assignedTo.id}>{job.assignedTo.name || 'Unnamed User'}</option>
-                  )}
-                </select>
-              )}
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-500">Customer Contact</label>
-              <input
-                type="text"
-                value={job.assignedTo?.name || ''}
-                readOnly
-                className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-              />
-            </div>
-            
-            {/* QuickBooks and L Drive Status */}
+
+            {/* Tracking */}
             <div className="space-y-3 pt-4 border-t">
-              <label className="text-sm font-medium text-gray-700">Tracking</label>
+              <Label>Tracking</Label>
               <div className="flex items-center space-x-6">
                 <div className="flex items-center space-x-2">
                   <Checkbox
                     id="inQuickBooks"
                     checked={formData.inQuickBooks}
                     onCheckedChange={(checked) => setFormData(prev => ({ ...prev, inQuickBooks: checked as boolean }))}
-                    disabled={!isEditing}
                   />
-                  <label 
-                    htmlFor="inQuickBooks" 
-                    className={`text-sm ${!isEditing ? 'text-gray-500' : 'text-gray-700 cursor-pointer'}`}
-                  >
+                  <label htmlFor="inQuickBooks" className="text-sm text-gray-700 cursor-pointer">
                     In QuickBooks
                   </label>
                 </div>
@@ -487,47 +357,30 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
                     id="inLDrive"
                     checked={formData.inLDrive}
                     onCheckedChange={(checked) => setFormData(prev => ({ ...prev, inLDrive: checked as boolean }))}
-                    disabled={!isEditing}
                   />
-                  <label 
-                    htmlFor="inLDrive" 
-                    className={`text-sm ${!isEditing ? 'text-gray-500' : 'text-gray-700 cursor-pointer'}`}
-                  >
+                  <label htmlFor="inLDrive" className="text-sm text-gray-700 cursor-pointer">
                     In L Drive
                   </label>
                 </div>
-                
-                {/* File Link Field - positioned to the right of L Drive */}
+
                 <div className="flex items-center space-x-2">
                   <label className="text-sm font-medium text-gray-700 whitespace-nowrap">File Link:</label>
                   <div className="w-64">
-                    {isEditing ? (
-                      <Input
-                        value={formData.fileLink || ''}
-                        onChange={(e) => setFormData(prev => ({ ...prev, fileLink: e.target.value }))}
-                        placeholder="L:\Customer\Job1234"
-                        className="w-full"
-                      />
-                    ) : (
-                      <input
-                        type="text"
-                        value={formData.fileLink || ''}
-                        readOnly
-                        placeholder="No file link set"
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50"
-                      />
-                    )}
+                    <Input
+                      value={formData.fileLink || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, fileLink: e.target.value }))}
+                      placeholder="L:\Customer\Job1234"
+                      className="w-full"
+                    />
                   </div>
                 </div>
               </div>
               <p className="text-xs text-gray-500">
                 Enter the shared drive path (e.g., L:\Customer\Job1234)
               </p>
-              
             </div>
           </CardContent>
         </Card>
-
       </div>
     </div>
   )

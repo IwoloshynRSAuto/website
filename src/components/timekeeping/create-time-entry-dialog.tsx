@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface User {
   id: string
@@ -50,6 +50,7 @@ interface CreateTimeEntryDialogProps {
 }
 
 function CreateTimeEntryDialogComponent({ isOpen, onClose }: CreateTimeEntryDialogProps) {
+  const { toast } = useToast()
   const router = useRouter()
   const { data: session } = useSession()
   const [isLoading, setIsLoading] = useState(false)
@@ -167,12 +168,12 @@ function CreateTimeEntryDialogComponent({ isOpen, onClose }: CreateTimeEntryDial
 
     // Validate required fields
     if (!formData.userId) {
-      toast.error('Please select a user')
+      toast({ title: 'Please select a user', variant: 'destructive' })
       setIsLoading(false)
       return
     }
     if (!formData.jobId) {
-      toast.error('Please select a job')
+      toast({ title: 'Please select a job', variant: 'destructive' })
       setIsLoading(false)
       return
     }
@@ -201,7 +202,7 @@ function CreateTimeEntryDialogComponent({ isOpen, onClose }: CreateTimeEntryDial
       })
 
       if (response.ok) {
-        toast.success('Time entry created successfully')
+        toast({ title: 'Time entry created successfully' })
         onClose()
         try {
           router.refresh()
@@ -227,22 +228,19 @@ function CreateTimeEntryDialogComponent({ isOpen, onClose }: CreateTimeEntryDial
           errorData = await response.json()
         } catch (jsonError) {
           console.error('Failed to parse error response:', jsonError)
-          toast.error(`Failed to create time entry: ${response.statusText || 'Unknown error'}`)
+          toast({ title: 'Failed to create time entry', description: response.statusText || 'Unknown error', variant: 'destructive' })
           return
         }
-        console.error('Time entry creation failed:', errorData)
-        
-        // Show detailed validation errors if available
+
         if (errorData.details && Array.isArray(errorData.details)) {
           const validationErrors = errorData.details.map((err: any) => `${err.path.join('.')}: ${err.message}`).join(', ')
-          toast.error(`Validation errors: ${validationErrors}`)
+          toast({ title: 'Validation error', description: validationErrors, variant: 'destructive' })
         } else {
-          toast.error(`Failed to create time entry: ${errorData.error || 'Unknown error'}`)
+          toast({ title: 'Failed to create time entry', description: errorData.error || 'Unknown error', variant: 'destructive' })
         }
       }
-    } catch (error) {
-      console.error('Error creating time entry:', error)
-      toast.error('An error occurred while creating the time entry')
+    } catch {
+      toast({ title: 'An error occurred while creating the time entry', variant: 'destructive' })
     } finally {
       setIsLoading(false)
     }

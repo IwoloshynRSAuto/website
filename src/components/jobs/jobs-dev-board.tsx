@@ -220,7 +220,7 @@ export function JobsDevBoard() {
             aria-label="Search jobs"
           />
         </div>
-        <CreateJobButton label="Add job" className="w-full sm:w-auto shrink-0" />
+        <CreateJobButton variant="job" label="Add job" className="w-full sm:w-auto shrink-0" />
       </div>
 
       {loading ? (

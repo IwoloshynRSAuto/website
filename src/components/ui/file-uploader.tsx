@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Upload, X, File } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 export interface FileUploaderProps {
   onUpload: (file: File) => Promise<void> | void
@@ -34,6 +34,7 @@ export function FileUploader({
   label = 'Upload File',
   description,
 }: FileUploaderProps) {
+  const { toast } = useToast()
   const [isUploading, setIsUploading] = React.useState(false)
   const [selectedFiles, setSelectedFiles] = React.useState<File[]>([])
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -47,13 +48,13 @@ export function FileUploader({
     for (const file of files) {
       // Check file size
       if (file.size > effectiveMaxSize) {
-        toast.error(`File "${file.name}" exceeds maximum size of ${maxSizeMB}MB`)
+        toast({ title: `File "${file.name}" exceeds maximum size of ${maxSizeMB}MB`, variant: 'destructive' })
         continue
       }
 
       // Check file type if accept is specified
       if (accept && !accept.split(',').some((type) => file.type.match(type.trim()))) {
-        toast.error(`File "${file.name}" is not an accepted file type`)
+        toast({ title: `File "${file.name}" is not an accepted file type`, variant: 'destructive' })
         continue
       }
 
@@ -75,9 +76,9 @@ export function FileUploader({
     try {
       await onUpload(file)
       setSelectedFiles((prev) => prev.filter((f) => f !== file))
-      toast.success('File uploaded successfully')
+      toast({ title: 'File uploaded successfully' })
     } catch (error: any) {
-      toast.error(error.message || 'Failed to upload file')
+      toast({ title: 'Failed to upload file', description: error?.message, variant: 'destructive' })
     } finally {
       setIsUploading(false)
     }

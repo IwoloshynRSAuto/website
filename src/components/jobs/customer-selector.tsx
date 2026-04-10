@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ChevronDown, Plus, User } from 'lucide-react'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface Customer {
   id: string
@@ -27,12 +27,13 @@ interface CustomerSelectorProps {
   disabled?: boolean
 }
 
-export function CustomerSelector({ 
-  customers, 
-  selectedCustomerId, 
-  onCustomerChange, 
-  disabled = false 
+export function CustomerSelector({
+  customers,
+  selectedCustomerId,
+  onCustomerChange,
+  disabled = false
 }: CustomerSelectorProps) {
+  const { toast } = useToast()
   const [isCreating, setIsCreating] = useState(false)
   const [newCustomerName, setNewCustomerName] = useState('')
 
@@ -40,7 +41,7 @@ export function CustomerSelector({
 
   const handleCreateCustomer = async () => {
     if (!newCustomerName.trim()) {
-      toast.error('Customer name is required')
+      toast({ title: 'Customer name is required', variant: 'destructive' })
       return
     }
 
@@ -60,14 +61,13 @@ export function CustomerSelector({
         onCustomerChange(newCustomer.id)
         setNewCustomerName('')
         setIsCreating(false)
-        toast.success('Customer created successfully!')
+        toast({ title: 'Customer created successfully' })
       } else {
         const errorData = await response.json()
-        toast.error(`Failed to create customer: ${errorData.error}`)
+        toast({ title: 'Failed to create customer', description: errorData.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error creating customer:', error)
-      toast.error('Failed to create customer')
+    } catch {
+      toast({ title: 'Failed to create customer', variant: 'destructive' })
     }
   }
 

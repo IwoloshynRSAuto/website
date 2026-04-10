@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { ArrowLeft, Save } from 'lucide-react'
 import Link from 'next/link'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 import { JOB_WORK_CODE_OPTIONS } from '@/lib/jobs/job-work-code-options'
 
 interface User {
@@ -71,6 +71,7 @@ interface JobEditFormProps {
 }
 
 export function JobEditForm({ job, users, customers }: JobEditFormProps) {
+  const { toast } = useToast()
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState({
@@ -133,15 +134,14 @@ export function JobEditForm({ job, users, customers }: JobEditFormProps) {
       })
 
       if (response.ok) {
-        toast.success('Job updated successfully')
+        toast({ title: 'Job updated successfully' })
         router.push(`/dashboard/jobs/${job.id}`)
       } else {
         const errorData = await response.json()
-        toast.error(`Failed to update job: ${errorData.error || 'Unknown error'}`)
+        toast({ title: 'Failed to update job', description: errorData.error || 'Unknown error', variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error updating job:', error)
-      toast.error('Failed to update job')
+    } catch {
+      toast({ title: 'Failed to update job', variant: 'destructive' })
     } finally {
       setSaving(false)
     }

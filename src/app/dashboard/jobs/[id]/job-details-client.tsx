@@ -9,7 +9,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Plus, Edit, Trash2, Clock, DollarSign, Calculator, RefreshCw, Save } from 'lucide-react'
-import { toast } from 'react-hot-toast'
+import { Label } from '@/components/ui/label'
+import { useToast } from '@/components/ui/use-toast'
 import { format } from 'date-fns'
 import { SubmitECOModal } from '@/components/jobs/submit-eco-modal'
 import { BulkBOMUpdate } from '@/components/jobs/bulk-bom-update'
@@ -129,6 +130,7 @@ interface JobDetailsClientProps {
 }
 
 export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, quotedLabor, jobType, relatedQuoteId, users, bom, milestones: initialMilestones = [] }: JobDetailsClientProps) {
+  const { toast } = useToast()
   const [mounted, setMounted] = useState(false)
 
 
@@ -253,7 +255,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
         }))
 
         const laborCode = laborCodes.find(lc => lc.id === laborCodeId)
-        toast.success(`ECO Change: Updated ${laborCode?.code} to ${hours} hours`)
+        toast({ title: `ECO Change: Updated ${laborCode?.code} to ${hours} hours` })
       } else {
         // Normal mode - update directly
         const newQuotedHours = {
@@ -279,21 +281,20 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
         })
 
         if (!response.ok) {
-          console.error('Failed to save quoted hours to database')
+          toast({ title: 'Failed to save quoted hours', variant: 'destructive' })
         }
 
         const laborCode = laborCodes.find(lc => lc.id === laborCodeId)
-        toast.success(`Updated quoted hours for ${laborCode?.code} to ${hours}`)
+        toast({ title: `Updated quoted hours for ${laborCode?.code} to ${hours}` })
       }
-    } catch (error) {
-      console.error('Error updating quoted hours:', error)
-      toast.error('Failed to update quoted hours')
+    } catch {
+      toast({ title: 'Failed to update quoted hours', variant: 'destructive' })
     }
   }
 
   const handleSubmitECO = async () => {
     if (Object.keys(ecoChanges).length === 0) {
-      toast.error('No changes to submit')
+      toast({ title: 'No changes to submit', variant: 'destructive' })
       return
     }
 
@@ -316,17 +317,15 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
       })
 
       if (response.ok) {
-        toast.success('ECO submitted successfully!')
+        toast({ title: 'ECO submitted successfully' })
         setEcoSubmitted(true)
-        // Refresh the page to show updated data
         window.location.reload()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to submit ECO')
+        toast({ title: 'Failed to submit ECO', description: error.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error submitting ECO:', error)
-      toast.error('Failed to submit ECO')
+    } catch {
+      toast({ title: 'Failed to submit ECO', variant: 'destructive' })
     }
   }
 
@@ -368,7 +367,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
 
   const addMilestone = async () => {
     if (!newMilestone.name || newMilestone.percentage <= 0) {
-      toast.error('Please fill in milestone name and percentage')
+      toast({ title: 'Please fill in milestone name and percentage', variant: 'destructive' })
       return
     }
 
@@ -407,23 +406,20 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
         setMilestones(prev => [...prev, milestone])
         setNewMilestone({ name: '', amount: 0, percentage: 0, dueDate: '' })
         setShowAddMilestone(false)
-        toast.success('Milestone added successfully')
-
-        // Reload to update Gantt view
+        toast({ title: 'Milestone added successfully' })
         window.location.reload()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to add milestone')
+        toast({ title: 'Failed to add milestone', description: error.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error adding milestone:', error)
-      toast.error('Failed to add milestone')
+    } catch {
+      toast({ title: 'Failed to add milestone', variant: 'destructive' })
     }
   }
 
   const addDeliverable = () => {
     if (!newDeliverable.name || !newDeliverable.description) {
-      toast.error('Please fill in all required fields')
+      toast({ title: 'Please fill in all required fields', variant: 'destructive' })
       return
     }
 
@@ -438,7 +434,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
     setDeliverables(prev => [...prev, deliverable])
     setNewDeliverable({ name: '', description: '', dueDate: '' })
     setShowAddDeliverable(false)
-    toast.success('Deliverable added successfully')
+    toast({ title: 'Deliverable added successfully' })
   }
 
   const startEditMilestone = (milestone: Milestone) => {
@@ -453,7 +449,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
 
   const saveEditMilestone = async () => {
     if (!editingMilestoneData.name || editingMilestoneData.percentage <= 0) {
-      toast.error('Please fill in milestone name and percentage')
+      toast({ title: 'Please fill in milestone name and percentage', variant: 'destructive' })
       return
     }
 
@@ -491,17 +487,14 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
 
         setEditingMilestone(null)
         setEditingMilestoneData({ name: '', amount: 0, percentage: 0, dueDate: '' })
-        toast.success('Milestone updated successfully')
-
-        // Reload to update Gantt view
+        toast({ title: 'Milestone updated successfully' })
         window.location.reload()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to update milestone')
+        toast({ title: 'Failed to update milestone', description: error.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error updating milestone:', error)
-      toast.error('Failed to update milestone')
+    } catch {
+      toast({ title: 'Failed to update milestone', variant: 'destructive' })
     }
   }
 
@@ -522,7 +515,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
 
   const saveEditDeliverable = () => {
     if (!editingDeliverableData.name || !editingDeliverableData.description) {
-      toast.error('Please fill in all required fields')
+      toast({ title: 'Please fill in all required fields', variant: 'destructive' })
       return
     }
 
@@ -540,7 +533,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
 
     setEditingDeliverable(null)
     setEditingDeliverableData({ name: '', description: '', status: 'pending', dueDate: '' })
-    toast.success('Deliverable updated successfully')
+    toast({ title: 'Deliverable updated successfully' })
   }
 
   const cancelEditDeliverable = () => {
@@ -549,7 +542,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
   }
 
   const updateLaborCodeHours = (laborCodeId: string, hours: number) => {
-    toast.success(`Updated hours for labor code ${laborCodeId}: ${hours}`)
+    toast({ title: `Updated hours for labor code ${laborCodeId}: ${hours}` })
   }
 
   const refreshMilestone = (milestoneId: string) => {
@@ -560,7 +553,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
       }
       return m
     }))
-    toast.success('Milestone amount refreshed')
+    toast({ title: 'Milestone amount refreshed' })
   }
 
   const deleteMilestone = async (milestoneId: string) => {
@@ -577,16 +570,14 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
 
       if (response.ok) {
         setMilestones(prev => prev.filter(m => m.id !== milestoneId))
-        toast.success('Milestone deleted')
-        // Reload to update Gantt view
+        toast({ title: 'Milestone deleted' })
         window.location.reload()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to delete milestone')
+        toast({ title: 'Failed to delete milestone', description: error.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error deleting milestone:', error)
-      toast.error('Failed to delete milestone')
+    } catch {
+      toast({ title: 'Failed to delete milestone', variant: 'destructive' })
     }
   }
 
@@ -687,7 +678,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
               <h4 className="font-medium mb-3">Add New Deliverable</h4>
               <div className="space-y-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Deliverable Name</label>
+                  <Label className="block text-gray-700 mb-1">Deliverable Name</Label>
                   <Input
                     placeholder="e.g., System Architecture Document"
                     value={newDeliverable.name}
@@ -695,7 +686,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                  <Label className="block text-gray-700 mb-1">Description</Label>
                   <Textarea
                     placeholder="e.g., Complete system architecture and design specifications"
                     value={newDeliverable.description}
@@ -703,7 +694,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                  <Label className="block text-gray-700 mb-1">Due Date</Label>
                   <Input
                     type="date"
                     value={newDeliverable.dueDate}
@@ -740,7 +731,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                     <h4 className="font-medium">Edit Deliverable</h4>
                     <div className="space-y-3">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Deliverable Name</label>
+                        <Label className="block text-gray-700 mb-1">Deliverable Name</Label>
                         <Input
                           placeholder="e.g., System Architecture Document"
                           value={editingDeliverableData.name}
@@ -748,7 +739,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                        <Label className="block text-gray-700 mb-1">Description</Label>
                         <Textarea
                           placeholder="e.g., Complete system architecture and design specifications"
                           value={editingDeliverableData.description}
@@ -756,7 +747,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <Label className="block text-gray-700 mb-1">Status</Label>
                         <Select
                           value={editingDeliverableData.status}
                           onValueChange={(value) => setEditingDeliverableData(prev => ({ ...prev, status: value }))}
@@ -774,7 +765,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                         </Select>
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                        <Label className="block text-gray-700 mb-1">Due Date</Label>
                         <Input
                           type="date"
                           value={editingDeliverableData.dueDate}
@@ -803,7 +794,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                           </Button>
                           <Button size="sm" variant="outline" onClick={() => {
                             setDeliverables(prev => prev.filter(d => d.id !== deliverable.id))
-                            toast.success('Deliverable deleted')
+                            toast({ title: 'Deliverable deleted' })
                           }}>
                             <Trash2 className="h-3 w-3 mr-1" />
                             Delete
@@ -945,7 +936,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                 <h4 className="font-medium mb-3">Add New Milestone</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Milestone Name</label>
+                    <Label className="block text-gray-700 mb-1">Milestone Name</Label>
                     <Input
                       placeholder="e.g., Initial Design Review"
                       value={newMilestone.name}
@@ -953,7 +944,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Percentage (%)</label>
+                    <Label className="block text-gray-700 mb-1">Percentage (%)</Label>
                     <Input
                       type="number"
                       placeholder="e.g., 25"
@@ -965,7 +956,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Due Date (Optional)</label>
+                    <Label className="block text-gray-700 mb-1">Due Date (Optional)</Label>
                     <Input
                       type="date"
                       value={newMilestone.dueDate}
@@ -1026,7 +1017,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                               variant="ghost"
                               onClick={() => {
                                 setMilestones(prev => prev.filter(m => m.id !== milestone.id))
-                                toast.success('Milestone deleted')
+                                toast({ title: 'Milestone deleted' })
                               }}
                             >
                               <Trash2 className="h-3 w-3 text-red-500" />
@@ -1060,7 +1051,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                   <h4 className="font-semibold text-lg mb-4">Edit Milestone</h4>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Milestone Name</label>
+                      <Label className="block text-gray-700 mb-1">Milestone Name</Label>
                       <Input
                         placeholder="e.g., Initial Design Review"
                         value={editingMilestoneData.name}
@@ -1068,7 +1059,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Percentage (%)</label>
+                      <Label className="block text-gray-700 mb-1">Percentage (%)</Label>
                       <Input
                         type="number"
                         placeholder="e.g., 25"
@@ -1080,7 +1071,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Due Date (Optional)</label>
+                      <Label className="block text-gray-700 mb-1">Due Date (Optional)</Label>
                       <Input
                         type="date"
                         value={editingMilestoneData.dueDate}
@@ -1432,16 +1423,14 @@ function BOMRow({ part, bomId }: { part: BOMPart; bomId: string }) {
       })
 
       if (response.ok) {
-        toast.success('BOM part updated')
-        // Use router.refresh() instead of window.location.reload() to avoid full page reload
+        toast({ title: 'BOM part updated' })
         router.refresh()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to update BOM part')
+        toast({ title: 'Failed to update BOM part', description: error.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error updating BOM part:', error)
-      toast.error('An error occurred while updating the BOM part')
+    } catch {
+      toast({ title: 'An error occurred while updating the BOM part', variant: 'destructive' })
     } finally {
       setIsSaving(false)
     }

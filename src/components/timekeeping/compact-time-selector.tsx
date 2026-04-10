@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Calculator, RotateCcw } from 'lucide-react'
-import { toast } from 'react-hot-toast'
 
 interface CompactTimeSelectorProps {
   regularHours: number

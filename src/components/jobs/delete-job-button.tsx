@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Trash2 } from 'lucide-react'
-import { toast } from 'react-hot-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 interface DeleteJobButtonProps {
   jobId: string
@@ -12,6 +12,7 @@ interface DeleteJobButtonProps {
 }
 
 export function DeleteJobButton({ jobId, jobNumber }: DeleteJobButtonProps) {
+  const { toast } = useToast()
   const [isDeleting, setIsDeleting] = useState(false)
   const router = useRouter()
 
@@ -30,19 +31,18 @@ export function DeleteJobButton({ jobId, jobNumber }: DeleteJobButtonProps) {
       if (response.ok) {
         const result = await response.json()
         if (result.deletedTimeEntries > 0) {
-          toast.success(`Job deleted successfully (${result.deletedTimeEntries} time entries removed)`)
+          toast({ title: `Job deleted (${result.deletedTimeEntries} time entries removed)` })
         } else {
-          toast.success('Job deleted successfully')
+          toast({ title: 'Job deleted successfully' })
         }
         router.push('/dashboard/jobs')
-        router.refresh() // Refresh the router to update the jobs list
+        router.refresh()
       } else {
         const error = await response.json()
-        toast.error(error.details || error.error || 'Failed to delete job')
+        toast({ title: 'Failed to delete job', description: error.details || error.error, variant: 'destructive' })
       }
-    } catch (error) {
-      console.error('Error deleting job:', error)
-      toast.error('Failed to delete job. Please try again.')
+    } catch {
+      toast({ title: 'Failed to delete job', variant: 'destructive' })
     } finally {
       setIsDeleting(false)
     }
