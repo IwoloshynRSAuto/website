@@ -16,6 +16,7 @@ type Employee = {
   name: string | null
   email: string
   role: 'USER' | 'MANAGER' | 'ADMIN'
+  jobRoleId?: string | null
   isActive: boolean
   position: string | null
   phone: string | null
@@ -34,10 +35,12 @@ export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: stri
   const router = useRouter()
   const [loading, setLoading] = useState(mode === 'edit')
   const [saving, setSaving] = useState(false)
+  const [jobRoles, setJobRoles] = useState<Array<{ id: string; name: string; isActive: boolean }>>([])
   const [form, setForm] = useState<Partial<Employee>>({
     name: '',
     email: '',
     role: 'USER',
+    jobRoleId: null,
     isActive: true,
     position: null,
     phone: null,
@@ -49,12 +52,21 @@ export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: stri
     const run = async () => {
       setLoading(true)
       try {
-        const res = await fetch(`/api/users/${userId}`)
+        const [res, rolesRes] = await Promise.all([
+          fetch(`/api/users/${userId}`),
+          fetch('/api/admin/job-roles'),
+        ])
         if (!res.ok) throw new Error('Failed to load employee')
         const data = (await res.json()) as Employee
+        const rolesJson = await rolesRes.json().catch(() => null)
+        if (!rolesRes.ok || !rolesJson?.success) throw new Error(rolesJson?.error || 'Failed to load job roles')
+
+        setJobRoles(Array.isArray(rolesJson.data) ? rolesJson.data : [])
+
         setForm({
           ...data,
           role: normalizeRole(data.role),
+          jobRoleId: (data as any).jobRoleId ?? null,
         })
       } catch (e: any) {
         toast({ title: 'Could not load employee', description: e?.message, variant: 'destructive' })
@@ -95,6 +107,19 @@ export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: stri
       })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json?.error || 'Save failed')
+
+      // Keep Job Role assignment in sync even if admin forgets to click "Save phase access"
+      if (mode === 'edit' && userId) {
+        const roleRes = await fetch(`/api/admin/users/${userId}/job-role`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jobRoleId: form.jobRoleId ?? null }),
+        })
+        const roleJson = await roleRes.json().catch(() => ({}))
+        if (!roleRes.ok || !roleJson?.success) {
+          throw new Error(roleJson?.error || 'Failed to save job role')
+        }
+      }
 
       toast({ title: 'Saved' })
       router.push('/dashboard/admin/employees')
@@ -170,6 +195,27 @@ export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: stri
                 </Select>
               </div>
 
+              {mode === 'edit' ? (
+                <div className="space-y-1.5">
+                  <Label htmlFor="jobRole">Category</Label>
+                  <Select value={String(form.jobRoleId ?? '')} onValueChange={(v) => setForm((p) => ({ ...p, jobRoleId: v || null }))}>
+                    <SelectTrigger id="jobRole">
+                      <SelectValue placeholder="(none)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">(none)</SelectItem>
+                      {jobRoles
+                        .filter((r) => r.isActive)
+                        .map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.name}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
+
               <div className="space-y-1.5">
                 <Label htmlFor="position">Position</Label>
                 <Input
@@ -200,6 +246,14 @@ export function EmployeeEditClient({ mode, userId }: { mode: Mode; userId?: stri
                 />
               </div>
             </div>
+
+            {mode === 'edit' ? (
+              <div className="pt-2 border-t">
+                <p className="text-sm text-slate-600">
+                  Phase code access is controlled by the employee’s <span className="font-medium">Category</span>.
+                </p>
+              </div>
+            ) : null}
 
             {mode === 'edit' ? (
               <div className="flex items-center gap-2">

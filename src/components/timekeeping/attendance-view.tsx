@@ -47,7 +47,7 @@ export function AttendanceView({
   isAdmin
 }: AttendanceViewProps) {
   const { toast } = useToast()
-  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('week')
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('day')
   // Single source of truth for the currently displayed day
   const [currentDate, setCurrentDate] = useState<Date>(() => startOfDay(new Date()))
   // The date passed into the TimeEntryModal when opened

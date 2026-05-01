@@ -14,6 +14,7 @@ import { useToast } from '@/components/ui/use-toast'
 import { format, startOfDay } from 'date-fns'
 import { roundTimeString, formatTime12Hour, convert12To24Hour, calculateHoursBetween } from '@/lib/utils/time-rounding'
 import { roundToNearest15Minutes } from '@/lib/utils/time-rounding'
+import { SearchableSelect } from '@/components/ui/searchable-select'
 interface User {
   id: string
   name: string | null
@@ -1272,22 +1273,23 @@ export function TimeEntryModal({
                   <FileText className="h-3 w-3 sm:h-4 sm:w-4 text-purple-600" />
                   Phase Code (Labor Code)
                 </Label>
-                <Select
-                  value={selectedLaborCodeId && selectedLaborCodeId !== '' ? selectedLaborCodeId : '__none__'}
+                <SearchableSelect
+                  dense
+                  value={selectedLaborCodeId || '__none__'}
                   onValueChange={(v) => setSelectedLaborCodeId(v === '__none__' ? '' : v)}
-                >
-                  <SelectTrigger className="bg-white">
-                    <SelectValue placeholder="Optional — select if applicable" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">None</SelectItem>
-                    {Array.isArray(laborCodes) ? laborCodes.map((code) => (
-                      <SelectItem key={code.id} value={code.id}>
-                        {code.code} - {code.name}
-                      </SelectItem>
-                    )) : null}
-                  </SelectContent>
-                </Select>
+                  placeholder="Optional — select if applicable"
+                  emptyMessage="No phase codes found."
+                  options={[
+                    { value: '__none__', label: 'None', searchText: 'none' },
+                    ...(Array.isArray(laborCodes)
+                      ? laborCodes.map((c) => ({
+                          value: c.id,
+                          label: `${c.code} — ${c.name}`,
+                          searchText: `${c.code} ${c.name}`,
+                        }))
+                      : []),
+                  ]}
+                />
               </div>
             </div>
 

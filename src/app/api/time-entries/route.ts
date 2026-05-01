@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { dateStringSchema, validateDateRangeQuery, validateDateRange } from '@/lib/utils/date-validation'
+import { getAllowedPhaseCodesForUser } from '@/lib/timekeeping/phase-code-access'
 
 const createTimeEntrySchema = z.object({
   date: dateStringSchema,
@@ -19,14 +20,24 @@ const createTimeEntrySchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
-    // Bypass authentication for testing
-    // const session = await getServerSession(authOptions)
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
     const validatedData = createTimeEntrySchema.parse(body)
+
+    const isAdmin = session.user.role === 'ADMIN'
+    const effectiveUserId = isAdmin ? validatedData.userId : session.user.id
+
+    // Enforce labor code access (phase codes)
+    if (validatedData.laborCodeId) {
+      const allowed = await getAllowedPhaseCodesForUser(effectiveUserId)
+      if (!allowed.some((c) => c.id === validatedData.laborCodeId)) {
+        return NextResponse.json({ error: 'Forbidden phase code' }, { status: 403 })
+      }
+    }
     
     // Validate date range (not too far in past/future)
     try {
@@ -40,7 +51,10 @@ export async function POST(request: NextRequest) {
 
     // Create the time entry
     const timeEntry = await prisma.timeEntry.create({
-      data: validatedData,
+      data: {
+        ...validatedData,
+        userId: effectiveUserId,
+      },
       include: {
         user: {
           select: {
@@ -96,11 +110,10 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
-    // Bypass authentication for testing
-    // const session = await getServerSession(authOptions)
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await request.json()
     const { id, ...updateData } = body
@@ -111,6 +124,24 @@ export async function PUT(request: NextRequest) {
 
     // Validate update data
     const validatedData = createTimeEntrySchema.partial().parse(updateData)
+
+    const existing = await prisma.timeEntry.findUnique({ where: { id }, select: { userId: true } })
+    if (!existing?.userId) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+
+    const isAdmin = session.user.role === 'ADMIN'
+    if (!isAdmin && existing.userId !== session.user.id) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
+    const effectiveUserId = isAdmin ? (validatedData.userId ?? existing.userId) : existing.userId
+    if (validatedData.laborCodeId) {
+      const allowed = await getAllowedPhaseCodesForUser(effectiveUserId)
+      if (!allowed.some((c) => c.id === validatedData.laborCodeId)) {
+        return NextResponse.json({ error: 'Forbidden phase code' }, { status: 403 })
+      }
+    }
     
     // Validate date range if date is being updated
     if (validatedData.date) {
@@ -182,11 +213,10 @@ export async function PUT(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // Bypass authentication for testing
-    // const session = await getServerSession(authOptions)
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    // }
+    const session = await getServerSession(authOptions)
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
@@ -196,7 +226,15 @@ export async function GET(request: NextRequest) {
 
     // Build where clause
     const where: any = {}
-    if (userId) where.userId = userId
+    const isAdmin = session.user.role === 'ADMIN'
+    if (userId) {
+      if (!isAdmin && userId !== session.user.id) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
+      where.userId = userId
+    } else if (!isAdmin) {
+      where.userId = session.user.id
+    }
     if (jobId) where.jobId = jobId
     if (startDate || endDate) {
       try {

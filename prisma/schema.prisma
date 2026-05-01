@@ -12,6 +12,7 @@ model User {
   email                    String                   @unique
   name                     String?
   role                     String                   @default("USER")
+  jobRoleId                String?
   isActive                 Boolean                  @default(true)
   position                 String?
   wage                     Decimal?
@@ -19,6 +20,7 @@ model User {
   managerId                String?
   createdAt                DateTime                 @default(now())
   updatedAt                DateTime                 @updatedAt
+  jobRole                  JobRole?                 @relation(fields: [jobRoleId], references: [id], onDelete: SetNull)
   manager                  User?                    @relation("EmployeeManager", fields: [managerId], references: [id], onDelete: SetNull)
   directReports            User[]                   @relation("EmployeeManager")
   auditLogs                AuditLog[]               @relation("AuditLogs")
@@ -26,6 +28,8 @@ model User {
   createdJobs              Job[]                    @relation("JobCreator")
   assignedJobs             Job[]                    @relation("JobAssignee")
   timeEntries              TimeEntry[]
+  devTimeEntries           DevTimeEntry[]
+  phaseCodeOverrides       UserPhaseCodeOverride[]
   rejectedTimesheets       TimesheetSubmission[]    @relation("TimesheetRejections")
   approvedTimesheets       TimesheetSubmission[]    @relation("TimesheetApprovals")
   timesheetSubmissions     TimesheetSubmission[]
@@ -48,6 +52,54 @@ model User {
   assignedTasks            TaskCard[]               @relation("TaskAssignee")
 
   @@map("users")
+}
+
+enum PhaseCodeOverrideMode {
+  ALLOW
+  DENY
+}
+
+model JobRole {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users      User[]
+  phaseCodes JobRolePhaseCode[]
+
+  @@map("job_roles")
+}
+
+model JobRolePhaseCode {
+  jobRoleId   String
+  laborCodeId String
+  createdAt   DateTime @default(now())
+
+  jobRole   JobRole   @relation(fields: [jobRoleId], references: [id], onDelete: Cascade)
+  laborCode LaborCode @relation(fields: [laborCodeId], references: [id], onDelete: Cascade)
+
+  @@id([jobRoleId, laborCodeId])
+  @@index([laborCodeId])
+  @@map("job_role_phase_codes")
+}
+
+model UserPhaseCodeOverride {
+  id          String                @id @default(cuid())
+  userId      String
+  laborCodeId String
+  mode        PhaseCodeOverrideMode
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  laborCode LaborCode @relation(fields: [laborCodeId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, laborCodeId])
+  @@index([laborCodeId])
+  @@map("user_phase_code_overrides")
 }
 
 model Job {
@@ -87,6 +139,7 @@ model Job {
   createdBy          User                     @relation("JobCreator", fields: [createdById], references: [id])
   assignedTo         User?                    @relation("JobAssignee", fields: [assignedToId], references: [id])
   timeEntries        TimeEntry[]
+  devTimeEntries     DevTimeEntry[]
   fileRecords        FileRecord[]             @relation("JobFiles")
   milestones         JobMilestone[]           @relation("JobMilestones")
   expenseReports     ExpenseReport[]          @relation("JobExpenses")
@@ -138,6 +191,28 @@ model TimeEntry {
   @@map("time_entries")
 }
 
+model DevTimeEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  jobId       String?
+  date        DateTime
+  startTime   DateTime
+  endTime     DateTime?
+  hoursWorked Decimal
+  phaseCode   String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  job  Job? @relation(fields: [jobId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date], name: "dev_time_entries_userId_date_idx")
+  @@index([userId, startTime], name: "dev_time_entries_userId_startTime_idx")
+  @@index([jobId], name: "dev_time_entries_jobId_idx")
+  @@map("dev_time_entries")
+}
+
 model TimesheetSubmission {
   id              String      @id @default(cuid())
   userId          String
@@ -176,6 +251,8 @@ model LaborCode {
   jobEstimates   JobLaborEstimate[]
   quoteEstimates QuoteLaborEstimate[]
   timeEntries    TimeEntry[]
+  jobRoleLinks   JobRolePhaseCode[]
+  userOverrides  UserPhaseCodeOverride[]
 
   @@map("labor_codes")
 }
@@ -951,13 +1028,13 @@ model TaskCard {
 }
 
 model TaskCode {
-  id          String    @id @default(cuid())
-  code        String    @unique
+  id          String   @id @default(cuid())
+  code        String   @unique
   description String
-  category    String    // PM, SV, or AD
-  isActive    Boolean   @default(true)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  category    String // PM, SV, or AD
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([category])
   @@index([code])

@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
         email: true,
         name: true,
         role: true,
+        jobRoleId: true,
         isActive: true,
         position: true,
         wage: true,
