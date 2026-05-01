@@ -27,6 +27,8 @@ interface JobEntry {
   punchInTime: string
   punchOutTime: string | null
   notes: string | null
+  punchCountsAsOvertime?: boolean
+  manualOvertimeHours?: number
 }
 
 interface DayTimesheetModalProps {
@@ -120,18 +122,27 @@ export function DayTimesheetModal({
           const laborCode = laborCodes.find(lc => lc.code === (jobEntry.laborCode || '').trim())
           const laborCodeId = laborCode?.id || null
 
-          // Calculate hours
-          let regularHours = 0
+          let punchHours = 0
           if (jobEntry.punchOutTime) {
             const inTime = new Date(jobEntry.punchInTime)
             const outTime = new Date(jobEntry.punchOutTime)
-            regularHours = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60)
+            punchHours = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60)
+          }
+          punchHours = Math.max(0, punchHours)
+          const extraOt = Math.max(0, Number(jobEntry.manualOvertimeHours) || 0)
+          let regularHours = 0
+          let overtimeHours = 0
+          if (jobEntry.punchCountsAsOvertime) {
+            overtimeHours = punchHours + extraOt
+          } else {
+            regularHours = punchHours
+            overtimeHours = extraOt
           }
 
           timeEntries.push({
             date: format(selectedDate, 'yyyy-MM-dd'),
-            regularHours: Math.max(0, regularHours),
-            overtimeHours: 0,
+            regularHours,
+            overtimeHours,
             notes: jobEntry.notes || null,
             billable: true,
             jobId: job?.id,

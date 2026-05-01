@@ -170,25 +170,41 @@ model Customer {
 }
 
 model TimeEntry {
-  id            String               @id @default(cuid())
-  date          DateTime
-  regularHours  Float                @default(0)
-  overtimeHours Float                @default(0)
-  notes         String?
-  billable      Boolean              @default(true)
-  rate          Decimal?
-  userId        String?
-  jobId         String
-  laborCodeId   String?
-  submissionId  String?
-  createdAt     DateTime             @default(now())
-  updatedAt     DateTime             @updatedAt
-  submission    TimesheetSubmission? @relation(fields: [submissionId], references: [id])
-  laborCode     LaborCode?           @relation(fields: [laborCodeId], references: [id])
-  job           Job                  @relation(fields: [jobId], references: [id])
-  user          User?                @relation(fields: [userId], references: [id])
+  id               String               @id @default(cuid())
+  date             DateTime
+  regularHours     Float                @default(0)
+  overtimeHours    Float                @default(0)
+  notes            String?
+  billable         Boolean              @default(true)
+  rate             Decimal?
+  regularRateUsed  Decimal?
+  otRateUsed       Decimal?
+  otMultiplierUsed Decimal?
+  regularCost      Decimal?
+  otCost           Decimal?
+  totalCost        Decimal?
+  userId           String?
+  jobId            String
+  laborCodeId      String?
+  submissionId     String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  submission       TimesheetSubmission? @relation(fields: [submissionId], references: [id])
+  laborCode        LaborCode?           @relation(fields: [laborCodeId], references: [id])
+  job              Job                  @relation(fields: [jobId], references: [id])
+  user             User?                @relation(fields: [userId], references: [id])
 
   @@map("time_entries")
+}
+
+model SystemSetting {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  decimalValue Decimal
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("system_settings")
 }
 
 model DevTimeEntry {
@@ -557,16 +573,18 @@ model TimeChangeRequest {
 }
 
 model JobEntry {
-  id           String    @id @default(cuid())
-  timesheetId  String
-  jobNumber    String
-  laborCode    String
-  punchInTime  DateTime
-  punchOutTime DateTime?
-  notes        String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  timesheet    Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  id                    String    @id @default(cuid())
+  timesheetId           String
+  jobNumber             String
+  laborCode             String
+  punchInTime           DateTime
+  punchOutTime          DateTime?
+  notes                 String?
+  punchCountsAsOvertime Boolean   @default(false)
+  manualOvertimeHours   Float     @default(0)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  timesheet             Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
 
   @@map("job_entries")
 }

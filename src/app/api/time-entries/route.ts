@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
 import { dateStringSchema, validateDateRangeQuery, validateDateRange } from '@/lib/utils/date-validation'
 import { getAllowedPhaseCodesForUser } from '@/lib/timekeeping/phase-code-access'
+import { buildTimeEntryCostSnapshot, formatTimeEntryDecimals } from '@/lib/timekeeping/time-entry-cost'
 
 const createTimeEntrySchema = z.object({
   date: dateStringSchema,
@@ -49,11 +50,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    let snapshot
+    try {
+      snapshot = await buildTimeEntryCostSnapshot(prisma, {
+        regularHours: validatedData.regularHours,
+        overtimeHours: validatedData.overtimeHours,
+        laborCodeId: validatedData.laborCodeId ?? null,
+        explicitRate: validatedData.rate ?? null,
+      })
+    } catch (costErr) {
+      const msg = costErr instanceof Error ? costErr.message : 'Could not compute time entry cost'
+      return NextResponse.json({ error: msg }, { status: 400 })
+    }
+
     // Create the time entry
     const timeEntry = await prisma.timeEntry.create({
       data: {
         ...validatedData,
         userId: effectiveUserId,
+        ...snapshot,
       },
       include: {
         user: {
@@ -81,15 +96,15 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Convert Decimal fields to numbers for client compatibility
-    const timeEntryResponse = {
+    const timeEntryResponse = formatTimeEntryDecimals({
       ...timeEntry,
-      rate: timeEntry.rate ? Number(timeEntry.rate) : null,
-      laborCode: timeEntry.laborCode ? {
-        ...timeEntry.laborCode,
-        hourlyRate: timeEntry.laborCode.hourlyRate ? Number(timeEntry.laborCode.hourlyRate) : null
-      } : null
-    }
+      laborCode: timeEntry.laborCode
+        ? {
+            ...timeEntry.laborCode,
+            hourlyRate: timeEntry.laborCode.hourlyRate ? Number(timeEntry.laborCode.hourlyRate) : null,
+          }
+        : null,
+    })
 
     return NextResponse.json(timeEntryResponse, { status: 201 })
   } catch (error) {
@@ -125,8 +140,17 @@ export async function PUT(request: NextRequest) {
     // Validate update data
     const validatedData = createTimeEntrySchema.partial().parse(updateData)
 
-    const existing = await prisma.timeEntry.findUnique({ where: { id }, select: { userId: true } })
-    if (!existing?.userId) {
+    const existing = await prisma.timeEntry.findUnique({
+      where: { id },
+      select: {
+        userId: true,
+        regularHours: true,
+        overtimeHours: true,
+        laborCodeId: true,
+        rate: true,
+      },
+    })
+    if (!existing) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
@@ -135,7 +159,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const effectiveUserId = isAdmin ? (validatedData.userId ?? existing.userId) : existing.userId
+    const effectiveUserId = isAdmin ? (validatedData.userId ?? existing.userId) : existing.userId ?? session.user.id
     if (validatedData.laborCodeId) {
       const allowed = await getAllowedPhaseCodesForUser(effectiveUserId)
       if (!allowed.some((c) => c.id === validatedData.laborCodeId)) {
@@ -155,10 +179,37 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    const mergedRegular = validatedData.regularHours ?? existing.regularHours
+    const mergedOt = validatedData.overtimeHours ?? existing.overtimeHours
+    const mergedLaborCodeId =
+      validatedData.laborCodeId !== undefined ? validatedData.laborCodeId : existing.laborCodeId
+    const explicitRate =
+      validatedData.rate !== undefined
+        ? validatedData.rate
+        : existing.rate != null
+          ? Number(existing.rate)
+          : null
+
+    let snapshot
+    try {
+      snapshot = await buildTimeEntryCostSnapshot(prisma, {
+        regularHours: mergedRegular,
+        overtimeHours: mergedOt,
+        laborCodeId: mergedLaborCodeId,
+        explicitRate,
+      })
+    } catch (costErr) {
+      const msg = costErr instanceof Error ? costErr.message : 'Could not compute time entry cost'
+      return NextResponse.json({ error: msg }, { status: 400 })
+    }
+
     // Update the time entry
     const timeEntry = await prisma.timeEntry.update({
       where: { id },
-      data: validatedData,
+      data: {
+        ...validatedData,
+        ...snapshot,
+      },
       include: {
         user: {
           select: {
@@ -185,15 +236,15 @@ export async function PUT(request: NextRequest) {
       }
     })
 
-    // Convert Decimal fields to numbers for client compatibility
-    const timeEntryResponse = {
+    const timeEntryResponse = formatTimeEntryDecimals({
       ...timeEntry,
-      rate: timeEntry.rate ? Number(timeEntry.rate) : null,
-      laborCode: timeEntry.laborCode ? {
-        ...timeEntry.laborCode,
-        hourlyRate: timeEntry.laborCode.hourlyRate ? Number(timeEntry.laborCode.hourlyRate) : null
-      } : null
-    }
+      laborCode: timeEntry.laborCode
+        ? {
+            ...timeEntry.laborCode,
+            hourlyRate: timeEntry.laborCode.hourlyRate ? Number(timeEntry.laborCode.hourlyRate) : null,
+          }
+        : null,
+    })
 
     return NextResponse.json(timeEntryResponse)
   } catch (error) {
@@ -282,15 +333,17 @@ export async function GET(request: NextRequest) {
       orderBy: { date: 'desc' }
     })
 
-    // Convert Decimal fields to numbers for client compatibility
-    const timeEntriesResponse = timeEntries.map(entry => ({
-      ...entry,
-      rate: entry.rate ? Number(entry.rate) : null,
-      laborCode: entry.laborCode ? {
-        ...entry.laborCode,
-        hourlyRate: entry.laborCode.hourlyRate ? Number(entry.laborCode.hourlyRate) : null
-      } : null
-    }))
+    const timeEntriesResponse = timeEntries.map((entry) =>
+      formatTimeEntryDecimals({
+        ...entry,
+        laborCode: entry.laborCode
+          ? {
+              ...entry.laborCode,
+              hourlyRate: entry.laborCode.hourlyRate ? Number(entry.laborCode.hourlyRate) : null,
+            }
+          : null,
+      })
+    )
 
     return NextResponse.json(timeEntriesResponse)
   } catch (error) {

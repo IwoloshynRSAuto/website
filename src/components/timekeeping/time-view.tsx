@@ -49,6 +49,8 @@ interface TimesheetEntry {
     punchInTime: string
     punchOutTime: string | null
     notes: string | null
+    punchCountsAsOvertime?: boolean
+    manualOvertimeHours?: number
   }>
 }
 
@@ -625,18 +627,28 @@ export function TimeView({
             : null
           const laborCodeId = laborCode?.id || null
 
-          // Calculate hours
-          let regularHours = 0
+          // Calculate hours from punch; OT split follows job entry flags
+          let punchHours = 0
           if (jobEntry.punchOutTime) {
             const inTime = new Date(jobEntry.punchInTime)
             const outTime = new Date(jobEntry.punchOutTime)
-            regularHours = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60)
+            punchHours = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60)
+          }
+          punchHours = Math.max(0, punchHours)
+          const extraOt = Math.max(0, Number(jobEntry.manualOvertimeHours) || 0)
+          let regularHours = 0
+          let overtimeHours = 0
+          if (jobEntry.punchCountsAsOvertime) {
+            overtimeHours = punchHours + extraOt
+          } else {
+            regularHours = punchHours
+            overtimeHours = extraOt
           }
 
           timeEntries.push({
             date: new Date(ts.date).toISOString(),
-            regularHours: Math.max(0, regularHours),
-            overtimeHours: 0,
+            regularHours,
+            overtimeHours,
             notes: jobEntry.notes || null,
             billable: true,
             jobId: job?.id,

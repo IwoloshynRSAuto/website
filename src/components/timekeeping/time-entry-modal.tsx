@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Clock, User, FileText, Loader2, X, Plus, LogIn, LogOut, Calendar, Trash2 } from 'lucide-react'
+import { Switch } from '@/components/ui/switch'
 import { TimePicker } from '@/components/ui/time-picker'
 import { SimpleDatePicker } from '@/components/ui/simple-date-picker'
 import { useToast } from '@/components/ui/use-toast'
@@ -51,6 +52,8 @@ interface JobEntry {
   punchInTime: string
   punchOutTime: string | null
   notes: string | null
+  punchCountsAsOvertime?: boolean
+  manualOvertimeHours?: number
 }
 
 interface TimeEntryModalProps {
@@ -103,6 +106,8 @@ export function TimeEntryModal({
   const [jobStartTime, setJobStartTime] = useState('')
   const [jobEndTime, setJobEndTime] = useState('')
   const [notes, setNotes] = useState('')
+  const [punchCountsAsOvertime, setPunchCountsAsOvertime] = useState(false)
+  const [manualOvertimeHours, setManualOvertimeHours] = useState('')
 
   // Wrapper for setClockOutTime that validates against clockInTime
   const handleClockOutTimeChange = (newTime: string) => {
@@ -337,6 +342,12 @@ export function TimeEntryModal({
           setJobEndTime(formatTime12Hour(new Date(firstJob.punchOutTime)))
         }
         if (firstJob.notes) setNotes(firstJob.notes)
+        setPunchCountsAsOvertime(Boolean(firstJob.punchCountsAsOvertime))
+        setManualOvertimeHours(
+          firstJob.manualOvertimeHours != null && firstJob.manualOvertimeHours > 0
+            ? String(firstJob.manualOvertimeHours)
+            : ''
+        )
         // Mode is locked, no need to switch tabs
       }
     } else {
@@ -352,6 +363,8 @@ export function TimeEntryModal({
       setJobStartTime('')
       setJobEndTime('')
       setNotes('')
+      setPunchCountsAsOvertime(false)
+      setManualOvertimeHours('')
       // Mode is locked, no need to switch tabs
     }
   }, [selectedEntry, userId, jobs, laborCodes, selectedDate, mode])
@@ -791,7 +804,9 @@ export function TimeEntryModal({
           body: JSON.stringify({
             punchInTime: startDate.toISOString(),
             punchOutTime: endDate?.toISOString() || null,
-            notes: notes || null
+            notes: notes || null,
+            punchCountsAsOvertime,
+            manualOvertimeHours: Math.max(0, parseFloat(manualOvertimeHours) || 0),
           })
         })
 
@@ -812,7 +827,9 @@ export function TimeEntryModal({
             laborCode: selectedLaborCode?.code ?? '',
             punchInTime: startDate.toISOString(),
             punchOutTime: endDate?.toISOString() || null,
-            notes: notes || null
+            notes: notes || null,
+            punchCountsAsOvertime,
+            manualOvertimeHours: Math.max(0, parseFloat(manualOvertimeHours) || 0),
           })
         })
 
@@ -1254,6 +1271,49 @@ export function TimeEntryModal({
               </div>
             </div>
 
+            <div className="rounded-xl border-2 border-amber-400 bg-amber-50/90 p-4 space-y-4 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="space-y-1">
+                  <Label htmlFor="job-ot-switch" className="text-base font-semibold text-amber-950">
+                    Overtime
+                  </Label>
+                  <p className="text-sm text-amber-900/80">
+                    Turn on to submit the punch duration as <span className="font-medium">overtime hours</span> (cost =
+                    phase rate × OT multiplier). Leave off for regular hours.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3 shrink-0">
+                  <span className="text-sm font-medium text-amber-950 whitespace-nowrap">
+                    {punchCountsAsOvertime ? 'OT hours' : 'Regular'}
+                  </span>
+                  <Switch
+                    id="job-ot-switch"
+                    checked={punchCountsAsOvertime}
+                    onCheckedChange={setPunchCountsAsOvertime}
+                  />
+                </div>
+              </div>
+              <div className="space-y-2 pt-1 border-t border-amber-300/80">
+                <Label htmlFor="job-extra-ot" className="text-sm font-semibold text-amber-950">
+                  Extra overtime hours (optional)
+                </Label>
+                <Input
+                  id="job-extra-ot"
+                  type="number"
+                  min={0}
+                  step={0.25}
+                  value={manualOvertimeHours}
+                  onChange={(e) => setManualOvertimeHours(e.target.value)}
+                  placeholder="0"
+                  className="bg-white max-w-[200px] border-amber-300"
+                />
+                <p className="text-xs text-amber-900/75">
+                  Adds to the overtime bucket: stacked on top of punch-time OT when the switch is on; added as OT only when
+                  the switch is off.
+                </p>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-2 p-3 sm:p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <Label className="text-xs sm:text-sm font-semibold text-gray-700 flex items-center gap-2">
@@ -1309,15 +1369,32 @@ export function TimeEntryModal({
 
             {jobStartTime && jobEndTime && (
               <div className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
                   <div>
-                    <div className="text-sm font-medium text-gray-600 mb-1">Duration</div>
-                    <div className="text-3xl font-bold text-blue-700">
-                      {calculateHoursBetween(
+                    <div className="text-sm font-medium text-gray-600 mb-1">Hours breakdown</div>
+                    {(() => {
+                      const punchDur = calculateHoursBetween(
                         new Date(`${format(entryDate, 'yyyy-MM-dd')} ${convert12To24Hour(jobStartTime)}`),
                         new Date(`${format(entryDate, 'yyyy-MM-dd')} ${convert12To24Hour(jobEndTime)}`)
-                      ).toFixed(2)}h
-                    </div>
+                      )
+                      const extraOtNum = Math.max(0, parseFloat(manualOvertimeHours) || 0)
+                      const regH = punchCountsAsOvertime ? 0 : punchDur
+                      const otH = punchCountsAsOvertime ? punchDur + extraOtNum : extraOtNum
+                      const total = regH + otH
+                      return (
+                        <>
+                          <div className="text-2xl sm:text-3xl font-bold text-blue-700">{total.toFixed(2)}h total</div>
+                          <div className="text-sm text-gray-700 mt-1 space-x-3">
+                            <span>
+                              Regular: <span className="font-semibold">{regH.toFixed(2)}h</span>
+                            </span>
+                            <span>
+                              OT: <span className="font-semibold">{otH.toFixed(2)}h</span>
+                            </span>
+                          </div>
+                        </>
+                      )
+                    })()}
                   </div>
                   <div className="p-3 bg-blue-200 rounded-full">
                     <Clock className="h-6 w-6 text-blue-700" />

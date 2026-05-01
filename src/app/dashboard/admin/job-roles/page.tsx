@@ -10,7 +10,10 @@ export default async function JobRolesAdminPage() {
   if (session.user.role !== 'ADMIN') redirect('/dashboard')
 
   return (
-    <DashboardPageShell title="Categories" description="Manage Categories and their Phase Codes.">
+    <DashboardPageShell
+      title="Phase codes"
+      description="Manage phase code library, hourly rates, overtime multiplier, and which codes each job category and employee may use."
+    >
       <JobRolesAdminClient />
     </DashboardPageShell>
   )

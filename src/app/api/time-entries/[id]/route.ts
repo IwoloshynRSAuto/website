@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { buildTimeEntryCostSnapshot, formatTimeEntryDecimals } from '@/lib/timekeeping/time-entry-cost'
 
 const updateTimeEntrySchema = z.object({
   date: z.string().transform((val) => new Date(val)).optional(),
@@ -60,15 +61,15 @@ export async function GET(
       return NextResponse.json({ error: 'Time entry not found' }, { status: 404 })
     }
 
-    // Convert Decimal fields to numbers for client compatibility
-    const timeEntryResponse = {
+    const timeEntryResponse = formatTimeEntryDecimals({
       ...timeEntry,
-      rate: timeEntry.rate ? Number(timeEntry.rate) : null,
-      laborCode: timeEntry.laborCode ? {
-        ...timeEntry.laborCode,
-        hourlyRate: timeEntry.laborCode.hourlyRate ? Number(timeEntry.laborCode.hourlyRate) : null
-      } : null
-    }
+      laborCode: timeEntry.laborCode
+        ? {
+            ...timeEntry.laborCode,
+            hourlyRate: timeEntry.laborCode.hourlyRate ? Number(timeEntry.laborCode.hourlyRate) : null,
+          }
+        : null,
+    })
 
     return NextResponse.json(timeEntryResponse)
   } catch (error) {
@@ -110,9 +111,36 @@ export async function PUT(
     // Allow editing time entries from any status
     // Users can now explicitly reopen timesheets using the reopen button
 
+    const mergedRegular = validatedData.regularHours ?? existingEntry.regularHours
+    const mergedOt = validatedData.overtimeHours ?? existingEntry.overtimeHours
+    const mergedLaborCodeId =
+      validatedData.laborCodeId !== undefined ? validatedData.laborCodeId : existingEntry.laborCodeId
+    const explicitRate =
+      validatedData.rate !== undefined
+        ? validatedData.rate
+        : existingEntry.rate != null
+          ? Number(existingEntry.rate)
+          : null
+
+    let snapshot
+    try {
+      snapshot = await buildTimeEntryCostSnapshot(prisma, {
+        regularHours: mergedRegular,
+        overtimeHours: mergedOt,
+        laborCodeId: mergedLaborCodeId,
+        explicitRate,
+      })
+    } catch (costErr) {
+      const msg = costErr instanceof Error ? costErr.message : 'Could not compute time entry cost'
+      return NextResponse.json({ error: msg }, { status: 400 })
+    }
+
     const updatedTimeEntry = await prisma.timeEntry.update({
       where: { id },
-      data: validatedData,
+      data: {
+        ...validatedData,
+        ...snapshot,
+      },
       include: {
         user: {
           select: {
@@ -139,15 +167,17 @@ export async function PUT(
       }
     })
 
-    // Convert Decimal fields to numbers for client compatibility
-    const timeEntryResponse = {
+    const timeEntryResponse = formatTimeEntryDecimals({
       ...updatedTimeEntry,
-      rate: updatedTimeEntry.rate ? Number(updatedTimeEntry.rate) : null,
-      laborCode: updatedTimeEntry.laborCode ? {
-        ...updatedTimeEntry.laborCode,
-        hourlyRate: updatedTimeEntry.laborCode.hourlyRate ? Number(updatedTimeEntry.laborCode.hourlyRate) : null
-      } : null
-    }
+      laborCode: updatedTimeEntry.laborCode
+        ? {
+            ...updatedTimeEntry.laborCode,
+            hourlyRate: updatedTimeEntry.laborCode.hourlyRate
+              ? Number(updatedTimeEntry.laborCode.hourlyRate)
+              : null,
+          }
+        : null,
+    })
 
     return NextResponse.json(timeEntryResponse)
   } catch (error) {

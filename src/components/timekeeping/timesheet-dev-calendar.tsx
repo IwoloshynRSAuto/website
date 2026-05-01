@@ -789,6 +789,12 @@ export function TimesheetDevCalendar({
           jobs={jobs}
           laborCodes={laborCodes}
           isAdmin={isAdmin}
+          mode={
+            !selectedEntry ||
+            (Array.isArray(selectedEntry.jobEntries) && selectedEntry.jobEntries.length > 0)
+              ? 'job'
+              : 'clock'
+          }
           key={`${modalDate.getTime()}-${isModalOpen}`}
         />
       )}

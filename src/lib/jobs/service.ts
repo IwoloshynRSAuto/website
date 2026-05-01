@@ -4,6 +4,8 @@
  */
 
 import { prisma } from '@/lib/prisma'
+import { computeTimeEntryCostsPlain } from '@/lib/timekeeping/time-entry-cost'
+import { getOtMultiplier } from '@/lib/settings/system-settings'
 import { getStorage } from '@/lib/storage'
 import {
   CreateJobInput,
@@ -473,11 +475,35 @@ export class JobService {
       return sum + (labor.estimatedHours || 0)
     }, 0) || job.estimatedHours || 0
 
-    // Calculate labor cost
+    const otMultFallback = await getOtMultiplier(prisma)
+
+    let laborRegularCost = 0
+    let laborOtCost = 0
     const laborCost = job.timeEntries.reduce((sum, entry) => {
-      const rate = entry.rate ? Number(entry.rate) : 0
-      const hours = (entry.regularHours || 0) + (entry.overtimeHours || 0)
-      return sum + rate * hours
+      if (entry.totalCost != null) {
+        const reg = entry.regularCost != null ? Number(entry.regularCost) : 0
+        const ot = entry.otCost != null ? Number(entry.otCost) : 0
+        laborRegularCost += reg
+        laborOtCost += ot
+        return sum + Number(entry.totalCost)
+      }
+      const base =
+        entry.laborCode?.hourlyRate != null
+          ? Number(entry.laborCode.hourlyRate)
+          : entry.rate != null
+            ? Number(entry.rate)
+            : 0
+      const mult =
+        entry.otMultiplierUsed != null ? Number(entry.otMultiplierUsed) : otMultFallback
+      const { regularCost, otCost, totalCost } = computeTimeEntryCostsPlain({
+        regularHours: entry.regularHours || 0,
+        overtimeHours: entry.overtimeHours || 0,
+        baseRate: base,
+        otMultiplier: mult,
+      })
+      laborRegularCost += regularCost
+      laborOtCost += otCost
+      return sum + totalCost
     }, 0)
 
     // Calculate estimated labor cost
@@ -501,6 +527,8 @@ export class JobService {
       hoursVariancePercent: estimatedHours > 0 ? ((actualHours - estimatedHours) / estimatedHours) * 100 : 0,
       estimatedLaborCost,
       laborCost,
+      laborRegularCost,
+      laborOtCost,
       laborCostVariance: laborCost - estimatedLaborCost,
       laborCostVariancePercent: estimatedLaborCost > 0 ? ((laborCost - estimatedLaborCost) / estimatedLaborCost) * 100 : 0,
     }

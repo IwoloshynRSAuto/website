@@ -38,6 +38,8 @@ export function JobRolesAdminClient() {
   const [employeeSearch, setEmployeeSearch] = useState('')
   const [phaseLibSearch, setPhaseLibSearch] = useState('')
   const [newPhase, setNewPhase] = useState({ code: '', name: '', hourlyRate: '' })
+  const [otMultiplier, setOtMultiplier] = useState('1.5')
+  const [otSaving, setOtSaving] = useState(false)
 
   const selectedRole = useMemo(() => roles.find((r) => r.id === selectedRoleId) || null, [roles, selectedRoleId])
   const sortedPhaseCodes = useMemo(
@@ -75,20 +77,25 @@ export function JobRolesAdminClient() {
   const load = async () => {
     setLoading(true)
     try {
-      const [rolesRes, codesRes, usersRes] = await Promise.all([
+      const [rolesRes, codesRes, usersRes, otRes] = await Promise.all([
         fetch('/api/admin/job-roles'),
         fetch('/api/admin/phase-codes'),
         fetch('/api/users?activeOnly=true'),
+        fetch('/api/admin/settings/ot-multiplier'),
       ])
       const rolesJson = await rolesRes.json()
       const codesJson = await codesRes.json()
       const usersJson = await usersRes.json()
+      const otJson = otRes.ok ? await otRes.json().catch(() => null) : null
       if (!rolesRes.ok || !rolesJson?.success) throw new Error(rolesJson?.error || 'Failed to load categories')
       if (!codesRes.ok || !codesJson?.success) throw new Error(codesJson?.error || 'Failed to load phase codes')
       if (!usersRes.ok || !usersJson?.success) throw new Error(usersJson?.error || 'Failed to load employees')
       setRoles(rolesJson.data || [])
       setPhaseCodes(codesJson.data || [])
       setEmployees(usersJson.data || [])
+      if (otJson?.success && otJson.data?.otMultiplier != null) {
+        setOtMultiplier(String(otJson.data.otMultiplier))
+      }
       if (!selectedRoleId && Array.isArray(rolesJson.data) && rolesJson.data.length) {
         setSelectedRoleId(rolesJson.data[0].id)
       }
@@ -96,6 +103,30 @@ export function JobRolesAdminClient() {
       toast({ title: 'Could not load categories', description: e?.message, variant: 'destructive' })
     } finally {
       setLoading(false)
+    }
+  }
+
+  const saveOtMultiplier = async () => {
+    const n = parseFloat(otMultiplier)
+    if (!Number.isFinite(n) || n <= 0) {
+      toast({ title: 'Invalid multiplier', description: 'Enter a positive number.', variant: 'destructive' })
+      return
+    }
+    setOtSaving(true)
+    try {
+      const res = await fetch('/api/admin/settings/ot-multiplier', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otMultiplier: n }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json?.success) throw new Error(json?.error || 'Save failed')
+      setOtMultiplier(String(json.data?.otMultiplier ?? n))
+      toast({ title: 'Saved', description: 'Overtime multiplier updated.' })
+    } catch (e: any) {
+      toast({ title: 'Could not save', description: e?.message, variant: 'destructive' })
+    } finally {
+      setOtSaving(false)
     }
   }
 
@@ -256,13 +287,21 @@ export function JobRolesAdminClient() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+    <div className="space-y-6">
+      <Tabs defaultValue="categories" className="w-full">
+        <TabsList className="mb-4 grid h-auto w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:max-w-4xl">
+          <TabsTrigger value="categories">Categories</TabsTrigger>
+          <TabsTrigger value="library">Phase code library</TabsTrigger>
+          <TabsTrigger value="costing">Rates & overtime</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="categories" className="mt-0 space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <Card className="border border-slate-200 shadow-md lg:col-span-4">
           <CardHeader className="border-b py-3 px-4">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Categories</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Job categories</p>
                 <p className="text-sm text-slate-600">{loading ? 'Loading…' : `${roles.length} total`}</p>
               </div>
               <Badge variant="secondary" className="whitespace-nowrap">
@@ -357,18 +396,22 @@ export function JobRolesAdminClient() {
                 Pick a category to edit which phase codes and employees belong to it.
               </div>
             ) : (
-              <Tabs defaultValue="phase-codes">
+              <Tabs defaultValue="assign-codes">
                 <TabsList>
-                  <TabsTrigger value="phase-codes">Phase codes</TabsTrigger>
+                  <TabsTrigger value="assign-codes">Assigned codes</TabsTrigger>
                   <TabsTrigger value="employees">Employees</TabsTrigger>
-                  <TabsTrigger value="manage">Manage phase codes</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="phase-codes" className="mt-4 space-y-3">
+                <TabsContent value="assign-codes" className="mt-4 space-y-3">
+                  <p className="text-sm text-slate-600">
+                    Choose which phase codes people in this category may log on jobs. Edit codes and hourly rates in the{' '}
+                    <span className="font-medium">Phase code library</span> tab; set the overtime multiplier under{' '}
+                    <span className="font-medium">Rates & overtime</span>.
+                  </p>
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <Input value={phaseSearch} onChange={(e) => setPhaseSearch(e.target.value)} placeholder="Search phase codes…" className="max-w-sm" />
                     <Button variant="outline" onClick={() => void saveRoleCodes()} disabled={saving}>
-                      Save phase codes
+                      Save assignments
                     </Button>
                   </div>
                   <div className="max-h-[520px] overflow-auto space-y-2 pr-1 rounded-md border p-3">
@@ -433,156 +476,210 @@ export function JobRolesAdminClient() {
                     })}
                   </div>
                 </TabsContent>
-
-                <TabsContent value="manage" className="mt-4 space-y-3">
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                    <div className="rounded-md border p-3 space-y-2">
-                      <p className="text-sm font-semibold">Add phase code</p>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Input
-                          value={newPhase.code}
-                          onChange={(e) => setNewPhase((p) => ({ ...p, code: e.target.value }))}
-                          placeholder="Code (e.g. AD)"
-                        />
-                        <Input
-                          value={newPhase.hourlyRate}
-                          onChange={(e) => setNewPhase((p) => ({ ...p, hourlyRate: e.target.value }))}
-                          placeholder="Cost/hr"
-                        />
-                      </div>
-                      <Input
-                        value={newPhase.name}
-                        onChange={(e) => setNewPhase((p) => ({ ...p, name: e.target.value }))}
-                        placeholder="Name"
-                      />
-                      <Button
-                        onClick={async () => {
-                          setSaving(true)
-                          try {
-                            const rate = newPhase.hourlyRate.trim() === '' ? null : Number(newPhase.hourlyRate)
-                            const res = await fetch('/api/admin/phase-codes', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ code: newPhase.code, name: newPhase.name, hourlyRate: rate, isActive: true }),
-                            })
-                            const json = await res.json().catch(() => ({}))
-                            if (!res.ok || !json?.success) throw new Error(json?.error || 'Create failed')
-                            toast({ title: 'Phase code created' })
-                            setNewPhase({ code: '', name: '', hourlyRate: '' })
-                            await load()
-                          } catch (e: any) {
-                            toast({ title: 'Could not create phase code', description: e?.message, variant: 'destructive' })
-                          } finally {
-                            setSaving(false)
-                          }
-                        }}
-                        disabled={saving || !newPhase.code.trim() || !newPhase.name.trim()}
-                      >
-                        Add
-                      </Button>
-                    </div>
-
-                    <div className="lg:col-span-2 rounded-md border p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2 flex-wrap">
-                        <p className="text-sm font-semibold">Phase codes library</p>
-                        <Input
-                          value={phaseLibSearch}
-                          onChange={(e) => setPhaseLibSearch(e.target.value)}
-                          placeholder="Search…"
-                          className="max-w-sm"
-                        />
-                      </div>
-                      <div className="max-h-[520px] overflow-auto divide-y">
-                        {phaseLibrary.map((c) => (
-                          <div key={c.id} className="py-2 flex items-center gap-2">
-                            <div className="w-[80px] font-mono">{c.code}</div>
-                            <Input
-                              className="h-8"
-                              value={c.name}
-                              onChange={(e) => setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, name: e.target.value } : x)))}
-                            />
-                            <Input
-                              className="h-8 w-[120px]"
-                              value={c.hourlyRate != null ? String(c.hourlyRate) : ''}
-                              onChange={(e) =>
-                                setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, hourlyRate: e.target.value } : x)))
-                              }
-                              placeholder="Cost/hr"
-                            />
-                            <label className="flex items-center gap-2 text-sm whitespace-nowrap">
-                              <Checkbox
-                                checked={Boolean(c.isActive ?? true)}
-                                onCheckedChange={(v) =>
-                                  setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, isActive: Boolean(v) } : x)))
-                                }
-                              />
-                              Active
-                            </label>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={async () => {
-                                setSaving(true)
-                                try {
-                                  const rateVal =
-                                    c.hourlyRate === '' || c.hourlyRate == null ? null : Number(String(c.hourlyRate).trim())
-                                  const res = await fetch(`/api/admin/phase-codes/${c.id}`, {
-                                    method: 'PATCH',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                      name: String(c.name || '').trim(),
-                                      hourlyRate: rateVal,
-                                      isActive: Boolean(c.isActive ?? true),
-                                    }),
-                                  })
-                                  const json = await res.json().catch(() => ({}))
-                                  if (!res.ok || !json?.success) throw new Error(json?.error || 'Save failed')
-                                  toast({ title: 'Saved' })
-                                  await load()
-                                } catch (e: any) {
-                                  toast({ title: 'Could not save', description: e?.message, variant: 'destructive' })
-                                } finally {
-                                  setSaving(false)
-                                }
-                              }}
-                              disabled={saving}
-                            >
-                              Save
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={async () => {
-                                const ok = window.confirm(`Delete phase code ${c.code}? If it has time entries it will be deactivated instead.`)
-                                if (!ok) return
-                                setSaving(true)
-                                try {
-                                  const res = await fetch(`/api/admin/phase-codes/${c.id}`, { method: 'DELETE' })
-                                  const json = await res.json().catch(() => ({}))
-                                  if (!res.ok || !json?.success) throw new Error(json?.error || 'Delete failed')
-                                  toast({ title: 'Deleted' })
-                                  await load()
-                                } catch (e: any) {
-                                  toast({ title: 'Could not delete', description: e?.message, variant: 'destructive' })
-                                } finally {
-                                  setSaving(false)
-                                }
-                              }}
-                              disabled={saving}
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </TabsContent>
               </Tabs>
             )}
           </CardContent>
         </Card>
-      </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="library" className="mt-0">
+          <Card className="border border-slate-200 shadow-md">
+            <CardHeader className="border-b py-3 px-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Phase code library</p>
+              <p className="text-sm text-slate-600">
+                Create codes, set cost per hour, and activate or deactivate. Categories assign these codes under the
+                Categories tab.
+              </p>
+            </CardHeader>
+            <CardContent className="p-4 space-y-3">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                <div className="rounded-md border p-3 space-y-2">
+                  <p className="text-sm font-semibold">Add phase code</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Input
+                      value={newPhase.code}
+                      onChange={(e) => setNewPhase((p) => ({ ...p, code: e.target.value }))}
+                      placeholder="Code (e.g. AD)"
+                    />
+                    <Input
+                      value={newPhase.hourlyRate}
+                      onChange={(e) => setNewPhase((p) => ({ ...p, hourlyRate: e.target.value }))}
+                      placeholder="Cost/hr"
+                    />
+                  </div>
+                  <Input
+                    value={newPhase.name}
+                    onChange={(e) => setNewPhase((p) => ({ ...p, name: e.target.value }))}
+                    placeholder="Name"
+                  />
+                  <Button
+                    onClick={async () => {
+                      setSaving(true)
+                      try {
+                        const rate = newPhase.hourlyRate.trim() === '' ? null : Number(newPhase.hourlyRate)
+                        const res = await fetch('/api/admin/phase-codes', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ code: newPhase.code, name: newPhase.name, hourlyRate: rate, isActive: true }),
+                        })
+                        const json = await res.json().catch(() => ({}))
+                        if (!res.ok || !json?.success) throw new Error(json?.error || 'Create failed')
+                        toast({ title: 'Phase code created' })
+                        setNewPhase({ code: '', name: '', hourlyRate: '' })
+                        await load()
+                      } catch (e: any) {
+                        toast({ title: 'Could not create phase code', description: e?.message, variant: 'destructive' })
+                      } finally {
+                        setSaving(false)
+                      }
+                    }}
+                    disabled={saving || !newPhase.code.trim() || !newPhase.name.trim()}
+                  >
+                    Add
+                  </Button>
+                </div>
+
+                <div className="lg:col-span-2 rounded-md border p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-sm font-semibold">All phase codes</p>
+                    <Input
+                      value={phaseLibSearch}
+                      onChange={(e) => setPhaseLibSearch(e.target.value)}
+                      placeholder="Search…"
+                      className="max-w-sm"
+                    />
+                  </div>
+                  <div className="max-h-[520px] overflow-auto divide-y">
+                    {phaseLibrary.map((c) => (
+                      <div key={c.id} className="py-2 flex items-center gap-2">
+                        <div className="w-[80px] font-mono">{c.code}</div>
+                        <Input
+                          className="h-8"
+                          value={c.name}
+                          onChange={(e) => setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, name: e.target.value } : x)))}
+                        />
+                        <Input
+                          className="h-8 w-[120px]"
+                          value={c.hourlyRate != null ? String(c.hourlyRate) : ''}
+                          onChange={(e) =>
+                            setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, hourlyRate: e.target.value } : x)))
+                          }
+                          placeholder="Cost/hr"
+                        />
+                        <label className="flex items-center gap-2 text-sm whitespace-nowrap">
+                          <Checkbox
+                            checked={Boolean(c.isActive ?? true)}
+                            onCheckedChange={(v) =>
+                              setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, isActive: Boolean(v) } : x)))
+                            }
+                          />
+                          Active
+                        </label>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            setSaving(true)
+                            try {
+                              const rateVal =
+                                c.hourlyRate === '' || c.hourlyRate == null ? null : Number(String(c.hourlyRate).trim())
+                              const res = await fetch(`/api/admin/phase-codes/${c.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  name: String(c.name || '').trim(),
+                                  hourlyRate: rateVal,
+                                  isActive: Boolean(c.isActive ?? true),
+                                }),
+                              })
+                              const json = await res.json().catch(() => ({}))
+                              if (!res.ok || !json?.success) throw new Error(json?.error || 'Save failed')
+                              toast({ title: 'Saved' })
+                              await load()
+                            } catch (e: any) {
+                              toast({ title: 'Could not save', description: e?.message, variant: 'destructive' })
+                            } finally {
+                              setSaving(false)
+                            }
+                          }}
+                          disabled={saving}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={async () => {
+                            const ok = window.confirm(`Delete phase code ${c.code}? If it has time entries it will be deactivated instead.`)
+                            if (!ok) return
+                            setSaving(true)
+                            try {
+                              const res = await fetch(`/api/admin/phase-codes/${c.id}`, { method: 'DELETE' })
+                              const json = await res.json().catch(() => ({}))
+                              if (!res.ok || !json?.success) throw new Error(json?.error || 'Delete failed')
+                              toast({ title: 'Deleted' })
+                              await load()
+                            } catch (e: any) {
+                              toast({ title: 'Could not delete', description: e?.message, variant: 'destructive' })
+                            } finally {
+                              setSaving(false)
+                            }
+                          }}
+                          disabled={saving}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="costing" className="mt-0">
+          <Card className="border border-slate-200 shadow-md">
+            <CardHeader className="border-b py-3 px-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Rates & overtime</p>
+              <p className="text-sm text-slate-600">
+                Regular-time cost uses each phase code's cost per hour from the library. Overtime uses that same base rate multiplied by the value below (typically 1.5).
+              </p>
+            </CardHeader>
+            <CardContent className="p-4 space-y-4">
+              <div className="rounded-md border border-amber-200 bg-amber-50/80 p-4 space-y-3 max-w-xl">
+                <div>
+                  <Label className="text-sm font-semibold text-slate-800">Global overtime multiplier</Label>
+                  <p className="text-xs text-slate-600 mt-1">
+                    Applied to overtime hours on submitted job time (base rate × OT hours × multiplier). Defaults to 1.5 if unset.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-end gap-3">
+                  <div className="space-y-1">
+                    <Label htmlFor="ot-mult-costing" className="text-xs text-slate-600">
+                      Multiplier
+                    </Label>
+                    <Input
+                      id="ot-mult-costing"
+                      type="number"
+                      step="0.01"
+                      min={0.01}
+                      className="w-32 bg-white"
+                      value={otMultiplier}
+                      onChange={(e) => setOtMultiplier(e.target.value)}
+                      disabled={loading || otSaving}
+                    />
+                  </div>
+                  <Button type="button" onClick={() => void saveOtMultiplier()} disabled={loading || otSaving}>
+                    Save multiplier
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

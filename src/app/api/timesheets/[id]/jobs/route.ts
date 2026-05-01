@@ -33,6 +33,8 @@ const createJobEntrySchema = z.object({
   punchInTime: z.string().transform((val) => new Date(val)),
   punchOutTime: z.string().transform((val) => new Date(val)).optional().nullable(),
   notes: z.string().optional().nullable(),
+  punchCountsAsOvertime: z.boolean().optional(),
+  manualOvertimeHours: z.number().min(0).optional(),
 })
 
 // POST /api/timesheets/:id/jobs - Add job entry
@@ -373,6 +375,8 @@ export async function POST(
         punchInTime: roundedPunchIn,
         punchOutTime: roundedPunchOut,
         notes: validatedData.notes || null,
+        punchCountsAsOvertime: validatedData.punchCountsAsOvertime ?? false,
+        manualOvertimeHours: validatedData.manualOvertimeHours ?? 0,
       }
     })
 

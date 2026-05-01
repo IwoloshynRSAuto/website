@@ -9,6 +9,8 @@ import { getWeekBoundariesUTC, normalizeWeekStartToUTC, normalizeWeekEndToUTC } 
 import { dateStringSchema, nullableDateStringSchema, optionalDateStringSchema, validateWeekBoundaries, validateDateInWeek, validateDateRange } from '@/lib/utils/date-validation'
 import { ensureJobForTimeSubmission } from '@/lib/timekeeping/ensure-job-for-submission'
 import { authorizeOwnResource, type User as AuthUser } from '@/lib/auth/authorization'
+import { getOtMultiplier } from '@/lib/settings/system-settings'
+import { buildTimeEntryCostSnapshot } from '@/lib/timekeeping/time-entry-cost'
 
 const createTimesheetSubmissionSchema = z.object({
   userId: z.string().min(1, 'User is required'),
@@ -288,6 +290,8 @@ export async function POST(request: NextRequest) {
       // We query them by week range when fetching submissions
       // No need to link them here since we'll query by date range
 
+      const otMult = await getOtMultiplier(tx)
+
       // Update or create time entries
       // Only create TimeEntry records if jobId is provided (for job entries)
       for (const entry of validatedData.timeEntries) {
@@ -314,6 +318,24 @@ export async function POST(request: NextRequest) {
           continue
         }
 
+        let snapshot
+        try {
+          snapshot = await buildTimeEntryCostSnapshot(
+            tx,
+            {
+              regularHours: entry.regularHours,
+              overtimeHours: entry.overtimeHours,
+              laborCodeId: entry.laborCodeId ?? null,
+              explicitRate: entry.rate ?? null,
+            },
+            otMult
+          )
+        } catch (costErr) {
+          throw new Error(
+            `TIME_ENTRY_COST:${costErr instanceof Error ? costErr.message : 'Could not compute entry cost'}`
+          )
+        }
+
         if (entry.id) {
           // Update existing entry
           await tx.timeEntry.update({
@@ -324,11 +346,11 @@ export async function POST(request: NextRequest) {
               overtimeHours: entry.overtimeHours,
               notes: entry.notes,
               billable: entry.billable,
-              rate: entry.rate,
               jobId: resolvedJobId,
               laborCodeId: entry.laborCodeId ?? null,
-              submissionId: submission.id
-            }
+              submissionId: submission.id,
+              ...snapshot,
+            },
           })
         } else {
           // Create new entry
@@ -339,12 +361,12 @@ export async function POST(request: NextRequest) {
               overtimeHours: entry.overtimeHours,
               notes: entry.notes,
               billable: entry.billable,
-              rate: entry.rate,
               userId: validatedData.userId,
               jobId: resolvedJobId,
               laborCodeId: entry.laborCodeId ?? null,
-              submissionId: submission.id
-            }
+              submissionId: submission.id,
+              ...snapshot,
+            },
           })
         }
       }
@@ -396,11 +418,21 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       )
     }
+    const msg = error?.message || 'Failed to create timesheet submission'
+    if (typeof msg === 'string' && msg.startsWith('TIME_ENTRY_COST:')) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: msg.replace(/^TIME_ENTRY_COST:/, '').trim() || 'Could not compute entry cost',
+        },
+        { status: 400 }
+      )
+    }
     console.error('Error creating timesheet submission:', error)
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Failed to create timesheet submission',
+        error: msg,
         details: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
