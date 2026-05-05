@@ -25,6 +25,9 @@ export default async function QuoteDetailPage({ params }: PageProps) {
       customer: {
         select: { id: true, name: true, email: true, phone: true },
       },
+      plan: {
+        select: { id: true, name: true },
+      },
       job: {
         select: { id: true, jobNumber: true, title: true },
       },
@@ -51,6 +54,8 @@ export default async function QuoteDetailPage({ params }: PageProps) {
     paymentTerms: quote.paymentTerms ?? null,
     estimatedHours: quote.estimatedHours != null ? Number(quote.estimatedHours) : null,
     hourlyRate: quote.hourlyRate != null ? Number(quote.hourlyRate) : null,
+    planId: quote.plan?.id || null,
+    planName: quote.plan?.name || null,
     createdAt: quote.createdAt.toISOString(),
     updatedAt: quote.updatedAt.toISOString(),
     customer: quote.customer,

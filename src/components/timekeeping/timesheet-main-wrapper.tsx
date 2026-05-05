@@ -7,8 +7,6 @@ interface TimesheetMainWrapperProps {
   currentUserId: string
   currentUserName: string
   users: Array<{ id: string; name: string | null; email: string | null }>
-  jobs: Array<{ id: string; jobNumber: string; title: string }>
-  laborCodes: Array<{ id: string; code: string; name: string }>
   isAdmin: boolean
   canViewApprovalsTab: boolean
 }

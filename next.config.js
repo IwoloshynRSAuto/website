@@ -1,5 +1,37 @@
 /** @type {import('next').NextConfig} */
+const NO_STORE_DOCUMENT = [
+  {
+    key: 'Cache-Control',
+    value: 'private, no-cache, no-store, max-age=0, must-revalidate',
+  },
+]
+
 const nextConfig = {
+/**
+ * 1) Long-lived cache for hashed webpack chunks (safe: filename changes each build).
+ * 2) No-store for HTML-like routes so users never keep a shell that references deleted chunks.
+ *
+ * If styles/scripts fail site-wide (ChunkLoadError on `/_next/static`), do a clean deploy
+ * (`npm run deploy:prod:clean`) and confirm `/api/build-health` returns ok; the reverse proxy
+ * must serve `/_next/static` from the same build as the Node process.
+ */
+  async headers() {
+    return [
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/((?!_next/static|_next/image|favicon.ico).*)',
+        headers: NO_STORE_DOCUMENT,
+      },
+    ]
+  },
   typescript: {
     // Temporarily ignore type errors during production builds
     ignoreBuildErrors: true,

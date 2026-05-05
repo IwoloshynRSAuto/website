@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { getAllowedPhaseCodeSetForUser } from '@/lib/timekeeping/phase-code-access'
+import { jobEntryPunchIsOvertime } from '@/lib/timekeeping/job-entry-ot-flag'
 
 function toIso(d: Date): string {
   return d.toISOString()
@@ -71,9 +72,18 @@ const patchSchema = z.object({
   jobId: z.string().optional(),
   startTime: z.string().optional(),
   hoursWorked: z.union([z.string(), z.number()]).optional(),
+  punchCountsAsOvertime: z.boolean().optional(),
+  manualOvertimeHours: z.union([z.string(), z.number()]).optional().nullable(),
   phaseCode: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 })
+
+function parseNonNegativeDecimalHours(raw: unknown): number {
+  if (raw === undefined || raw === null || raw === '') return 0
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim())
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.round(n * 100) / 100
+}
 
 function parseDateOnlyToUtcNoon(value: string): Date {
   const m = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
@@ -96,6 +106,8 @@ function serializeEntry(e: {
   date: Date
   startTime: Date
   hoursWorked: Prisma.Decimal
+  punchCountsAsOvertime: boolean
+  manualOvertimeHours: Prisma.Decimal
   phaseCode: string | null
   notes: string | null
   createdAt: Date
@@ -110,6 +122,8 @@ function serializeEntry(e: {
     startTime: toIso(e.startTime),
     endTime: null,
     hoursWorked: e.hoursWorked.toString(),
+    punchCountsAsOvertime: e.punchCountsAsOvertime,
+    manualOvertimeHours: e.manualOvertimeHours.toString(),
     phaseCode: e.phaseCode,
     notes: e.notes,
     createdAt: toIso(e.createdAt),
@@ -139,6 +153,8 @@ export async function GET(
         date: true,
         startTime: true,
         hoursWorked: true,
+        punchCountsAsOvertime: true,
+        manualOvertimeHours: true,
         phaseCode: true,
         notes: true,
         createdAt: true,
@@ -214,6 +230,12 @@ export async function PATCH(
     if (data.notes !== undefined) {
       update.notes = data.notes?.trim() ? data.notes.trim() : null
     }
+    if (data.punchCountsAsOvertime !== undefined) {
+      update.punchCountsAsOvertime = jobEntryPunchIsOvertime(data.punchCountsAsOvertime)
+    }
+    if (data.manualOvertimeHours !== undefined) {
+      update.manualOvertimeHours = new Prisma.Decimal(parseNonNegativeDecimalHours(data.manualOvertimeHours))
+    }
 
     if (data.startTime !== undefined || data.hoursWorked !== undefined || data.date !== undefined) {
       const nextDate = (update.date as Date | undefined) ?? existing.date
@@ -245,6 +267,8 @@ export async function PATCH(
         startTime: true,
         endTime: true,
         hoursWorked: true,
+        punchCountsAsOvertime: true,
+        manualOvertimeHours: true,
         phaseCode: true,
         notes: true,
         createdAt: true,

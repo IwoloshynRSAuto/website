@@ -153,7 +153,7 @@ export function LaborCodeDrillDownModal({
                                         <TableHead>Employee</TableHead>
                                         {activeTab === 'all-job' && <TableHead>Labor Code</TableHead>}
                                         <TableHead>Date Worked</TableHead>
-                                        <TableHead>Hours</TableHead>
+                                        <TableHead className="text-right">Hours</TableHead>
                                         <TableHead>Date Submitted</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead>Notes</TableHead>
@@ -176,7 +176,7 @@ export function LaborCodeDrillDownModal({
                                             <TableCell>
                                                 {format(new Date(entry.date), 'MMM d, yyyy')}
                                             </TableCell>
-                                            <TableCell>
+                                            <TableCell className="text-right tabular-nums font-medium">
                                                 {((entry.regularHours || 0) + (entry.overtimeHours || 0)).toFixed(2)}
                                             </TableCell>
                                             <TableCell>

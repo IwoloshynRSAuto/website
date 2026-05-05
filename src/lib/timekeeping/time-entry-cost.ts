@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client'
 import { Prisma } from '@prisma/client'
 import { getOtMultiplier } from '@/lib/settings/system-settings'
+import { isOtLaborCode, stripOtLaborCodeSuffix } from '@/lib/labor-codes/ot-code'
 
 type DbWithLabor = Pick<PrismaClient, 'laborCode'>
 
@@ -12,6 +13,18 @@ export type TimeEntryCostSnapshot = {
   regularCost: Prisma.Decimal
   otCost: Prisma.Decimal
   totalCost: Prisma.Decimal
+}
+
+/**
+ * Effective OT pay factor per overtime hour (applied to base hourly rate).
+ * Stored `OT_MULTIPLIER` is typically 1.5 ("time and a half").
+ *
+ * Portal costing policy: overtime cost uses the multiplier directly
+ * (e.g. 1.5 means OT hour costs 1.5× base).
+ */
+export function overtimePayFactorPerOtHour(otMultiplier: number): number {
+  const m = Number(otMultiplier)
+  return Number.isFinite(m) && m > 0 ? m : 1
 }
 
 /** Pure calculation for tests and server reuse. */
@@ -26,7 +39,7 @@ export function computeTimeEntryCostsPlain(input: {
   const base = Math.max(0, Number(input.baseRate) || 0)
   const mult = Math.max(0, Number(input.otMultiplier) || 0)
   const regularCost = base * regH
-  const otCost = base * otH * mult
+  const otCost = base * otH * overtimePayFactorPerOtHour(mult)
   return {
     regularCost,
     otCost,
@@ -67,22 +80,63 @@ export async function buildTimeEntryCostSnapshot(
   },
   otMultiplierOverride?: number
 ): Promise<TimeEntryCostSnapshot> {
-  const mult =
+  const globalOtMult =
     otMultiplierOverride != null && Number.isFinite(otMultiplierOverride) && otMultiplierOverride > 0
       ? otMultiplierOverride
       : await getOtMultiplier(db)
 
-  const baseRate = await resolveBaseHourlyRate(db, input.laborCodeId ?? null, input.explicitRate)
+  let baseRate: number
+  /** Factor on overtime hours in computeTimeEntryCostsPlain; OT-phase codes use 1 so we do not stack global OT on top of the phase multiplier. */
+  let costOtMultiplier: number
+
+  if (input.laborCodeId) {
+    const lc = await db.laborCode.findUnique({
+      where: { id: input.laborCodeId },
+      select: { code: true, hourlyRate: true, isOvertimePhase: true, overtimeRateMultiplier: true },
+    })
+    const hr = lc?.hourlyRate != null ? Number(lc.hourlyRate) : NaN
+    if (!Number.isFinite(hr) || hr <= 0) {
+      throw new Error('Phase code hourly rate must be greater than zero')
+    }
+
+    const otSuffix = isOtLaborCode(lc?.code ?? '')
+    const useOtPricing = Boolean(lc?.isOvertimePhase || otSuffix)
+
+    if (useOtPricing) {
+      const pm = lc!.overtimeRateMultiplier != null ? Number(lc!.overtimeRateMultiplier) : 1.5
+      const phaseMult = Number.isFinite(pm) && pm > 0 ? pm : 1.5
+      let rateFrom = hr
+      if (otSuffix && lc?.code) {
+        const stripped = stripOtLaborCodeSuffix(lc.code)
+        const baseLc = await db.laborCode.findFirst({
+          where: { code: { equals: stripped, mode: 'insensitive' } },
+          select: { code: true, hourlyRate: true },
+        })
+        if (baseLc && !isOtLaborCode(baseLc.code) && baseLc.hourlyRate != null) {
+          const br = Number(baseLc.hourlyRate)
+          if (Number.isFinite(br) && br > 0) rateFrom = br
+        }
+      }
+      baseRate = rateFrom * phaseMult
+      costOtMultiplier = 1
+    } else {
+      baseRate = hr
+      costOtMultiplier = globalOtMult
+    }
+  } else {
+    baseRate = await resolveBaseHourlyRate(db, null, input.explicitRate)
+    costOtMultiplier = globalOtMult
+  }
 
   const { regularCost, otCost, totalCost } = computeTimeEntryCostsPlain({
     regularHours: input.regularHours,
     overtimeHours: input.overtimeHours,
     baseRate,
-    otMultiplier: mult,
+    otMultiplier: costOtMultiplier,
   })
 
   const baseDec = new Prisma.Decimal(baseRate)
-  const multDec = new Prisma.Decimal(mult)
+  const multDec = new Prisma.Decimal(costOtMultiplier)
 
   return {
     rate: baseDec,

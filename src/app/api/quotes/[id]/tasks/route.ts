@@ -3,6 +3,42 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+function prefixFromTaskCode(code: unknown): 'PM' | 'AD' | 'SV' | null {
+    const t = String(code || '').trim().toUpperCase()
+    if (t.length < 2) return null
+    const p = t.slice(0, 2)
+    return p === 'PM' || p === 'AD' || p === 'SV' ? (p as any) : null
+}
+
+async function syncQuotePrefixTotalsToLabor(quoteId: string) {
+    const rows = await prisma.taskCard.findMany({
+        where: { quoteId, taskCode: { not: null } },
+        select: { taskCode: true, estimatedHours: true },
+    })
+
+    const totals: Record<'PM' | 'AD' | 'SV', number> = { PM: 0, AD: 0, SV: 0 }
+    for (const r of rows) {
+        const p = prefixFromTaskCode(r.taskCode)
+        if (!p) continue
+        totals[p] += Number(r.estimatedHours || 0)
+    }
+
+    const laborCodes = await prisma.laborCode.findMany({
+        where: { code: { in: ['PM', 'AD', 'SV'], mode: 'insensitive' } as any },
+        select: { id: true, code: true },
+    })
+
+    for (const lc of laborCodes) {
+        const key = String(lc.code).trim().toUpperCase() as 'PM' | 'AD' | 'SV'
+        const hours = totals[key] ?? 0
+        await prisma.quoteLaborEstimate.upsert({
+            where: { quoteId_laborCodeId: { quoteId, laborCodeId: lc.id } },
+            update: { estimatedHours: hours },
+            create: { quoteId, laborCodeId: lc.id, estimatedHours: hours },
+        })
+    }
+}
+
 /**
  * GET /api/quotes/[id]/tasks
  * Get all tasks for a quote
@@ -77,11 +113,19 @@ export async function POST(
         const { id } = resolvedParams
 
         const body = await request.json()
-        const { name, description, assignedToId, dueDate, status, taskCode, taskCodeDescription } = body
+        const { name, description, assignedToId, dueDate, status, taskCode, taskCodeDescription, estimatedHours, laborCodeId } = body
 
         if (!name) {
             return NextResponse.json(
                 { success: false, error: 'Task name is required' },
+                { status: 400 }
+            )
+        }
+
+        const hoursNum = estimatedHours === '' || estimatedHours == null ? null : Number(estimatedHours)
+        if (hoursNum != null && (!Number.isFinite(hoursNum) || hoursNum < 0)) {
+            return NextResponse.json(
+                { success: false, error: 'Estimated hours must be a non-negative number' },
                 { status: 400 }
             )
         }
@@ -103,6 +147,8 @@ export async function POST(
                 description: description || null,
                 assignedToId: assignedToId || null,
                 dueDate: dueDate ? new Date(dueDate) : null,
+                estimatedHours: hoursNum == null ? null : hoursNum,
+                laborCodeId: laborCodeId || null,
                 status: status || 'BACKLOG',
                 position: (maxPosition?.position ?? -1) + 1,
                 taskCode: taskCode || null,
@@ -118,6 +164,10 @@ export async function POST(
                 }
             }
         })
+
+        if (taskCode) {
+            await syncQuotePrefixTotalsToLabor(id)
+        }
 
         return NextResponse.json(
             {

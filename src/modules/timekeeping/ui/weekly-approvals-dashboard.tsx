@@ -19,6 +19,7 @@ import { ChevronLeft, ChevronRight, Check, X, CalendarRange, ExternalLink } from
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
 import { dashboardUi } from '@/components/layout/dashboard-ui'
+import { HowToButton } from '@/components/ui/how-to-button'
 
 type SubmissionType = 'TIME' | 'ATTENDANCE'
 type SubmissionStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'
@@ -181,6 +182,25 @@ export function WeeklyApprovalsDashboard() {
               </div>
             </div>
             <div className="flex w-full shrink-0 flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              <HowToButton
+                title="Weekly approvals — how it works"
+                description="Review each employee’s weekly sheet, then approve/reject attendance and job time submissions."
+                className="h-9 border-slate-300 bg-white hover:bg-slate-50"
+              >
+                <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+                  <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                    <li>
+                      Use <span className="font-medium text-foreground">View sheet</span> to review daily punches and job entries.
+                    </li>
+                    <li>
+                      For <span className="font-medium text-foreground">SUBMITTED</span> items, approve or reject.
+                    </li>
+                    <li>
+                      Rejecting unlocks the week so the employee can update and resubmit.
+                    </li>
+                  </ul>
+                </div>
+              </HowToButton>
               <Button variant="outline" size="sm" onClick={() => setWeekStart((d) => subWeeks(d, 1))} disabled={loading}>
                 <ChevronLeft className="h-4 w-4 mr-1" />
                 Prev week

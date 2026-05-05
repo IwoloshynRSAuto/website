@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +19,9 @@ import { MilestoneGanttView } from '@/components/jobs/milestone-gantt-view'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { KanbanBoard } from '@/components/jobs/kanban-board'
 import { LaborCodeDrillDownModal } from '@/components/jobs/labor-code-drill-down-modal'
+import { computeTimeEntryCostsPlain } from '@/lib/timekeeping/time-entry-cost'
+import { stripOtLaborCodeSuffix } from '@/lib/labor-codes/ot-code'
+import { DeliverablesTimeline } from '@/components/tasks/deliverables-timeline'
 
 interface Milestone {
   id: string
@@ -34,6 +38,25 @@ interface Deliverable {
   description: string
   status: 'pending' | 'in_progress' | 'completed' | 'delivered' | 'accepted'
   dueDate: string
+}
+
+type TaskCode = { id: string; code: string; description: string; category: string; isActive?: boolean }
+
+type DeliverableTask = {
+  id: string
+  name: string
+  description: string | null
+  taskCode: string | null
+  taskCodeDescription: string | null
+  dueDate: string | null
+  estimatedHours: number | null
+}
+
+function prefixFromTaskCode(code: string | null | undefined): 'PM' | 'AD' | 'SV' | 'OTHER' {
+  const t = (code || '').trim().toUpperCase()
+  const p = t.slice(0, 2)
+  if (p === 'PM' || p === 'AD' || p === 'SV') return p
+  return 'OTHER'
 }
 
 interface LaborCodeEntry {
@@ -63,12 +86,48 @@ interface TimeEntry {
   overtimeHours: number
   laborCodeId: string | null
   laborCode: LaborCode | null
+  /** Serialized cost snapshot when present */
+  rate?: number | null
+  regularCost?: number | null
+  otCost?: number | null
+  otMultiplierUsed?: number | null
+  totalCost?: number | null
   user: {
     name: string | null
   } | null
 }
 
+/** Job card labor dollars — prefer DB snapshot; otherwise reg + OT using overtimePayFactorPerOtHour (see time-entry-cost). */
+function entryLaborCost(entry: TimeEntry, otMultFallback: number): number {
+  const snapshotTotal = entry.totalCost != null ? Number(entry.totalCost) : NaN
+  if (Number.isFinite(snapshotTotal)) return snapshotTotal
+
+  const rc = entry.regularCost != null ? Number(entry.regularCost) : NaN
+  const oc = entry.otCost != null ? Number(entry.otCost) : NaN
+  if (Number.isFinite(rc) && Number.isFinite(oc)) return rc + oc
+
+  const phaseRate = entry.laborCode?.hourlyRate ?? 0
+  const baseRate =
+    entry.rate != null && Number.isFinite(Number(entry.rate)) ? Number(entry.rate) : phaseRate
+  const mult =
+    entry.otMultiplierUsed != null && Number.isFinite(Number(entry.otMultiplierUsed))
+      ? Number(entry.otMultiplierUsed)
+      : otMultFallback
+
+  return computeTimeEntryCostsPlain({
+    regularHours: entry.regularHours,
+    overtimeHours: entry.overtimeHours,
+    baseRate,
+    otMultiplier: mult,
+  }).totalCost
+}
+
+/** Hours stored without a linked phase code still count toward job totals */
+const NO_PHASE_ROW_ID = '__no_labor_code__'
+
 interface QuotedLabor {
+  /** JobLaborEstimate row id (JOB only); used by schedule board. */
+  id?: string
   laborCodeId: string
   estimatedHours: number
 }
@@ -127,9 +186,11 @@ interface JobDetailsClientProps {
   users: Array<{ id: string; name: string | null; email: string }>
   bom?: BOM | null
   milestones?: JobMilestone[]
+  /** Configured OT multiplier to use if an entry snapshot is missing. */
+  otMultiplierFallback: number
 }
 
-export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, quotedLabor, jobType, relatedQuoteId, users, bom, milestones: initialMilestones = [] }: JobDetailsClientProps) {
+export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, quotedLabor, jobType, relatedQuoteId, users, bom, milestones: initialMilestones = [], otMultiplierFallback }: JobDetailsClientProps) {
   const { toast } = useToast()
   const [mounted, setMounted] = useState(false)
 
@@ -219,19 +280,55 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
       })
     })
 
-    // Calculate actual hours and costs from time entries
-    timeEntries.forEach(entry => {
-      if (entry.laborCodeId && laborCodeMap.has(entry.laborCodeId)) {
-        const laborCode = laborCodeMap.get(entry.laborCodeId)!
-        const totalHours = entry.regularHours + entry.overtimeHours
-        const cost = totalHours * (entry.laborCode?.hourlyRate || 0)
+    // Calculate actual hours and costs from time entries (roll WC/OT onto quoted WC row when present)
+    timeEntries.forEach((entry) => {
+      const totalHours = entry.regularHours + entry.overtimeHours
+      if (totalHours <= 0) return
 
-        laborCodeMap.set(entry.laborCodeId, {
-          ...laborCode,
-          actualHours: laborCode.actualHours + totalHours,
-          actualCost: laborCode.actualCost + cost
-        })
+      let mappedId: string | null = null
+      if (entry.laborCodeId && laborCodeMap.has(entry.laborCodeId)) {
+        mappedId = entry.laborCodeId
+      } else if (entry.laborCode?.code) {
+        const baseCode = stripOtLaborCodeSuffix(entry.laborCode.code)
+        const baseLc = laborCodes.find((lc) => lc.code.toUpperCase() === baseCode.toUpperCase())
+        if (baseLc && laborCodeMap.has(baseLc.id)) {
+          mappedId = baseLc.id
+        }
       }
+
+      if (!mappedId) {
+        if (!laborCodeMap.has(NO_PHASE_ROW_ID)) {
+          laborCodeMap.set(NO_PHASE_ROW_ID, {
+            id: NO_PHASE_ROW_ID,
+            code: '—',
+            name: 'No phase linked',
+            category: '',
+            rate: 0,
+            estimatedHours: 0,
+            actualHours: 0,
+            estimatedCost: 0,
+            actualCost: 0,
+            progress: 0,
+          })
+        }
+        const row = laborCodeMap.get(NO_PHASE_ROW_ID)!
+        const costDelta = entryLaborCost(entry, otMultiplierFallback)
+        laborCodeMap.set(NO_PHASE_ROW_ID, {
+          ...row,
+          actualHours: row.actualHours + totalHours,
+          actualCost: row.actualCost + costDelta,
+        })
+        return
+      }
+
+      const laborCode = laborCodeMap.get(mappedId as string)!
+      const cost = entryLaborCost(entry, otMultiplierFallback)
+
+      laborCodeMap.set(mappedId, {
+        ...laborCode,
+        actualHours: laborCode.actualHours + totalHours,
+        actualCost: laborCode.actualCost + cost,
+      })
     })
 
     // Calculate progress percentages
@@ -242,7 +339,7 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
     })
 
     return Array.from(laborCodeMap.values())
-  }, [laborCodes, timeEntries, quotedHours])
+  }, [laborCodes, timeEntries, quotedHours, otMultiplierFallback])
 
   // Function to update quoted hours
   const updateQuotedHours = async (laborCodeId: string, hours: number) => {
@@ -622,6 +719,142 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
     }
   }, [initialMilestones, quotedAmount])
 
+  // Task-code deliverables (PM/AD/SV)
+  const [taskCodes, setTaskCodes] = useState<TaskCode[]>([])
+  const [deliverableTasks, setDeliverableTasks] = useState<DeliverableTask[]>([])
+  const [deliverableTasksLoading, setDeliverableTasksLoading] = useState(false)
+  const [deliverablesFilter, setDeliverablesFilter] = useState('')
+  const [selectedDeliverableTaskId, setSelectedDeliverableTaskId] = useState<string | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch('/api/task-codes')
+        if (!res.ok) return
+        const result = await res.json()
+        const data = result.data || (Array.isArray(result) ? result : [])
+        setTaskCodes(Array.isArray(data) ? data : [])
+      } catch {
+        setTaskCodes([])
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      setDeliverableTasksLoading(true)
+      try {
+        const res = await fetch(`/api/jobs/${jobId}/tasks`)
+        const result = await res.json().catch(() => ({}))
+        if (!res.ok || result.success === false) {
+          setDeliverableTasks([])
+          return
+        }
+        const rows = Array.isArray(result.data) ? (result.data as DeliverableTask[]) : []
+        setDeliverableTasks(rows.filter((t) => !!t.taskCode))
+      } catch {
+        setDeliverableTasks([])
+      } finally {
+        setDeliverableTasksLoading(false)
+      }
+    })()
+  }, [jobId])
+
+  const deliverableTasksByCode = useMemo(() => {
+    const m = new Map<string, DeliverableTask>()
+    for (const d of deliverableTasks) {
+      const code = (d.taskCode || '').trim()
+      if (code) m.set(code, d)
+    }
+    return m
+  }, [deliverableTasks])
+
+  const deliverableRollups = useMemo(() => {
+    const totals: Record<string, number> = { PM: 0, AD: 0, SV: 0 }
+    for (const d of deliverableTasks) {
+      const p = prefixFromTaskCode(d.taskCode)
+      if (p === 'PM' || p === 'AD' || p === 'SV') totals[p] += Number(d.estimatedHours || 0)
+    }
+    return totals
+  }, [deliverableTasks])
+
+  const filteredTaskCodes = useMemo(() => {
+    const q = deliverablesFilter.trim().toLowerCase()
+    const list = taskCodes.filter((t) => t.isActive !== false)
+    if (!q) return list
+    return list.filter((t) => t.code.toLowerCase().includes(q) || t.description.toLowerCase().includes(q))
+  }, [taskCodes, deliverablesFilter])
+
+  async function includeDeliverableCode(c: TaskCode) {
+    setDeliverableTasksLoading(true)
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${c.code} ${c.description}`,
+          status: 'BACKLOG',
+          taskCode: c.code,
+          taskCodeDescription: c.description,
+          dueDate: null,
+          estimatedHours: 0,
+        }),
+      })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok || result.success === false) throw new Error(result.error || 'Failed')
+      const row = result.data as DeliverableTask
+      setDeliverableTasks((prev) => [...prev, row])
+      setSelectedDeliverableTaskId(row.id)
+    } catch (e) {
+      toast({
+        title: 'Could not add deliverable',
+        description: e instanceof Error ? e.message : undefined,
+        variant: 'destructive',
+      })
+    } finally {
+      setDeliverableTasksLoading(false)
+    }
+  }
+
+  async function updateDeliverableTask(taskId: string, updates: Partial<DeliverableTask>) {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok || result.success === false) throw new Error(result.error || 'Failed')
+      const row = result.data as DeliverableTask
+      setDeliverableTasks((prev) => prev.map((t) => (t.id === row.id ? row : t)))
+    } catch (e) {
+      toast({
+        title: 'Could not update deliverable',
+        description: e instanceof Error ? e.message : undefined,
+        variant: 'destructive',
+      })
+    }
+  }
+
+  async function removeDeliverableTask(taskId: string) {
+    setDeliverableTasksLoading(true)
+    try {
+      const res = await fetch(`/api/jobs/${jobId}/tasks/${taskId}`, { method: 'DELETE' })
+      const result = await res.json().catch(() => ({}))
+      if (!res.ok || result.success === false) throw new Error(result.error || 'Failed')
+      setDeliverableTasks((prev) => prev.filter((t) => t.id !== taskId))
+      setSelectedDeliverableTaskId((cur) => (cur === taskId ? null : cur))
+    } catch (e) {
+      toast({
+        title: 'Could not remove deliverable',
+        description: e instanceof Error ? e.message : undefined,
+        variant: 'destructive',
+      })
+    } finally {
+      setDeliverableTasksLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-8 w-full">
       {/* Task Kanban Board - Above Deliverables */}
@@ -632,185 +865,113 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
         users={users}
       />
 
-      {/* Deliverables Section */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Deliverables</CardTitle>
-            <Button
-              size="sm"
-              onClick={() => setShowAddDeliverable(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Add Deliverable
-            </Button>
-          </div>
+          <CardTitle>Deliverables</CardTitle>
         </CardHeader>
-        <CardContent>
-          {/* Summary Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-6">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-orange-600">{deliverableCounts.pending || 0}</div>
-              <div className="text-sm text-gray-500">Pending</div>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="text-xs text-muted-foreground">PM hours</div>
+              <div className="text-lg font-semibold tabular-nums">{deliverableRollups.PM.toFixed(2)}</div>
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{deliverableCounts.in_progress || 0}</div>
-              <div className="text-sm text-gray-500">In Progress</div>
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="text-xs text-muted-foreground">AD hours</div>
+              <div className="text-lg font-semibold tabular-nums">{deliverableRollups.AD.toFixed(2)}</div>
             </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{deliverableCounts.completed || 0}</div>
-              <div className="text-sm text-gray-500">Completed</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{deliverableCounts.delivered || 0}</div>
-              <div className="text-sm text-gray-500">Delivered</div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{deliverableCounts.accepted || 0}</div>
-              <div className="text-sm text-gray-500">Accepted</div>
+            <div className="rounded-lg border bg-muted/20 p-3">
+              <div className="text-xs text-muted-foreground">SV hours</div>
+              <div className="text-lg font-semibold tabular-nums">{deliverableRollups.SV.toFixed(2)}</div>
             </div>
           </div>
 
-          {/* Add Deliverable Form */}
-          {showAddDeliverable && (
-            <div className="bg-gray-50 p-4 rounded-lg mb-4">
-              <h4 className="font-medium mb-3">Add New Deliverable</h4>
-              <div className="space-y-3">
-                <div>
-                  <Label className="block text-gray-700 mb-1">Deliverable Name</Label>
-                  <Input
-                    placeholder="e.g., System Architecture Document"
-                    value={newDeliverable.name}
-                    onChange={(e) => setNewDeliverable(prev => ({ ...prev, name: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label className="block text-gray-700 mb-1">Description</Label>
-                  <Textarea
-                    placeholder="e.g., Complete system architecture and design specifications"
-                    value={newDeliverable.description}
-                    onChange={(e) => setNewDeliverable(prev => ({ ...prev, description: e.target.value }))}
-                  />
-                </div>
-                <div>
-                  <Label className="block text-gray-700 mb-1">Due Date</Label>
-                  <Input
-                    type="date"
-                    value={newDeliverable.dueDate}
-                    onChange={(e) => setNewDeliverable(prev => ({ ...prev, dueDate: e.target.value }))}
-                  />
-                </div>
-              </div>
-              <div className="flex space-x-2 mt-3">
-                <Button
-                  size="sm"
-                  onClick={addDeliverable}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Add Deliverable
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowAddDeliverable(false)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          )}
+          <DeliverablesTimeline
+            tasks={deliverableTasks}
+            selectedTaskId={selectedDeliverableTaskId}
+            onSelectTaskId={(id) => setSelectedDeliverableTaskId(id)}
+          />
 
-          {/* Deliverables List */}
-          <div className="space-y-2">
-            {deliverables.map((deliverable) => (
-              <div key={deliverable.id} className="p-3 bg-white border rounded-lg">
-                {editingDeliverable === deliverable.id ? (
-                  // Edit Form
-                  <div className="space-y-3">
-                    <h4 className="font-medium">Edit Deliverable</h4>
-                    <div className="space-y-3">
-                      <div>
-                        <Label className="block text-gray-700 mb-1">Deliverable Name</Label>
-                        <Input
-                          placeholder="e.g., System Architecture Document"
-                          value={editingDeliverableData.name}
-                          onChange={(e) => setEditingDeliverableData(prev => ({ ...prev, name: e.target.value }))}
-                        />
-                      </div>
-                      <div>
-                        <Label className="block text-gray-700 mb-1">Description</Label>
-                        <Textarea
-                          placeholder="e.g., Complete system architecture and design specifications"
-                          value={editingDeliverableData.description}
-                          onChange={(e) => setEditingDeliverableData(prev => ({ ...prev, description: e.target.value }))}
-                        />
-                      </div>
-                      <div>
-                        <Label className="block text-gray-700 mb-1">Status</Label>
-                        <Select
-                          value={editingDeliverableData.status}
-                          onValueChange={(value) => setEditingDeliverableData(prev => ({ ...prev, status: value }))}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select status" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="pending">Pending</SelectItem>
-                            <SelectItem value="in_progress">In Progress</SelectItem>
-                            <SelectItem value="completed">Completed</SelectItem>
-                            <SelectItem value="delivered">Delivered</SelectItem>
-                            <SelectItem value="accepted">Accepted</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label className="block text-gray-700 mb-1">Due Date</Label>
-                        <Input
-                          type="date"
-                          value={editingDeliverableData.dueDate}
-                          onChange={(e) => setEditingDeliverableData(prev => ({ ...prev, dueDate: e.target.value }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="flex space-x-2">
-                      <Button size="sm" onClick={saveEditDeliverable}>Save Changes</Button>
-                      <Button size="sm" variant="outline" onClick={cancelEditDeliverable}>Cancel</Button>
-                    </div>
-                  </div>
-                ) : (
-                  // Display Mode
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="font-medium">{deliverable.name}</div>
-                      <div className="flex items-center space-x-2">
-                        <Badge className={getStatusColor(deliverable.status)}>
-                          {deliverable.status.replace('_', ' ')}
-                        </Badge>
-                        <div className="flex space-x-1">
-                          <Button size="sm" variant="outline" onClick={() => startEditDeliverable(deliverable)}>
-                            <Edit className="h-3 w-3 mr-1" />
-                            Edit
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="flex-1 space-y-1">
+              <Label htmlFor="job-deliverables-filter">Search</Label>
+              <Input
+                id="job-deliverables-filter"
+                value={deliverablesFilter}
+                onChange={(e) => setDeliverablesFilter(e.target.value)}
+                placeholder="Search codes or descriptions…"
+              />
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {deliverableTasksLoading ? 'Updating…' : `${deliverableTasks.length} selected`}
+            </div>
+          </div>
+
+          <div className="overflow-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/30 text-muted-foreground">
+                <tr>
+                  <th className="text-left font-medium px-3 py-2 w-[220px]">Code</th>
+                  <th className="text-left font-medium px-3 py-2 min-w-[320px]">Description</th>
+                  <th className="text-left font-medium px-3 py-2 w-[140px]">Due</th>
+                  <th className="text-left font-medium px-3 py-2 w-[140px]">Hours</th>
+                  <th className="px-3 py-2 w-[90px]" />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredTaskCodes.map((c) => {
+                  const included = deliverableTasksByCode.get(c.code)
+                  const isSelected = included && included.id === selectedDeliverableTaskId
+                  return (
+                    <tr key={c.id} className={isSelected ? 'bg-muted/20' : ''}>
+                      <td className="px-3 py-2 font-mono text-xs">{c.code}</td>
+                      <td className="px-3 py-2">{c.description}</td>
+                      <td className="px-3 py-2">
+                        {included ? (
+                          <Input
+                            type="date"
+                            className="h-8"
+                            value={included.dueDate ? included.dueDate.split('T')[0] : ''}
+                            onChange={(e) => void updateDeliverableTask(included.id, { dueDate: e.target.value || null })}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {included ? (
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.25"
+                            className="h-8"
+                            value={included.estimatedHours ?? 0}
+                            onChange={(e) => void updateDeliverableTask(included.id, { estimatedHours: e.target.value === '' ? 0 : Number(e.target.value) })}
+                          />
+                        ) : (
+                          <span className="text-muted-foreground text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {included ? (
+                          <Button type="button" variant="outline" size="sm" className="h-8" onClick={() => void removeDeliverableTask(included.id)}>
+                            Remove
                           </Button>
-                          <Button size="sm" variant="outline" onClick={() => {
-                            setDeliverables(prev => prev.filter(d => d.id !== deliverable.id))
-                            toast({ title: 'Deliverable deleted' })
-                          }}>
-                            <Trash2 className="h-3 w-3 mr-1" />
-                            Delete
+                        ) : (
+                          <Button type="button" variant="secondary" size="sm" className="h-8" onClick={() => void includeDeliverableCode(c)}>
+                            Add
                           </Button>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-sm text-gray-600">{deliverable.description}</div>
-                    <div className="text-xs text-gray-500 mt-1">Due: {deliverable.dueDate}</div>
-                  </div>
-                )}
-              </div>
-            ))}
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         </CardContent>
       </Card>
+
+      {/* Old deliverables + quoted labor schedule removed */}
 
       {/* Milestones Section with Gantt View */}
       {initialMilestones.length > 0 && (
@@ -1146,8 +1307,13 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
                   {laborCodeData.map((lc) => (
                     <tr
                       key={lc.id}
-                      className="h-12 cursor-pointer border-b align-middle transition-colors last:border-0 hover:bg-gray-50"
+                      className={`h-12 border-b align-middle transition-colors last:border-0 ${
+                        lc.id === NO_PHASE_ROW_ID
+                          ? 'bg-amber-50/60'
+                          : 'cursor-pointer hover:bg-gray-50'
+                      }`}
                       onClick={() => {
+                        if (lc.id === NO_PHASE_ROW_ID) return
                         setDrillDownLaborCode({ id: lc.id, name: lc.name })
                         setIsDrillDownOpen(true)
                       }}

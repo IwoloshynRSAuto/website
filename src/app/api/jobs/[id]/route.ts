@@ -35,6 +35,8 @@ const updateJobEntrySchema = z.object({
   notes: z.string().optional().nullable(),
   punchCountsAsOvertime: z.boolean().optional(),
   manualOvertimeHours: z.number().min(0).optional(),
+  jobNumber: z.string().min(1).optional(),
+  laborCode: z.string().optional(),
 })
 
 // PATCH /api/jobs/:id - Update job (project) or timesheet job entry
@@ -125,6 +127,13 @@ export async function PATCH(
 
     if (validatedData.manualOvertimeHours !== undefined) {
       updateData.manualOvertimeHours = validatedData.manualOvertimeHours
+    }
+
+    if (validatedData.jobNumber !== undefined) {
+      updateData.jobNumber = validatedData.jobNumber.trim()
+    }
+    if (validatedData.laborCode !== undefined) {
+      updateData.laborCode = validatedData.laborCode.trim()
     }
 
     // Validate punch out is after punch in

@@ -182,9 +182,7 @@ export function LaborCodeBreakdownModal({
               <TableHead>Employee</TableHead>
               <TableHead>Labor Code</TableHead>
               <TableHead>Date Worked</TableHead>
-              <TableHead>Regular Hours</TableHead>
-              <TableHead>OT Hours</TableHead>
-              <TableHead>Total Hours</TableHead>
+              <TableHead>Hours</TableHead>
               <TableHead>Date Submitted</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Notes</TableHead>
@@ -216,8 +214,6 @@ export function LaborCodeBreakdownModal({
                   <TableCell>
                     {format(new Date(entry.date), 'MMM d, yyyy')}
                   </TableCell>
-                  <TableCell>{entry.regularHours.toFixed(2)}</TableCell>
-                  <TableCell>{entry.overtimeHours.toFixed(2)}</TableCell>
                   <TableCell className="font-semibold">
                     {(entry.regularHours + entry.overtimeHours).toFixed(2)}
                   </TableCell>

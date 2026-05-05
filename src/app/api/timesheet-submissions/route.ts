@@ -11,6 +11,7 @@ import { ensureJobForTimeSubmission } from '@/lib/timekeeping/ensure-job-for-sub
 import { authorizeOwnResource, type User as AuthUser } from '@/lib/auth/authorization'
 import { getOtMultiplier } from '@/lib/settings/system-settings'
 import { buildTimeEntryCostSnapshot } from '@/lib/timekeeping/time-entry-cost'
+import { sanitizeBillableHours } from '@/lib/timekeeping/punch-hours'
 
 const createTimesheetSubmissionSchema = z.object({
   userId: z.string().min(1, 'User is required'),
@@ -35,7 +36,11 @@ const createTimesheetSubmissionSchema = z.object({
     rate: z.number().nullable().optional(),
     jobId: z.string().optional().nullable(), // Optional when jobNumber is sent
     jobNumber: z.string().optional().nullable(), // Resolved to Job on server if jobId missing
-    laborCodeId: z.string().optional().nullable()
+    laborCodeId: z.string().optional().nullable(),
+    /** Phase code string (e.g. AD) — used to resolve laborCodeId when the client could not. */
+    laborCode: z.string().optional().nullable(),
+    /** Optional link to JobEntry for auditing/tools — hours come from regularHours/overtimeHours below. */
+    jobEntryId: z.string().optional().nullable(),
   }))
 })
 
@@ -197,8 +202,12 @@ export async function POST(request: NextRequest) {
     // Determine if this is an attendance-only or job-only submission
     // IMPORTANT: This determines which type of submission we're creating/checking
     // ATTENDANCE submissions have no jobId in timeEntries
-    // TIME submissions have at least one jobId in timeEntries
-    const hasJobEntries = validatedData.timeEntries.some((te: any) => te.jobId)
+    // TIME submissions: any row tied to a job (by id or job number)
+    const hasJobEntries = validatedData.timeEntries.some((te: any) => {
+      const jid = typeof te.jobId === 'string' && te.jobId.trim() !== ''
+      const jn = typeof te.jobNumber === 'string' && te.jobNumber.trim() !== ''
+      return jid || jn
+    })
     const isAttendanceSubmission = !hasJobEntries
     const submissionType = isAttendanceSubmission ? 'ATTENDANCE' : 'TIME'
     
@@ -228,14 +237,8 @@ export async function POST(request: NextRequest) {
       weekStart: existingSubmission.weekStart
     } : 'None found')
 
-    // Allow re-submission of SUBMITTED timesheets
-    // Only block if already APPROVED (which should be read-only)
-    if (existingSubmission && existingSubmission.status === 'APPROVED') {
-      return NextResponse.json(
-        { error: 'Timesheet has already been approved and cannot be modified' },
-        { status: 400 }
-      )
-    }
+    // Testing/operations: allow resubmission even if previously approved.
+    // Approval state is tracked, but should not block edits while iterating on timekeeping behavior.
 
     // Use transaction to ensure data consistency
     const result = await prisma.$transaction(async (tx) => {
@@ -290,7 +293,39 @@ export async function POST(request: NextRequest) {
       // We query them by week range when fetching submissions
       // No need to link them here since we'll query by date range
 
+      // Replace prior snapshot rows so resubmit does not duplicate TimeEntry lines and OT stays in sync.
+      await tx.timeEntry.deleteMany({
+        where: { submissionId: submission.id },
+      })
+
       const otMult = await getOtMultiplier(tx)
+
+      async function resolveLaborCodeIdForEntry(
+        laborCodeId: string | null | undefined,
+        laborCodeHint: string | null | undefined
+      ): Promise<string | null> {
+        const idTrim = typeof laborCodeId === 'string' ? laborCodeId.trim() : ''
+        if (idTrim) {
+          const byId = await tx.laborCode.findFirst({
+            where: { id: idTrim, isActive: true },
+            select: { id: true },
+          })
+          if (byId) return byId.id
+        }
+        const hint = typeof laborCodeHint === 'string' ? laborCodeHint.trim() : ''
+        if (!hint) return null
+        const upper = hint.toUpperCase()
+        const found =
+          (await tx.laborCode.findFirst({
+            where: { code: upper, isActive: true },
+            select: { id: true },
+          })) ??
+          (await tx.laborCode.findFirst({
+            where: { code: hint, isActive: true },
+            select: { id: true },
+          }))
+        return found?.id ?? null
+      }
 
       // Update or create time entries
       // Only create TimeEntry records if jobId is provided (for job entries)
@@ -318,14 +353,22 @@ export async function POST(request: NextRequest) {
           continue
         }
 
+        const resolvedLaborCodeId = await resolveLaborCodeIdForEntry(
+          entry.laborCodeId ?? null,
+          entry.laborCode ?? null
+        )
+
+        const regularHours = sanitizeBillableHours(entry.regularHours ?? 0)
+        const overtimeHours = sanitizeBillableHours(entry.overtimeHours ?? 0)
+
         let snapshot
         try {
           snapshot = await buildTimeEntryCostSnapshot(
             tx,
             {
-              regularHours: entry.regularHours,
-              overtimeHours: entry.overtimeHours,
-              laborCodeId: entry.laborCodeId ?? null,
+              regularHours,
+              overtimeHours,
+              laborCodeId: resolvedLaborCodeId,
               explicitRate: entry.rate ?? null,
             },
             otMult
@@ -336,39 +379,20 @@ export async function POST(request: NextRequest) {
           )
         }
 
-        if (entry.id) {
-          // Update existing entry
-          await tx.timeEntry.update({
-            where: { id: entry.id },
-            data: {
-              date: entry.date,
-              regularHours: entry.regularHours,
-              overtimeHours: entry.overtimeHours,
-              notes: entry.notes,
-              billable: entry.billable,
-              jobId: resolvedJobId,
-              laborCodeId: entry.laborCodeId ?? null,
-              submissionId: submission.id,
-              ...snapshot,
-            },
-          })
-        } else {
-          // Create new entry
-          await tx.timeEntry.create({
-            data: {
-              date: entry.date,
-              regularHours: entry.regularHours,
-              overtimeHours: entry.overtimeHours,
-              notes: entry.notes,
-              billable: entry.billable,
-              userId: validatedData.userId,
-              jobId: resolvedJobId,
-              laborCodeId: entry.laborCodeId ?? null,
-              submissionId: submission.id,
-              ...snapshot,
-            },
-          })
-        }
+        await tx.timeEntry.create({
+          data: {
+            date: entry.date,
+            regularHours,
+            overtimeHours,
+            notes: entry.notes,
+            billable: entry.billable,
+            userId: validatedData.userId,
+            jobId: resolvedJobId,
+            laborCodeId: resolvedLaborCodeId,
+            submissionId: submission.id,
+            ...snapshot,
+          },
+        })
       }
       
       // Note: Attendance entries (clock in/out) are stored in Timesheet table

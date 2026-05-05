@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AttendanceView } from './attendance-view'
-import { TimeView } from './time-view'
+import { TimekeepingDevWorkspace } from './timekeeping-dev-workspace'
 import { Clock, FileText, CheckCircle2, AlertCircle } from 'lucide-react'
 import { TimesheetApprovalsView } from './timesheet-approvals-view'
 import { TimeChangeApprovals } from './time-change-approvals'
@@ -17,24 +17,10 @@ interface User {
   email: string | null
 }
 
-interface Job {
-  id: string
-  jobNumber: string
-  title: string
-}
-
-interface LaborCode {
-  id: string
-  code: string
-  name: string
-}
-
 interface TimesheetMainProps {
   currentUserId: string
   currentUserName: string
   users: User[]
-  jobs: Job[]
-  laborCodes: LaborCode[]
   isAdmin: boolean
   /** Weekly submission approvals (admin-only) */
   canViewApprovalsTab: boolean
@@ -44,8 +30,6 @@ export function TimesheetMain({
   currentUserId,
   currentUserName,
   users,
-  jobs,
-  laborCodes,
   isAdmin,
   canViewApprovalsTab,
 }: TimesheetMainProps) {
@@ -119,14 +103,7 @@ export function TimesheetMain({
         </TabsContent>
 
         <TabsContent value="time" className="mt-0">
-          <TimeView
-            currentUserId={currentUserId}
-            currentUserName={currentUserName}
-            users={users}
-            jobs={jobs}
-            laborCodes={laborCodes}
-            isAdmin={isAdmin}
-          />
+          <TimekeepingDevWorkspace embedded />
         </TabsContent>
 
         {canViewApprovalsTab ? (

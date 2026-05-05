@@ -25,6 +25,8 @@ interface SearchableSelectProps {
   disabled?: boolean
   emptyMessage?: string
   dense?: boolean
+  /** Merged onto the trigger button (e.g. h-9 for compact toolbars). */
+  triggerClassName?: string
   getTriggerLabel?: (selected: SearchableSelectOption) => string
 }
 
@@ -39,6 +41,7 @@ export function SearchableSelect({
   disabled = false,
   emptyMessage = "No options found.",
   dense = false,
+  triggerClassName,
   getTriggerLabel,
 }: SearchableSelectProps) {
   const [open, setOpen] = useState(false)
@@ -51,6 +54,7 @@ export function SearchableSelect({
   const [menuStyle, setMenuStyle] = useState<React.CSSProperties | null>(null)
   const [menuMaxHeight, setMenuMaxHeight] = useState<number>(dense ? 320 : 520)
   const [menuPlacement, setMenuPlacement] = useState<'bottom' | 'top'>('bottom')
+  const [renderInPlace, setRenderInPlace] = useState(false)
 
   const selectedOption = useMemo(() => options?.find((option) => option && option.value === value) || null, [options, value])
 
@@ -116,6 +120,11 @@ export function SearchableSelect({
     const compute = () => {
       const btn = buttonRef.current
       if (!btn) return
+      const inDialog =
+        !!btn.closest('[data-radix-dialog-content]') ||
+        // Our `DialogContent` wrapper does not add the data-radix attr, but Radix always sets role="dialog".
+        !!btn.closest('[role="dialog"]')
+      setRenderInPlace(inDialog)
       const r = btn.getBoundingClientRect()
       const viewportH = window.innerHeight
       const spaceBelow = viewportH - r.bottom - 8
@@ -128,13 +137,24 @@ export function SearchableSelect({
 
       setMenuPlacement(placement)
       setMenuMaxHeight(maxH)
-      setMenuStyle({
-        position: 'fixed',
-        left: Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)),
-        top: placement === 'bottom' ? r.bottom + 4 : r.top - 4,
-        width: r.width,
-        zIndex: 10000,
-      })
+      if (inDialog) {
+        setMenuStyle({
+          position: 'absolute',
+          left: 0,
+          top: placement === 'bottom' ? 'calc(100% + 4px)' : undefined,
+          bottom: placement === 'top' ? 'calc(100% + 4px)' : undefined,
+          width: '100%',
+          zIndex: 10000,
+        })
+      } else {
+        setMenuStyle({
+          position: 'fixed',
+          left: Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)),
+          top: placement === 'bottom' ? r.bottom + 4 : r.top - 4,
+          width: r.width,
+          zIndex: 10000,
+        })
+      }
     }
 
     compute()
@@ -155,7 +175,7 @@ export function SearchableSelect({
         </Label>
       )}
       
-      <div className="relative">
+      <div className="relative min-w-0">
         <Button
           ref={buttonRef}
           type="button"
@@ -163,18 +183,78 @@ export function SearchableSelect({
           role="combobox"
           aria-expanded={open}
           className={cn(
-            dense ? "w-full justify-between h-9 px-3 text-sm" : "w-full justify-between min-h-[44px] text-base",
-            !selectedOption && "text-muted-foreground"
+            dense ? "w-full justify-between h-10 px-3 text-sm gap-2 min-w-0" : "w-full justify-between min-h-[44px] text-base gap-2 min-w-0",
+            !selectedOption && "text-muted-foreground",
+            triggerClassName
           )}
           disabled={disabled}
           onClick={() => setOpen(!open)}
         >
-          {selectedOption ? (getTriggerLabel ? getTriggerLabel(selectedOption) : selectedOption.label) : placeholder}
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <span className="truncate text-left flex-1 min-w-0">
+            {selectedOption ? (getTriggerLabel ? getTriggerLabel(selectedOption) : selectedOption.label) : placeholder}
+          </span>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
         </Button>
 
-        {open && menuStyle
-          ? createPortal(
+        {open && menuStyle ? (
+          renderInPlace ? (
+            <div
+              ref={menuRef}
+              className="rounded-md border border-gray-300 bg-white shadow-lg overflow-hidden"
+              style={menuStyle}
+              onMouseDown={(e) => {
+                e.stopPropagation()
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setOpen(false)
+              }}
+            >
+              <div className={cn("flex items-center border-b px-3 sticky top-0 bg-white", dense ? "py-1.5" : "py-2")}>
+                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                <Input
+                  ref={searchRef}
+                  placeholder="Search..."
+                  value={searchValue}
+                  onChange={(e) => setSearchValue(e.target.value)}
+                  className={cn(
+                    "flex w-full rounded-md bg-transparent outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50 border-0 focus-visible:ring-0",
+                    dense ? "h-8 text-sm" : "h-10 text-base"
+                  )}
+                />
+              </div>
+
+              <div
+                className="overflow-y-auto overscroll-contain"
+                style={{ maxHeight: menuMaxHeight }}
+                onWheel={(e) => e.stopPropagation()}
+                onTouchMove={(e) => e.stopPropagation()}
+              >
+                {filteredOptions.length === 0 ? (
+                  <div className={cn("px-3 text-gray-500", dense ? "py-2 text-sm" : "py-3 text-base")}>{emptyMessage}</div>
+                ) : (
+                  filteredOptions.map((option) => (
+                    <div
+                      key={option.value}
+                      className={cn(
+                        dense
+                          ? "flex items-center px-3 py-2 text-sm cursor-pointer hover:bg-gray-100"
+                          : "flex items-center px-3 py-3 text-base cursor-pointer hover:bg-gray-100",
+                        value === option.value && "bg-blue-50"
+                      )}
+                      onClick={() => {
+                        onValueChange(option.value)
+                        setOpen(false)
+                      }}
+                    >
+                      <Check className={cn("mr-2 h-4 w-4", value === option.value ? "opacity-100" : "opacity-0")} />
+                      {option.label}
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : (
+            createPortal(
               <div
                 ref={menuRef}
                 className="rounded-md border border-gray-300 bg-white shadow-lg overflow-hidden"
@@ -237,7 +317,8 @@ export function SearchableSelect({
               </div>,
               document.body
             )
-          : null}
+          )
+        ) : null}
       </div>
     </div>
   )

@@ -8,7 +8,7 @@ import { format, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, addWeeks,
 import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
 import { useToast } from '@/components/ui/use-toast'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 
 interface User {
   id: string
@@ -680,19 +680,29 @@ export function TimesheetDevCalendar({
 
             {/* View Mode Tabs - Mobile Responsive */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)} className="w-full sm:w-auto">
-                <TabsList className="grid w-full sm:w-auto grid-cols-3 sm:inline-flex">
-                  <TabsTrigger value="day" className="text-xs sm:text-sm">
-                    Day
-                  </TabsTrigger>
-                  <TabsTrigger value="week" className="text-xs sm:text-sm">
-                    Week
-                  </TabsTrigger>
-                  <TabsTrigger value="month" className="text-xs sm:text-sm">
-                    Month
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+              <div
+                role="tablist"
+                aria-label="Calendar view"
+                className="grid w-full sm:w-auto grid-cols-3 sm:inline-flex gap-0 bg-muted p-1 rounded-md"
+              >
+                {(['day', 'week', 'month'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="tab"
+                    aria-selected={viewMode === mode}
+                    onClick={() => setViewMode(mode)}
+                    className={cn(
+                      'text-xs sm:text-sm rounded-sm px-3 py-2 font-medium transition-colors',
+                      viewMode === mode
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    )}
+                  >
+                    {mode === 'day' ? 'Day' : mode === 'week' ? 'Week' : 'Month'}
+                  </button>
+                ))}
+              </div>
 
               {/* Navigation */}
               <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">

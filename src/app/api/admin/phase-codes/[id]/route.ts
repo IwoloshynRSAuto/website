@@ -8,11 +8,13 @@ import { z } from 'zod'
 export const dynamic = 'force-dynamic'
 
 const patchSchema = z.object({
-  code: z.string().min(1).max(20).optional(),
+  code: z.string().min(1).max(30).optional(),
   name: z.string().min(1).max(120).optional(),
   description: z.string().optional().nullable(),
   hourlyRate: z.number().optional().nullable(),
   isActive: z.boolean().optional(),
+  isOvertimePhase: z.boolean().optional(),
+  overtimeRateMultiplier: z.number().positive().max(10).optional(),
 })
 
 export async function PATCH(
@@ -27,19 +29,40 @@ export async function PATCH(
   const body = await request.json()
   const data = patchSchema.parse(body)
 
+  const nextCode = data.code !== undefined ? data.code.trim().toUpperCase() : undefined
+
   const updated = await prisma.laborCode.update({
     where: { id },
     data: {
-      ...(data.code !== undefined ? { code: data.code.trim().toUpperCase() } : {}),
+      ...(nextCode !== undefined ? { code: nextCode } : {}),
       ...(data.name !== undefined ? { name: data.name.trim() } : {}),
       ...(data.description !== undefined ? { description: data.description?.trim() || null } : {}),
       ...(data.hourlyRate !== undefined ? { hourlyRate: data.hourlyRate ?? 0 } : {}),
       ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+      ...(data.isOvertimePhase !== undefined ? { isOvertimePhase: data.isOvertimePhase } : {}),
+      ...(data.overtimeRateMultiplier !== undefined ? { overtimeRateMultiplier: data.overtimeRateMultiplier } : {}),
     },
-    select: { id: true, code: true, name: true, description: true, hourlyRate: true, isActive: true },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      description: true,
+      hourlyRate: true,
+      isActive: true,
+      isOvertimePhase: true,
+      overtimeRateMultiplier: true,
+    },
   })
 
-  return NextResponse.json({ success: true, data: updated })
+  return NextResponse.json({
+    success: true,
+    data: {
+      ...updated,
+      hourlyRate: updated.hourlyRate != null ? Number(updated.hourlyRate) : 0,
+      overtimeRateMultiplier:
+        updated.overtimeRateMultiplier != null ? Number(updated.overtimeRateMultiplier) : 1.5,
+    },
+  })
 }
 
 export async function DELETE(
@@ -60,7 +83,10 @@ export async function DELETE(
       data: { isActive: false },
       select: { id: true, code: true, name: true, description: true, hourlyRate: true, isActive: true },
     })
-    return NextResponse.json({ success: true, data: updated })
+    return NextResponse.json({
+      success: true,
+      data: { ...updated, hourlyRate: updated.hourlyRate != null ? Number(updated.hourlyRate) : 0 },
+    })
   }
 
   await prisma.$transaction(async (tx) => {

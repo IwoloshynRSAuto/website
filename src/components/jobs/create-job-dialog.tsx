@@ -34,6 +34,13 @@ interface Customer {
   name: string
 }
 
+interface QuotePlan {
+  id: string
+  name: string
+  description: string | null
+  isDefault?: boolean
+}
+
 interface Quote {
   id: string
   quoteNumber: string
@@ -73,6 +80,7 @@ export function CreateJobDialog({
 
   const [isLoading, setIsLoading] = useState(false)
   const [customers, setCustomers] = useState<Customer[]>([])
+  const [quotePlans, setQuotePlans] = useState<QuotePlan[]>([])
 
   const loadFormData = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -89,6 +97,7 @@ export function CreateJobDialog({
         quotedAmount: '',
         assignedTo: '',
         fileLink: '',
+        planId: '',
       }
     }
 
@@ -109,6 +118,7 @@ export function CreateJobDialog({
           quotedAmount: parsed.quotedAmount || '',
           assignedTo: parsed.assignedTo || '',
           fileLink: parsed.fileLink || '',
+          planId: parsed.planId || '',
         }
       }
     } catch (e) {
@@ -128,6 +138,7 @@ export function CreateJobDialog({
       quotedAmount: '',
       assignedTo: '',
       fileLink: '',
+      planId: '',
     }
   }, [mode, quoteDestination])
 
@@ -175,6 +186,7 @@ export function CreateJobDialog({
           quotedAmount: parsed.quotedAmount || '',
           assignedTo: parsed.assignedTo || '',
           fileLink: parsed.fileLink || '',
+          planId: parsed.planId || '',
         })
         skipNextSave.current = true
       } else {
@@ -183,6 +195,7 @@ export function CreateJobDialog({
       }
 
       void fetchCustomers()
+      void fetchQuotePlans()
       void fetchSuggestedNumber()
 
       if (selectedQuote && mode === 'job') {
@@ -237,6 +250,25 @@ export function CreateJobDialog({
     }
   }
 
+  const fetchQuotePlans = async () => {
+    if (mode !== 'quote') return
+    try {
+      const response = await fetch('/api/quote-plans')
+      if (!response.ok) return
+      const result = await response.json()
+      const data = result.data || (Array.isArray(result) ? result : [])
+      const rows = Array.isArray(data) ? (data as QuotePlan[]) : []
+      setQuotePlans(rows)
+      const def = rows.find((p) => p.isDefault)
+      if (def && !formData.planId) {
+        setFormData((prev) => ({ ...prev, planId: def.id }))
+      }
+    } catch (error) {
+      console.error('Failed to fetch quote plans:', error)
+      setQuotePlans([])
+    }
+  }
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target
     setFormData((prev) => ({ ...prev, [name]: value }))
@@ -277,6 +309,7 @@ export function CreateJobDialog({
           customerId: formData.customerId?.trim() ? formData.customerId.trim() : null,
           amount: parseFloat(formData.quotedAmount) || 0,
           validUntil: formData.endDate?.trim() || null,
+          planId: formData.planId?.trim() ? formData.planId.trim() : null,
         }
         if (jobNumberPayload) body.quoteNumber = jobNumberPayload
         response = await fetch('/api/quotes', {
@@ -343,6 +376,7 @@ export function CreateJobDialog({
           quotedAmount: '',
           assignedTo: '',
           fileLink: '',
+          planId: '',
         })
 
         onCreated?.()
@@ -465,6 +499,26 @@ export function CreateJobDialog({
               emptyMessage="No customers found."
             />
           </div>
+
+          {mode === 'quote' ? (
+            <div>
+              <Label>Plan</Label>
+              <Select value={formData.planId || '__none__'} onValueChange={(v) => handleSelectChange('planId', v === '__none__' ? '' : v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a plan…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Default</SelectItem>
+                  {quotePlans.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground mt-1">This determines which sub-phase codes appear under Deliverables.</p>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-3 gap-4">
             <div>

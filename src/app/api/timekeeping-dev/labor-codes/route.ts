@@ -17,7 +17,9 @@ export async function GET() {
       take: 2000,
     })
 
-    return NextResponse.json({ success: true, data: codes.filter((c) => allowed.has(c.code)) })
+    const filtered = codes.filter((c) => allowed.has(c.code) && c.code)
+
+    return NextResponse.json({ success: true, data: filtered })
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message || 'Failed to fetch labor codes' }, { status: 500 })
   }

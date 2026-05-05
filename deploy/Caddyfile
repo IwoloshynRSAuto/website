@@ -5,6 +5,13 @@
 
 # Production Environment
 # Replace with your actual production domain
+#
+# IMPORTANT (ChunkLoadError / "Application error"):
+# Serve ALL traffic — including /_next/static/* — via reverse_proxy to Next.js only,
+# unless you explicitly root file_server at …/your-app/.next/static with atomic deploys.
+# A common mistake is file_server for /_next/static pointing at the wrong folder or a
+# stale copy: the browser gets HTML from one build and scripts return 404 "Not Found"
+# or 500 from the app. After deploy: npm run verify-build (repo script), then restart.
 your-domain.com {
   encode zstd gzip
   reverse_proxy 127.0.0.1:3000

@@ -3,6 +3,42 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 
+function prefixFromTaskCode(code: unknown): 'PM' | 'AD' | 'SV' | null {
+        const t = String(code || '').trim().toUpperCase()
+        if (t.length < 2) return null
+        const p = t.slice(0, 2)
+        return p === 'PM' || p === 'AD' || p === 'SV' ? (p as any) : null
+}
+
+async function syncJobPrefixTotalsToLabor(jobId: string) {
+        const rows = await prisma.taskCard.findMany({
+                where: { jobId, taskCode: { not: null } },
+                select: { taskCode: true, estimatedHours: true },
+        })
+
+        const totals: Record<'PM' | 'AD' | 'SV', number> = { PM: 0, AD: 0, SV: 0 }
+        for (const r of rows) {
+                const p = prefixFromTaskCode(r.taskCode)
+                if (!p) continue
+                totals[p] += Number(r.estimatedHours || 0)
+        }
+
+        const laborCodes = await prisma.laborCode.findMany({
+                where: { code: { in: ['PM', 'AD', 'SV'], mode: 'insensitive' } as any },
+                select: { id: true, code: true },
+        })
+
+        for (const lc of laborCodes) {
+                const key = String(lc.code).trim().toUpperCase() as 'PM' | 'AD' | 'SV'
+                const hours = totals[key] ?? 0
+                await prisma.jobLaborEstimate.upsert({
+                        where: { jobId_laborCodeId: { jobId, laborCodeId: lc.id } },
+                        update: { estimatedHours: hours },
+                        create: { jobId, laborCodeId: lc.id, estimatedHours: hours },
+                })
+        }
+}
+
 /**
  * PATCH /api/jobs/[id]/tasks/[taskId]
  * Update a task (including drag-drop position changes)
@@ -25,10 +61,10 @@ export async function PATCH(
         }
 
         const resolvedParams = params instanceof Promise ? await params : params
-        const { taskId } = resolvedParams
+        const { id: jobId, taskId } = resolvedParams
 
         const body = await request.json()
-        const { name, description, assignedToId, dueDate, status, position } = body
+        const { name, description, assignedToId, dueDate, status, position, estimatedHours, laborCodeId } = body
 
         const updateData: any = {}
 
@@ -36,6 +72,17 @@ export async function PATCH(
         if (description !== undefined) updateData.description = description
         if (assignedToId !== undefined) updateData.assignedToId = assignedToId
         if (dueDate !== undefined) updateData.dueDate = dueDate ? new Date(dueDate) : null
+        if (estimatedHours !== undefined) {
+            const hoursNum = estimatedHours === '' || estimatedHours == null ? null : Number(estimatedHours)
+            if (hoursNum != null && (!Number.isFinite(hoursNum) || hoursNum < 0)) {
+                return NextResponse.json(
+                    { success: false, error: 'Estimated hours must be a non-negative number' },
+                    { status: 400 }
+                )
+            }
+            updateData.estimatedHours = hoursNum == null ? null : hoursNum
+        }
+        if (laborCodeId !== undefined) updateData.laborCodeId = laborCodeId || null
         if (status !== undefined) updateData.status = status
         if (position !== undefined) updateData.position = position
 
@@ -52,6 +99,10 @@ export async function PATCH(
                 }
             }
         })
+
+        if (task.taskCode) {
+                await syncJobPrefixTotalsToLabor(jobId)
+        }
 
         return NextResponse.json({
             success: true,
@@ -91,11 +142,15 @@ export async function DELETE(
         }
 
         const resolvedParams = params instanceof Promise ? await params : params
-        const { taskId } = resolvedParams
+        const { id: jobId, taskId } = resolvedParams
 
-        await prisma.taskCard.delete({
+        const deleted = await prisma.taskCard.delete({
             where: { id: taskId }
         })
+
+        if (deleted.taskCode) {
+                await syncJobPrefixTotalsToLabor(jobId)
+        }
 
         return NextResponse.json({
             success: true,

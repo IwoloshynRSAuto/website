@@ -4,6 +4,7 @@ import { JobDetailsClient } from './job-details-client'
 import { JobDetailsEditable } from './job-details-editable'
 import { ECOHistory } from '@/components/jobs/eco-history'
 import { dashboardUi } from '@/components/layout/dashboard-ui'
+import { getOtMultiplier, DEFAULT_OT_MULTIPLIER } from '@/lib/settings/system-settings'
 
 interface JobDetailsPageProps {
   params: Promise<{
@@ -84,6 +85,11 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
     } : null,
     timeEntries: job.timeEntries.map(entry => ({
       ...entry,
+      rate: entry.rate != null ? Number(entry.rate) : null,
+      regularCost: entry.regularCost != null ? Number(entry.regularCost) : null,
+      otCost: entry.otCost != null ? Number(entry.otCost) : null,
+      otMultiplierUsed: entry.otMultiplierUsed != null ? Number(entry.otMultiplierUsed) : null,
+      totalCost: entry.totalCost != null ? Number(entry.totalCost) : null,
       laborCode: entry.laborCode ? {
         ...entry.laborCode,
         hourlyRate: Number(entry.laborCode.hourlyRate)
@@ -131,10 +137,13 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
   }))
 
   // Convert quoted labor data
-  const quotedLabor = job.quotedLabor.map(ql => ({
+  const quotedLabor = job.quotedLabor.map((ql) => ({
+    id: ql.id,
     laborCodeId: ql.laborCodeId,
-    estimatedHours: ql.estimatedHours
+    estimatedHours: ql.estimatedHours,
   }))
+
+  const otMultiplierFallback = await getOtMultiplier(prisma).catch(() => DEFAULT_OT_MULTIPLIER)
 
   return (
     <div className={dashboardUi.pageWrap}>
@@ -149,6 +158,7 @@ export default async function JobDetailsPage({ params }: JobDetailsPageProps) {
           jobType={job.type}
           relatedQuoteId={job.relatedQuoteId}
           users={users}
+          otMultiplierFallback={otMultiplierFallback}
           bom={job.quote?.linkedBOMs && job.quote.linkedBOMs.length > 0 ? {
             ...job.quote.linkedBOMs[0],
             parts: job.quote.linkedBOMs[0].parts.map(part => ({

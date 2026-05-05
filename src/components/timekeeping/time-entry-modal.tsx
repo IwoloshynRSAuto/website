@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/use-toast'
 import { format, startOfDay } from 'date-fns'
 import { roundTimeString, formatTime12Hour, convert12To24Hour, calculateHoursBetween } from '@/lib/utils/time-rounding'
 import { roundToNearest15Minutes } from '@/lib/utils/time-rounding'
+import { jobEntryPunchIsOvertime } from '@/lib/timekeeping/job-entry-ot-flag'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 interface User {
   id: string
@@ -342,7 +343,7 @@ export function TimeEntryModal({
           setJobEndTime(formatTime12Hour(new Date(firstJob.punchOutTime)))
         }
         if (firstJob.notes) setNotes(firstJob.notes)
-        setPunchCountsAsOvertime(Boolean(firstJob.punchCountsAsOvertime))
+        setPunchCountsAsOvertime(jobEntryPunchIsOvertime(firstJob.punchCountsAsOvertime))
         setManualOvertimeHours(
           firstJob.manualOvertimeHours != null && firstJob.manualOvertimeHours > 0
             ? String(firstJob.manualOvertimeHours)
@@ -910,8 +911,8 @@ export function TimeEntryModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto w-[95vw] sm:w-full mx-2 sm:mx-auto">
-        <DialogHeader className="pb-3 sm:pb-4 border-b relative">
+      <DialogContent className="max-w-2xl max-h-[90vh] w-[95vw] sm:w-full mx-2 sm:mx-auto flex flex-col overflow-hidden gap-0 p-0 sm:p-0">
+        <DialogHeader className="relative shrink-0 border-b px-4 pb-3 pt-4 sm:px-6 sm:pb-4 sm:pt-6">
           <div className="flex items-center justify-between pr-8 sm:pr-12">
             <DialogTitle className="flex items-center gap-2 text-base sm:text-2xl font-bold truncate flex-1 min-w-0">
               {selectedEntry ? (
@@ -943,13 +944,59 @@ export function TimeEntryModal({
             </div>
           </div>
           <DialogDescription>
-            {selectedEntry 
-              ? `Edit an existing ${mode === 'clock' ? 'clock in/out entry' : 'job time entry'}` 
-              : `Add a new ${mode === 'clock' ? 'clock in/out entry' : 'job time entry'}`}
+            {mode === 'job'
+              ? selectedEntry
+                ? 'Edit job time. Use the yellow Overtime bar at the top so punch hours submit as regular or OT.'
+                : 'Add job time. Use the yellow Overtime bar at the top so punch hours submit as regular or OT.'
+              : selectedEntry
+                ? 'Edit an existing clock in/out entry'
+                : 'Add a new clock in/out entry'}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="w-full mt-4 sm:mt-6">
+        {mode === 'job' ? (
+          <div className="shrink-0 border-b-2 border-amber-500 bg-amber-100 px-4 py-3 sm:px-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-3 sm:items-center">
+                <Switch
+                  id="job-ot-switch-header"
+                  checked={punchCountsAsOvertime}
+                  onCheckedChange={setPunchCountsAsOvertime}
+                  className="mt-1 sm:mt-0 data-[state=checked]:bg-amber-600"
+                />
+                <div>
+                  <Label htmlFor="job-ot-switch-header" className="text-base font-bold text-amber-950 cursor-pointer">
+                    Overtime (OT)
+                  </Label>
+                  <p className="text-sm text-amber-950/90">
+                    <span className="font-semibold">{punchCountsAsOvertime ? 'ON — ' : 'OFF — '}</span>
+                    {punchCountsAsOvertime
+                      ? 'Punch duration is submitted as overtime (OT multiplier applies).'
+                      : 'Punch duration is submitted as regular hours.'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-1 sm:items-end">
+                <Label htmlFor="job-extra-ot-header" className="text-xs font-semibold text-amber-950">
+                  Extra OT hours (optional)
+                </Label>
+                <Input
+                  id="job-extra-ot-header"
+                  type="number"
+                  min={0}
+                  step={0.25}
+                  value={manualOvertimeHours}
+                  onChange={(e) => setManualOvertimeHours(e.target.value)}
+                  placeholder="0"
+                  className="h-10 w-full max-w-[140px] border-amber-400 bg-white font-medium"
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-3 sm:px-6 sm:pb-6 sm:pt-4">
+        <div className="w-full">
           {mode === 'clock' && (
             <div className="space-y-4 sm:space-y-6">
             {isAdmin && (
@@ -1271,49 +1318,6 @@ export function TimeEntryModal({
               </div>
             </div>
 
-            <div className="rounded-xl border-2 border-amber-400 bg-amber-50/90 p-4 space-y-4 shadow-sm">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="space-y-1">
-                  <Label htmlFor="job-ot-switch" className="text-base font-semibold text-amber-950">
-                    Overtime
-                  </Label>
-                  <p className="text-sm text-amber-900/80">
-                    Turn on to submit the punch duration as <span className="font-medium">overtime hours</span> (cost =
-                    phase rate × OT multiplier). Leave off for regular hours.
-                  </p>
-                </div>
-                <div className="flex items-center gap-3 shrink-0">
-                  <span className="text-sm font-medium text-amber-950 whitespace-nowrap">
-                    {punchCountsAsOvertime ? 'OT hours' : 'Regular'}
-                  </span>
-                  <Switch
-                    id="job-ot-switch"
-                    checked={punchCountsAsOvertime}
-                    onCheckedChange={setPunchCountsAsOvertime}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2 pt-1 border-t border-amber-300/80">
-                <Label htmlFor="job-extra-ot" className="text-sm font-semibold text-amber-950">
-                  Extra overtime hours (optional)
-                </Label>
-                <Input
-                  id="job-extra-ot"
-                  type="number"
-                  min={0}
-                  step={0.25}
-                  value={manualOvertimeHours}
-                  onChange={(e) => setManualOvertimeHours(e.target.value)}
-                  placeholder="0"
-                  className="bg-white max-w-[200px] border-amber-300"
-                />
-                <p className="text-xs text-amber-900/75">
-                  Adds to the overtime bucket: stacked on top of punch-time OT when the switch is on; added as OT only when
-                  the switch is off.
-                </p>
-              </div>
-            </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-2 p-3 sm:p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <Label className="text-xs sm:text-sm font-semibold text-gray-700 flex items-center gap-2">
@@ -1472,6 +1476,7 @@ export function TimeEntryModal({
             </div>
             </div>
           )}
+        </div>
         </div>
       </DialogContent>
 

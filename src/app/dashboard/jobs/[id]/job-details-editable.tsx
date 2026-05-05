@@ -10,7 +10,7 @@ import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { SearchableSelect } from '@/components/ui/searchable-select'
 import { DeleteJobButton } from '@/components/jobs/delete-job-button'
-import { ArrowLeft, Calendar, Save, X } from 'lucide-react'
+import { ArrowLeft, Calendar, Save } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
 import { useToast } from '@/components/ui/use-toast'
@@ -165,24 +165,6 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
     }
   }
 
-  const handleCancel = () => {
-    setFormData({
-      title: job.title,
-      description: job.description || '',
-      status: job.status,
-      priority: job.priority,
-      startDate: job.startDate ? format(new Date(job.startDate), 'yyyy-MM-dd') : '',
-      endDate: job.endDate ? format(new Date(job.endDate), 'yyyy-MM-dd') : '',
-      assignedToId: job.assignedToId || 'unassigned',
-      customerId: job.customerId || 'no-customer',
-      inQuickBooks: job.inQuickBooks,
-      inLDrive: job.inLDrive,
-      workCode: job.workCode || 'no-work-code',
-      notes: '',
-      fileLink: job.fileLink || '',
-    })
-  }
-
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -202,10 +184,6 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
           <Button onClick={handleSave} disabled={isLoading} className="bg-blue-600 hover:bg-blue-700 text-white">
             <Save className="h-4 w-4 mr-2" />
             {isLoading ? 'Saving...' : 'Save Changes'}
-          </Button>
-          <Button variant="outline" onClick={handleCancel} disabled={isLoading}>
-            <X className="h-4 w-4 mr-2" />
-            Cancel
           </Button>
           {job.type === 'QUOTE' && (
             <Button variant="outline" onClick={handleUpgradeToJob} disabled={isLoading}>

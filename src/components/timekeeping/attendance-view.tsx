@@ -10,7 +10,8 @@ import { shouldShowTimesheetRejectionReason } from '@/lib/utils'
 import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
 import { useToast } from '@/components/ui/use-toast'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
+import { HowToButton } from '@/components/ui/how-to-button'
 interface User {
   id: string
   name: string | null
@@ -1900,9 +1901,23 @@ export function AttendanceView({
             <div className="flex items-center justify-between flex-wrap gap-4">
               <CardTitle className="flex items-center gap-2">
                 <Clock className="h-5 w-5" />
-                Attendance (Clock In/Out)
+                Attendance
               </CardTitle>
               <div className="flex items-center gap-2 flex-wrap">
+                <HowToButton
+                  title="Attendance — how it works"
+                  description="Clock in/out daily, then submit the week for approval to lock it for review."
+                  className="border-gray-300 hover:bg-gray-50"
+                >
+                  <div className="rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
+                    <div className="font-semibold mb-1">Quick guide</div>
+                    <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+                      <li>Use <span className="font-medium text-foreground">Clock In Now</span> / <span className="font-medium text-foreground">Clock Out Now</span> for today.</li>
+                      <li>Click a day to view entries. Past days use <span className="font-medium text-foreground">Request Change</span>.</li>
+                      <li>In Week view, use <span className="font-medium text-foreground">Submit for Approval</span> to lock the week for review.</li>
+                    </ul>
+                  </div>
+                </HowToButton>
                 {isAdmin && (
                   <select
                     value={selectedUserId}
@@ -1973,28 +1988,29 @@ export function AttendanceView({
             </div>
 
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'day' | 'week' | 'month')} className="w-full sm:w-auto">
-                <TabsList className="grid w-full sm:w-auto grid-cols-3 sm:inline-flex bg-gray-100 p-1 rounded-lg border border-gray-200">
-                  <TabsTrigger 
-                    value="day" 
-                    className="text-xs sm:text-sm font-semibold data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all rounded-md min-h-[44px] sm:min-h-[36px]"
+              <div
+                role="tablist"
+                aria-label="Attendance view"
+                className="grid w-full sm:w-auto grid-cols-3 sm:inline-flex gap-0 bg-gray-100 p-1 rounded-lg border border-gray-200"
+              >
+                {(['day', 'week', 'month'] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="tab"
+                    aria-selected={viewMode === mode}
+                    onClick={() => setViewMode(mode)}
+                    className={cn(
+                      'text-xs sm:text-sm font-semibold transition-all rounded-md min-h-[44px] sm:min-h-[36px] px-3 py-2 sm:px-4',
+                      viewMode === mode
+                        ? 'bg-blue-600 text-white shadow-md'
+                        : 'text-gray-700 hover:bg-gray-200/80'
+                    )}
                   >
-                    Day
-                  </TabsTrigger>
-                  <TabsTrigger 
-                    value="week" 
-                    className="text-xs sm:text-sm font-semibold data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all rounded-md min-h-[44px] sm:min-h-[36px]"
-                  >
-                    Week
-                  </TabsTrigger>
-                  <TabsTrigger 
-                    value="month" 
-                    className="text-xs sm:text-sm font-semibold data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-md transition-all rounded-md min-h-[44px] sm:min-h-[36px]"
-                  >
-                    Month
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+                    {mode === 'day' ? 'Day' : mode === 'week' ? 'Week' : 'Month'}
+                  </button>
+                ))}
+              </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-start">
                 <Button
@@ -2052,8 +2068,8 @@ export function AttendanceView({
                       )
                   }
                 </div>
-                {/* Submit for Approval button - show in week view, next to date */}
-                {viewMode === 'week' && (
+                {/* Submit for Approval button - show in day/week views, next to date */}
+                {viewMode !== 'month' && (
                   <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
                     <Button
                       onClick={handleSubmitWeekForApproval}

@@ -1,6 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import { TimesheetApproval } from '@/components/timekeeping/timesheet-approval'
 import { AdministratorWeekView } from '@/components/timekeeping/administrator-week-view'
+import { getOtMultiplier, DEFAULT_OT_MULTIPLIER } from '@/lib/settings/system-settings'
+import { computeTimeEntryCostsPlain } from '@/lib/timekeeping/time-entry-cost'
 
 export default async function TimekeepingAdministratorPage() {
   // Fetch users, jobs, and labor codes for the enhanced timesheet
@@ -122,6 +124,12 @@ export default async function TimekeepingAdministratorPage() {
       createdAt: entry.createdAt.toISOString(),
       updatedAt: entry.updatedAt.toISOString(),
       rate: entry.rate ? Number(entry.rate) : null,
+      regularRateUsed: entry.regularRateUsed != null ? Number(entry.regularRateUsed) : null,
+      otRateUsed: entry.otRateUsed != null ? Number(entry.otRateUsed) : null,
+      otMultiplierUsed: entry.otMultiplierUsed != null ? Number(entry.otMultiplierUsed) : null,
+      regularCost: entry.regularCost != null ? Number(entry.regularCost) : null,
+      otCost: entry.otCost != null ? Number(entry.otCost) : null,
+      totalCost: entry.totalCost != null ? Number(entry.totalCost) : null,
       laborCode: entry.laborCode ? {
         ...entry.laborCode,
         description: entry.laborCode.description ?? '',
@@ -137,11 +145,36 @@ export default async function TimekeepingAdministratorPage() {
     sum + submission.timeEntries.reduce((entrySum, entry) => 
       entrySum + entry.regularHours + entry.overtimeHours, 0), 0)
   
-  const totalValue = submissionsResponse.reduce((sum, submission) => 
-    sum + submission.timeEntries
-      .filter(entry => entry.rate)
-      .reduce((entrySum, entry) => 
-        entrySum + ((entry.regularHours + entry.overtimeHours) * (entry.rate || 0)), 0), 0)
+  const otMultFallback = await getOtMultiplier(prisma)
+  const totalValue = submissionsResponse.reduce((sum, submission) =>
+    sum +
+    submission.timeEntries.reduce((entrySum, entry) => {
+      const snapshotTotal = entry.totalCost != null ? Number(entry.totalCost) : NaN
+      if (Number.isFinite(snapshotTotal)) return entrySum + snapshotTotal
+
+      // Fallback for legacy rows: compute from base rate + OT multiplier
+      const base =
+        entry.regularRateUsed != null
+          ? Number(entry.regularRateUsed)
+          : entry.rate != null
+            ? Number(entry.rate)
+            : entry.laborCode?.hourlyRate != null
+              ? Number(entry.laborCode.hourlyRate)
+              : 0
+      const mult =
+        entry.otMultiplierUsed != null && Number.isFinite(Number(entry.otMultiplierUsed)) && Number(entry.otMultiplierUsed) > 0
+          ? Number(entry.otMultiplierUsed)
+          : otMultFallback || DEFAULT_OT_MULTIPLIER
+
+      const costs = computeTimeEntryCostsPlain({
+        regularHours: entry.regularHours || 0,
+        overtimeHours: entry.overtimeHours || 0,
+        baseRate: base,
+        otMultiplier: mult,
+      })
+      return entrySum + costs.totalCost
+    }, 0),
+  0)
 
   return (
     <div className="p-6">

@@ -7,6 +7,7 @@ import { z } from 'zod'
 export const createQuoteSchema = z.object({
   bomId: z.string().min(1, 'BOM ID is required'),
   customerId: z.string().optional().nullable(),
+  planId: z.string().optional().nullable(),
   title: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
   estimatedHours: z.number().positive().optional(),
@@ -21,6 +22,7 @@ export const createQuoteSimpleSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().optional().nullable(),
   customerId: z.string().optional().nullable(),
+  planId: z.string().optional().nullable(),
   amount: z.number().nonnegative().optional().default(0),
   /** ISO datetime or `yyyy-MM-dd` from a date input */
   validUntil: z.string().optional().nullable(),
@@ -40,6 +42,7 @@ export const updateQuoteSchema = z.object({
   title: z.string().min(1).optional(),
   description: z.string().optional().nullable(),
   customerId: z.string().optional().nullable(),
+  planId: z.string().optional().nullable(),
   status: quoteStatusEnumSchema.optional(),
   amount: z.number().nonnegative().optional(),
   lastFollowUp: z.string().datetime().optional().nullable(),

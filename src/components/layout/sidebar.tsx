@@ -15,6 +15,7 @@ import {
   Home,
   Database,
   Tags,
+  Calendar,
 } from 'lucide-react'
 
 const navigation = [
@@ -31,7 +32,6 @@ const navigation = [
     children: [
       { name: 'Attendance', href: '/dashboard/timekeeping/attendance', icon: CalendarClock },
       { name: 'Time', href: '/dashboard/timekeeping/time', icon: Clock },
-      { name: 'Timekeeping Dev', href: '/timekeeping-dev', icon: Clock },
       { name: 'Approvals', href: '/dashboard/timekeeping/approvals', icon: CheckCircle2, visibility: 'admin' as const },
     ]
   },
@@ -45,13 +45,20 @@ const navigation = [
     ],
   },
   {
+    name: 'Schedule',
+    href: '/dashboard/scheduling',
+    icon: Calendar,
+  },
+  {
     name: 'Admin',
     href: '/dashboard/admin/employees',
     icon: Shield,
     children: [
       { name: 'Employees', href: '/dashboard/admin/employees', icon: Shield, visibility: 'admin' as const },
+      { name: 'Quote plans', href: '/dashboard/admin/quote-plans', icon: FileText, visibility: 'admin' as const },
       { name: 'Phase codes', href: '/dashboard/admin/job-roles', icon: Tags, visibility: 'admin' as const },
       { name: 'Customers', href: '/dashboard/admin/customers', icon: Building2, visibility: 'admin' as const },
+      { name: 'Machine shop', href: '/dashboard/admin/machine-shop', icon: Calendar, visibility: 'admin' as const },
       { name: 'Export / import', href: '/dashboard/admin/database', icon: Database, visibility: 'admin' as const },
     ],
   },

@@ -11,6 +11,7 @@ import {
 import { startOfWeek } from 'date-fns'
 import { z } from 'zod'
 import { dateStringSchema, optionalDateStringSchema, nullableDateStringSchema, validateDateRange } from '@/lib/utils/date-validation'
+import { jobEntryPunchIsOvertime } from '@/lib/timekeeping/job-entry-ot-flag'
 
 // Simple in-memory rate limiting - more lenient for user actions
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>()
@@ -519,6 +520,8 @@ export async function POST(request: NextRequest) {
         punchInTime: je.punchInTime.toISOString(),
         punchOutTime: je.punchOutTime?.toISOString() || null,
         notes: je.notes,
+        punchCountsAsOvertime: jobEntryPunchIsOvertime(je.punchCountsAsOvertime),
+        manualOvertimeHours: je.manualOvertimeHours != null ? Number(je.manualOvertimeHours) : 0,
         createdAt: je.createdAt.toISOString(),
         updatedAt: je.updatedAt.toISOString(),
       })) : []
@@ -932,6 +935,9 @@ export async function GET(request: NextRequest) {
             punchInTime: je.punchInTime.toISOString(),
             punchOutTime: je.punchOutTime?.toISOString() || null,
             notes: je.notes,
+            punchCountsAsOvertime: jobEntryPunchIsOvertime((je as any).punchCountsAsOvertime),
+            manualOvertimeHours:
+              (je as any).manualOvertimeHours != null ? Number((je as any).manualOvertimeHours) : 0,
             createdAt: je.createdAt.toISOString(),
             updatedAt: je.updatedAt.toISOString(),
           })),

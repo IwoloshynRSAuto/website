@@ -40,7 +40,9 @@ export async function GET(
     success: true,
     data: {
       ...role,
-      phaseCodes: role.phaseCodes.map((x) => x.laborCode).filter((x) => x.isActive),
+      phaseCodes: role.phaseCodes
+        .map((x) => x.laborCode)
+        .filter((x): x is NonNullable<typeof x> => x != null && x.isActive),
     },
   })
 }

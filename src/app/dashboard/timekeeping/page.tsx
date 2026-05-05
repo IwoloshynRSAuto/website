@@ -23,42 +23,16 @@ export default async function TimekeepingPage() {
     orderBy: { name: 'asc' }
   })
 
-  // Fetch jobs
-  const jobs = await prisma.job.findMany({
-    where: {
-      status: { not: 'COMPLETED' }
-    },
-    select: {
-      id: true,
-      jobNumber: true,
-      title: true,
-    },
-    orderBy: { jobNumber: 'asc' }
-  })
-
-  // Fetch labor codes
-  const laborCodes = await prisma.laborCode.findMany({
-    where: { isActive: true },
-    select: {
-      id: true,
-      code: true,
-      name: true,
-    },
-    orderBy: { code: 'asc' }
-  })
-
   const userIsAdmin = session.user.role === 'ADMIN'
   const canViewApprovalsTab = isAdmin(session.user as AuthUser)
 
   return (
     <TimesheetMainWrapper
-        currentUserId={session.user.id}
-        currentUserName={session.user.name || session.user.email || ''}
-        users={users}
-      jobs={jobs}
-      laborCodes={laborCodes}
-        isAdmin={userIsAdmin}
-        canViewApprovalsTab={canViewApprovalsTab}
-      />
+      currentUserId={session.user.id}
+      currentUserName={session.user.name || session.user.email || ''}
+      users={users}
+      isAdmin={userIsAdmin}
+      canViewApprovalsTab={canViewApprovalsTab}
+    />
   )
 }

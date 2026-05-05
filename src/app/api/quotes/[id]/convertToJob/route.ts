@@ -173,6 +173,34 @@ async function convertQuoteToJob(
       jobNumber: job.jobNumber,
     })
 
+    // Copy quote deliverable tasks (TaskCard with taskCode) to job tasks
+    try {
+      const quoteTasks = await prisma.taskCard.findMany({
+        where: { quoteId: quote.id, taskCode: { not: null } },
+        orderBy: [{ status: 'asc' }, { position: 'asc' }],
+      })
+
+      if (quoteTasks.length) {
+        await prisma.taskCard.createMany({
+          data: quoteTasks.map((t) => ({
+            jobId: job.id,
+            name: t.name,
+            description: t.description,
+            assignedToId: t.assignedToId,
+            dueDate: t.dueDate,
+            estimatedHours: t.estimatedHours,
+            status: t.status,
+            position: t.position,
+            taskCode: t.taskCode,
+            taskCodeDescription: t.taskCodeDescription,
+          })),
+        })
+      }
+    } catch (copyErr) {
+      console.warn('[convertToJob] Failed to copy quote deliverable tasks:', copyErr)
+      // Don't fail conversion if copying tasks fails
+    }
+
     // Create audit log
     try {
       await prisma.auditLog.create({

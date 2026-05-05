@@ -117,8 +117,44 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, jobNumber })
     }
 
+    /** Real `jobs` rows only (JOB + QUOTE). Standalone `quotes` table IDs break `/api/jobs/[id]/*`. */
+    if (searchParams.get('schedulePicker') === 'true') {
+      const pickLimit = Math.min(Math.max(parseInt(searchParams.get('limit') || '500', 10), 1), 1000)
+      const sortOrder = searchParams.get('sortOrder') === 'asc' ? 'asc' : 'desc'
+      const rows = await prisma.job.findMany({
+        where: { type: { in: ['JOB', 'QUOTE'] } },
+        orderBy: { jobNumber: sortOrder },
+        take: pickLimit,
+        select: {
+          id: true,
+          jobNumber: true,
+          title: true,
+          type: true,
+          status: true,
+        },
+      })
+      return NextResponse.json({
+        success: true,
+        jobs: rows.map((j) => ({
+          id: j.id,
+          jobNumber: j.jobNumber,
+          title: j.title,
+          type: j.type,
+          status: j.status,
+        })),
+        pagination: {
+          page: 1,
+          limit: pickLimit,
+          total: rows.length,
+          totalPages: 1,
+        },
+      })
+    }
+
     const search = searchParams.get('search') || ''
     const type = searchParams.get('type') || '' // 'JOB', 'QUOTE', or empty for all
+    /** When set (e.g. "E"), only job numbers starting with this prefix (case-insensitive). Used by scheduling to omit Q-quote numbers. */
+    const jobNumberPrefix = searchParams.get('jobNumberPrefix')?.trim() || ''
     const status = searchParams.get('status') || ''
     const customerId = searchParams.get('customerId') || ''
     const page = parseInt(searchParams.get('page') || '1', 10)
@@ -169,6 +205,13 @@ export async function GET(request: NextRequest) {
     // Customer filter
     if (customerId) {
       andConditions.push({ customerId })
+    }
+
+    if (jobNumberPrefix.length > 0) {
+      const prefix = jobNumberPrefix.slice(0, 12)
+      andConditions.push({
+        jobNumber: { startsWith: prefix, mode: 'insensitive' },
+      })
     }
 
     // Combine all conditions

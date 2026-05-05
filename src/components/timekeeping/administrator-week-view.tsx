@@ -14,6 +14,12 @@ interface TimeEntry {
   notes: string | null
   billable: boolean
   rate: number | null
+  regularRateUsed?: number | null
+  otRateUsed?: number | null
+  otMultiplierUsed?: number | null
+  regularCost?: number | null
+  otCost?: number | null
+  totalCost?: number | null
   job: {
     id: string
     jobNumber: string
@@ -136,7 +142,9 @@ export function AdministratorWeekView({ submissions }: AdministratorWeekViewProp
         summary[userId].jobs[jobId].laborCodes[laborCodeId].totalOvertimeHours += entry.overtimeHours
         summary[userId].jobs[jobId].laborCodes[laborCodeId].totalHours += entry.regularHours + entry.overtimeHours
         
-        const entryValue = (entry.regularHours + entry.overtimeHours) * (entry.rate || 0)
+        // Prefer persisted server-side cost snapshot; this includes OT multiplier.
+        // If missing, fall back to 0 (server should provide totalCost for all new entries).
+        const entryValue = entry.totalCost != null ? Number(entry.totalCost) : 0
         summary[userId].jobs[jobId].laborCodes[laborCodeId].totalValue += entryValue
 
         // Update job totals

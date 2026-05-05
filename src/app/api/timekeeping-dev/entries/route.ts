@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { getAllowedPhaseCodeSetForUser } from '@/lib/timekeeping/phase-code-access'
+import { jobEntryPunchIsOvertime } from '@/lib/timekeeping/job-entry-ot-flag'
 
 function parseDateOnlyToUtcNoon(value: string): Date {
   const m = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})$/)
@@ -85,9 +86,18 @@ const createSchema = z.object({
   jobId: z.string().min(1),
   startTime: z.string().min(1),
   hoursWorked: z.union([z.string(), z.number()]),
+  punchCountsAsOvertime: z.boolean().optional(),
+  manualOvertimeHours: z.union([z.string(), z.number()]).optional().nullable(),
   phaseCode: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
 })
+
+function parseNonNegativeDecimalHours(raw: unknown): number {
+  if (raw === undefined || raw === null || raw === '') return 0
+  const n = typeof raw === 'number' ? raw : Number(String(raw).trim())
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.round(n * 100) / 100
+}
 
 function serializeEntry(e: {
   id: string
@@ -97,6 +107,8 @@ function serializeEntry(e: {
   date: Date
   startTime: Date
   hoursWorked: Prisma.Decimal
+  punchCountsAsOvertime: boolean
+  manualOvertimeHours: Prisma.Decimal
   phaseCode: string | null
   notes: string | null
   createdAt: Date
@@ -111,6 +123,8 @@ function serializeEntry(e: {
     startTime: toIso(e.startTime),
     endTime: null,
     hoursWorked: e.hoursWorked.toString(),
+    punchCountsAsOvertime: e.punchCountsAsOvertime,
+    manualOvertimeHours: e.manualOvertimeHours.toString(),
     phaseCode: e.phaseCode,
     notes: e.notes,
     createdAt: toIso(e.createdAt),
@@ -162,6 +176,8 @@ export async function GET(request: NextRequest) {
         date: true,
         startTime: true,
         hoursWorked: true,
+        punchCountsAsOvertime: true,
+        manualOvertimeHours: true,
         phaseCode: true,
         notes: true,
         createdAt: true,
@@ -215,6 +231,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const punchCountsAsOvertime = jobEntryPunchIsOvertime(data.punchCountsAsOvertime)
+    const manualOt = parseNonNegativeDecimalHours(data.manualOvertimeHours)
+
     await assertNoOverlap({
       userId: session.user.id,
       dateAnchor,
@@ -230,6 +249,8 @@ export async function POST(request: NextRequest) {
         startTime: roundedStart,
         endTime: null,
         hoursWorked: new Prisma.Decimal(hours),
+        punchCountsAsOvertime,
+        manualOvertimeHours: new Prisma.Decimal(manualOt),
         phaseCode,
         notes: data.notes?.trim() ? data.notes.trim() : null,
       },
@@ -242,6 +263,8 @@ export async function POST(request: NextRequest) {
         startTime: true,
         endTime: true,
         hoursWorked: true,
+        punchCountsAsOvertime: true,
+        manualOvertimeHours: true,
         phaseCode: true,
         notes: true,
         createdAt: true,

@@ -9,7 +9,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useToast } from '@/components/ui/use-toast'
 import { dashboardUi } from '@/components/layout/dashboard-ui'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
+import { stripOtLaborCodeSuffix, withOtLaborCodeSuffix } from '@/lib/labor-codes/ot-code'
 import { Badge } from '@/components/ui/badge'
 
 type JobRole = {
@@ -19,7 +20,16 @@ type JobRole = {
   isActive: boolean
 }
 
-type PhaseCode = { id: string; code: string; name: string; description?: string | null; hourlyRate?: any; isActive?: boolean }
+type PhaseCode = {
+  id: string
+  code: string
+  name: string
+  description?: string | null
+  hourlyRate?: any
+  isActive?: boolean
+  isOvertimePhase?: boolean
+  overtimeRateMultiplier?: number | string
+}
 type Employee = { id: string; name: string | null; email: string; jobRoleId: string | null }
 
 export function JobRolesAdminClient() {
@@ -37,9 +47,11 @@ export function JobRolesAdminClient() {
   const [phaseSearch, setPhaseSearch] = useState('')
   const [employeeSearch, setEmployeeSearch] = useState('')
   const [phaseLibSearch, setPhaseLibSearch] = useState('')
-  const [newPhase, setNewPhase] = useState({ code: '', name: '', hourlyRate: '' })
+  const [newPhase, setNewPhase] = useState({ code: '', name: '', hourlyRate: '', isOtPhase: false })
   const [otMultiplier, setOtMultiplier] = useState('1.5')
   const [otSaving, setOtSaving] = useState(false)
+  const [adminSection, setAdminSection] = useState<'categories' | 'library' | 'costing'>('categories')
+  const [categorySetupTab, setCategorySetupTab] = useState<'codes' | 'employees'>('codes')
 
   const selectedRole = useMemo(() => roles.find((r) => r.id === selectedRoleId) || null, [roles, selectedRoleId])
   const sortedPhaseCodes = useMemo(
@@ -48,9 +60,10 @@ export function JobRolesAdminClient() {
         .filter((c) => {
           const q = phaseSearch.trim().toLowerCase()
           if (!q) return true
-          return `${c.code} ${c.name}`.toLowerCase().includes(q)
+          const hay = `${c.code ?? ''} ${c.name ?? ''}`.toLowerCase()
+          return hay.includes(q)
         })
-        .sort((a, b) => a.code.localeCompare(b.code)),
+        .sort((a, b) => String(a.code ?? '').localeCompare(String(b.code ?? ''))),
     [phaseCodes, phaseSearch]
   )
   const sortedEmployees = useMemo(() => {
@@ -58,11 +71,11 @@ export function JobRolesAdminClient() {
     return [...employees]
       .filter((e) => {
         if (!q) return true
-        return `${e.name || ''} ${e.email}`.toLowerCase().includes(q)
+        return `${e.name ?? ''} ${e.email ?? ''}`.toLowerCase().includes(q)
       })
       .sort((a, b) => {
-        const an = (a.name || a.email).toLowerCase()
-        const bn = (b.name || b.email).toLowerCase()
+        const an = String(a.name ?? a.email ?? '').toLowerCase()
+        const bn = String(b.name ?? b.email ?? '').toLowerCase()
         return an.localeCompare(bn)
       })
   }, [employees, employeeSearch])
@@ -71,7 +84,7 @@ export function JobRolesAdminClient() {
     const q = categorySearch.trim().toLowerCase()
     const base = [...roles].sort((a, b) => a.name.localeCompare(b.name))
     if (!q) return base
-    return base.filter((r) => r.name.toLowerCase().includes(q))
+    return base.filter((r) => String(r.name ?? '').toLowerCase().includes(q))
   }, [roles, categorySearch])
 
   const load = async () => {
@@ -90,9 +103,9 @@ export function JobRolesAdminClient() {
       if (!rolesRes.ok || !rolesJson?.success) throw new Error(rolesJson?.error || 'Failed to load categories')
       if (!codesRes.ok || !codesJson?.success) throw new Error(codesJson?.error || 'Failed to load phase codes')
       if (!usersRes.ok || !usersJson?.success) throw new Error(usersJson?.error || 'Failed to load employees')
-      setRoles(rolesJson.data || [])
-      setPhaseCodes(codesJson.data || [])
-      setEmployees(usersJson.data || [])
+      setRoles(Array.isArray(rolesJson.data) ? rolesJson.data : [])
+      setPhaseCodes(Array.isArray(codesJson.data) ? codesJson.data : [])
+      setEmployees(Array.isArray(usersJson.data) ? usersJson.data : [])
       if (otJson?.success && otJson.data?.otMultiplier != null) {
         setOtMultiplier(String(otJson.data.otMultiplier))
       }
@@ -135,9 +148,9 @@ export function JobRolesAdminClient() {
     return [...phaseCodes]
       .filter((c) => {
         if (!q) return true
-        return `${c.code} ${c.name} ${c.description || ''}`.toLowerCase().includes(q)
+        return `${c.code ?? ''} ${c.name ?? ''} ${c.description ?? ''}`.toLowerCase().includes(q)
       })
-      .sort((a, b) => a.code.localeCompare(b.code))
+      .sort((a, b) => String(a.code ?? '').localeCompare(String(b.code ?? '')))
   }, [phaseCodes, phaseLibSearch])
 
   const loadRoleCodes = async (roleId: string) => {
@@ -145,7 +158,8 @@ export function JobRolesAdminClient() {
       const res = await fetch(`/api/admin/job-roles/${roleId}`)
       const json = await res.json()
       if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load role')
-      const codes = Array.isArray(json?.data?.phaseCodes) ? (json.data.phaseCodes as PhaseCode[]) : []
+      const rawCodes = Array.isArray(json?.data?.phaseCodes) ? (json.data.phaseCodes as PhaseCode[]) : []
+      const codes = rawCodes.filter((c) => c && typeof c.id === 'string')
       setSelectedCodes(new Set(codes.map((c) => c.id)))
     } catch (e: any) {
       toast({ title: 'Could not load role phase codes', description: e?.message, variant: 'destructive' })
@@ -288,14 +302,32 @@ export function JobRolesAdminClient() {
 
   return (
     <div className="space-y-6">
-      <Tabs defaultValue="categories" className="w-full">
-        <TabsList className="mb-4 grid h-auto w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:max-w-4xl">
-          <TabsTrigger value="categories">Categories</TabsTrigger>
-          <TabsTrigger value="library">Phase code library</TabsTrigger>
-          <TabsTrigger value="costing">Rates & overtime</TabsTrigger>
-        </TabsList>
+      <div
+        role="tablist"
+        aria-label="Phase codes sections"
+        className="mb-4 grid h-auto w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:max-w-4xl"
+      >
+        {(['categories', 'library', 'costing'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={adminSection === key}
+            className={cn(
+              'inline-flex min-h-[42px] items-center justify-center rounded-md border px-3 text-sm font-medium transition-colors sm:min-h-[40px]',
+              adminSection === key
+                ? 'border-slate-900 bg-slate-900 text-white shadow-sm'
+                : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+            )}
+            onClick={() => setAdminSection(key)}
+          >
+            {key === 'categories' ? 'Categories' : key === 'library' ? 'Phase code library' : 'Rates & overtime'}
+          </button>
+        ))}
+      </div>
 
-        <TabsContent value="categories" className="mt-0 space-y-4">
+      {adminSection === 'categories' ? (
+        <div className="mt-0 space-y-4">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <Card className="border border-slate-200 shadow-md lg:col-span-4">
           <CardHeader className="border-b py-3 px-4">
@@ -396,13 +428,36 @@ export function JobRolesAdminClient() {
                 Pick a category to edit which phase codes and employees belong to it.
               </div>
             ) : (
-              <Tabs defaultValue="assign-codes">
-                <TabsList>
-                  <TabsTrigger value="assign-codes">Assigned codes</TabsTrigger>
-                  <TabsTrigger value="employees">Employees</TabsTrigger>
-                </TabsList>
+              <div className="space-y-4">
+                <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                      categorySetupTab === 'codes'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    )}
+                    onClick={() => setCategorySetupTab('codes')}
+                  >
+                    Assigned codes
+                  </button>
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                      categorySetupTab === 'employees'
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    )}
+                    onClick={() => setCategorySetupTab('employees')}
+                  >
+                    Employees
+                  </button>
+                </div>
 
-                <TabsContent value="assign-codes" className="mt-4 space-y-3">
+                {categorySetupTab === 'codes' ? (
+                <div className="mt-2 space-y-3">
                   <p className="text-sm text-slate-600">
                     Choose which phase codes people in this category may log on jobs. Edit codes and hourly rates in the{' '}
                     <span className="font-medium">Phase code library</span> tab; set the overtime multiplier under{' '}
@@ -430,15 +485,15 @@ export function JobRolesAdminClient() {
                               })
                             }}
                           />
-                          <span className="font-mono">{c.code}</span>
-                          <span className="text-slate-600 truncate">{c.name}</span>
+                          <span className="font-mono">{c.code ?? '—'}</span>
+                          <span className="text-slate-600 truncate">{c.name ?? ''}</span>
                         </label>
                       )
                     })}
                   </div>
-                </TabsContent>
-
-                <TabsContent value="employees" className="mt-4 space-y-3">
+                </div>
+                ) : (
+                <div className="mt-2 space-y-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <Input
                       value={employeeSearch}
@@ -475,21 +530,24 @@ export function JobRolesAdminClient() {
                       )
                     })}
                   </div>
-                </TabsContent>
-              </Tabs>
+                </div>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
           </div>
-        </TabsContent>
+        </div>
+      ) : null}
 
-        <TabsContent value="library" className="mt-0">
+      {adminSection === 'library' ? (
+        <div className="mt-0">
           <Card className="border border-slate-200 shadow-md">
             <CardHeader className="border-b py-3 px-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Phase code library</p>
               <p className="text-sm text-slate-600">
-                Create codes, set cost per hour, and activate or deactivate. Categories assign these codes under the
-                Categories tab.
+                Check <span className="font-medium">OT time</span> to use the same code with a <span className="font-mono">/OT</span> suffix (e.g. WC →
+                WC/OT). Hours on that phase roll up to the base phase on jobs. Cost uses the base phase&apos;s hourly rate × the OT multiplier (editable).
               </p>
             </CardHeader>
             <CardContent className="p-4 space-y-3">
@@ -513,6 +571,13 @@ export function JobRolesAdminClient() {
                     onChange={(e) => setNewPhase((p) => ({ ...p, name: e.target.value }))}
                     placeholder="Name"
                   />
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={newPhase.isOtPhase}
+                      onCheckedChange={(v) => setNewPhase((p) => ({ ...p, isOtPhase: v === true }))}
+                    />
+                    OT time (append /OT to code)
+                  </label>
                   <Button
                     onClick={async () => {
                       setSaving(true)
@@ -521,12 +586,18 @@ export function JobRolesAdminClient() {
                         const res = await fetch('/api/admin/phase-codes', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ code: newPhase.code, name: newPhase.name, hourlyRate: rate, isActive: true }),
+                          body: JSON.stringify({
+                            code: newPhase.code,
+                            name: newPhase.name,
+                            hourlyRate: rate,
+                            isActive: true,
+                            isOvertimePhase: newPhase.isOtPhase,
+                          }),
                         })
                         const json = await res.json().catch(() => ({}))
                         if (!res.ok || !json?.success) throw new Error(json?.error || 'Create failed')
                         toast({ title: 'Phase code created' })
-                        setNewPhase({ code: '', name: '', hourlyRate: '' })
+                        setNewPhase({ code: '', name: '', hourlyRate: '', isOtPhase: false })
                         await load()
                       } catch (e: any) {
                         toast({ title: 'Could not create phase code', description: e?.message, variant: 'destructive' })
@@ -552,20 +623,48 @@ export function JobRolesAdminClient() {
                   </div>
                   <div className="max-h-[520px] overflow-auto divide-y">
                     {phaseLibrary.map((c) => (
-                      <div key={c.id} className="py-2 flex items-center gap-2">
-                        <div className="w-[80px] font-mono">{c.code}</div>
+                      <div key={c.id} className="py-2 flex flex-wrap items-center gap-2">
+                        <div className="w-[80px] font-mono">{c.code ?? '—'}</div>
                         <Input
-                          className="h-8"
-                          value={c.name}
+                          className="h-8 flex-1 min-w-[120px]"
+                          value={c.name ?? ''}
                           onChange={(e) => setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, name: e.target.value } : x)))}
                         />
                         <Input
-                          className="h-8 w-[120px]"
+                          className="h-8 w-[100px]"
                           value={c.hourlyRate != null ? String(c.hourlyRate) : ''}
                           onChange={(e) =>
                             setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, hourlyRate: e.target.value } : x)))
                           }
                           placeholder="Cost/hr"
+                        />
+                        <label className="flex items-center gap-1 text-xs whitespace-nowrap">
+                          <Checkbox
+                            checked={Boolean(c.isOvertimePhase) || /\/OT$/i.test(String(c.code || ''))}
+                            onCheckedChange={(v) => {
+                              const on = v === true
+                              setPhaseCodes((prev) =>
+                                prev.map((x) => {
+                                  if (x.id !== c.id) return x
+                                  const base = stripOtLaborCodeSuffix(String(x.code || '')).toUpperCase()
+                                  return {
+                                    ...x,
+                                    isOvertimePhase: on,
+                                    code: on ? withOtLaborCodeSuffix(base) : base,
+                                  }
+                                })
+                              )
+                            }}
+                          />
+                          OT time
+                        </label>
+                        <Input
+                          className="h-8 w-14 text-xs"
+                          title="OT multiplier on base hourly rate for this code"
+                          value={c.overtimeRateMultiplier != null ? String(c.overtimeRateMultiplier) : '1.5'}
+                          onChange={(e) =>
+                            setPhaseCodes((prev) => prev.map((x) => (x.id === c.id ? { ...x, overtimeRateMultiplier: e.target.value } : x)))
+                          }
                         />
                         <label className="flex items-center gap-2 text-sm whitespace-nowrap">
                           <Checkbox
@@ -584,13 +683,19 @@ export function JobRolesAdminClient() {
                             try {
                               const rateVal =
                                 c.hourlyRate === '' || c.hourlyRate == null ? null : Number(String(c.hourlyRate).trim())
+                              const multRaw = c.overtimeRateMultiplier
+                              const mult =
+                                multRaw === '' || multRaw == null ? 1.5 : Number(String(multRaw).trim())
                               const res = await fetch(`/api/admin/phase-codes/${c.id}`, {
                                 method: 'PATCH',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
+                                  code: String(c.code || '').trim().toUpperCase(),
                                   name: String(c.name || '').trim(),
                                   hourlyRate: rateVal,
                                   isActive: Boolean(c.isActive ?? true),
+                                  isOvertimePhase: Boolean(c.isOvertimePhase) || /\/OT$/i.test(String(c.code || '')),
+                                  overtimeRateMultiplier: Number.isFinite(mult) && mult > 0 ? mult : 1.5,
                                 }),
                               })
                               const json = await res.json().catch(() => ({}))
@@ -637,14 +742,18 @@ export function JobRolesAdminClient() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </div>
+      ) : null}
 
-        <TabsContent value="costing" className="mt-0">
+      {adminSection === 'costing' ? (
+        <div className="mt-0">
           <Card className="border border-slate-200 shadow-md">
             <CardHeader className="border-b py-3 px-4">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Rates & overtime</p>
               <p className="text-sm text-slate-600">
-                Regular-time cost uses each phase code's cost per hour from the library. Overtime uses that same base rate multiplied by the value below (typically 1.5).
+                Regular-time cost uses each phase code&apos;s cost per hour from the library. Overtime uses that base rate multiplied by the global value
+                below (typically 1.5). <span className="font-medium text-slate-800">OT time</span> rows use a <span className="font-mono">/OT</span> code;
+                costing is (matching non-/OT phase rate) × that row&apos;s OT multiplier, and those hours roll up to the base phase on the job card.
               </p>
             </CardHeader>
             <CardContent className="p-4 space-y-4">
@@ -678,8 +787,8 @@ export function JobRolesAdminClient() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
+        </div>
+      ) : null}
     </div>
   )
 }

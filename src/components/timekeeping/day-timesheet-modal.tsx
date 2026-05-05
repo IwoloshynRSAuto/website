@@ -7,6 +7,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Plus, Clock, FileText, X, Send, Loader2 } from 'lucide-react'
 import { format, startOfDay, endOfDay } from 'date-fns'
 import { calculateHoursBetween } from '@/lib/utils/time-rounding'
+import { billableHoursFromPunchRange, sanitizeBillableHours } from '@/lib/timekeeping/punch-hours'
+import { jobEntryPunchIsOvertime } from '@/lib/timekeeping/job-entry-ot-flag'
 import { useToast } from '@/components/ui/use-toast'
 
 interface TimesheetEntry {
@@ -122,23 +124,21 @@ export function DayTimesheetModal({
           const laborCode = laborCodes.find(lc => lc.code === (jobEntry.laborCode || '').trim())
           const laborCodeId = laborCode?.id || null
 
-          let punchHours = 0
-          if (jobEntry.punchOutTime) {
-            const inTime = new Date(jobEntry.punchInTime)
-            const outTime = new Date(jobEntry.punchOutTime)
-            punchHours = (outTime.getTime() - inTime.getTime()) / (1000 * 60 * 60)
-          }
-          punchHours = Math.max(0, punchHours)
-          const extraOt = Math.max(0, Number(jobEntry.manualOvertimeHours) || 0)
+          const punchHours = billableHoursFromPunchRange(
+            jobEntry.punchInTime,
+            jobEntry.punchOutTime
+          )
+          const extraOt = sanitizeBillableHours(Math.max(0, Number(jobEntry.manualOvertimeHours) || 0))
           let regularHours = 0
           let overtimeHours = 0
-          if (jobEntry.punchCountsAsOvertime) {
-            overtimeHours = punchHours + extraOt
+          if (jobEntryPunchIsOvertime(jobEntry.punchCountsAsOvertime)) {
+            overtimeHours = sanitizeBillableHours(punchHours + extraOt)
           } else {
-            regularHours = punchHours
-            overtimeHours = extraOt
+            regularHours = sanitizeBillableHours(punchHours)
+            overtimeHours = sanitizeBillableHours(extraOt)
           }
 
+          const phaseKey = (jobEntry.laborCode || '').trim()
           timeEntries.push({
             date: format(selectedDate, 'yyyy-MM-dd'),
             regularHours,
@@ -147,7 +147,9 @@ export function DayTimesheetModal({
             billable: true,
             jobId: job?.id,
             jobNumber: jobEntry.jobNumber,
-            laborCodeId: laborCodeId
+            laborCodeId: laborCodeId,
+            laborCode: phaseKey || null,
+            jobEntryId: jobEntry.id,
           })
         }
       }
@@ -459,10 +461,18 @@ export function DayTimesheetModal({
               {/* Job Entries */}
               {Array.isArray(dayTimesheets) && dayTimesheets.filter(ts => ts.jobEntries && ts.jobEntries.length > 0).length > 0 && (
                 <div>
-                  <h3 className="text-base sm:text-lg font-semibold text-gray-900 mb-2 sm:mb-3 flex items-center gap-2">
-                    <FileText className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
-                    Job Entries
-                  </h3>
+                  <div className="mb-2 sm:mb-3">
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 flex items-center gap-2">
+                      <FileText className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+                      Job Entries
+                    </h3>
+                    {mode === 'job' ? (
+                      <p className="mt-1 text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                        Open an entry to edit. The <span className="font-semibold">yellow Overtime (OT)</span> bar at the
+                        top of the editor turns punch hours into overtime for payroll costing.
+                      </p>
+                    ) : null}
+                  </div>
                   <div className="border rounded-lg overflow-x-auto">
                     <Table>
                       <TableHeader>
@@ -472,6 +482,9 @@ export function DayTimesheetModal({
                           <TableHead className="font-semibold text-xs sm:text-sm">Job Number</TableHead>
                           <TableHead className="font-semibold text-xs sm:text-sm">Labor Code</TableHead>
                           <TableHead className="font-semibold text-xs sm:text-sm">Hours</TableHead>
+                          {mode === 'job' ? (
+                            <TableHead className="font-semibold text-xs sm:text-sm">Regular / OT</TableHead>
+                          ) : null}
                           <TableHead className="font-semibold text-xs sm:text-sm">Notes</TableHead>
                           <TableHead className="font-semibold text-xs sm:text-sm">Status</TableHead>
                         </TableRow>
@@ -523,6 +536,28 @@ export function DayTimesheetModal({
                               <TableCell className="font-semibold">
                                 {calculateJobHours(job).toFixed(2)}h
                               </TableCell>
+                              {mode === 'job' ? (
+                                <TableCell className="align-top">
+                                  <div className="flex flex-col gap-1">
+                                    {job.punchCountsAsOvertime ? (
+                                      <span className="inline-flex w-fit rounded-md bg-amber-200 px-2 py-0.5 text-xs font-bold text-amber-950 ring-1 ring-amber-400">
+                                        OT punch
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex w-fit rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700">
+                                        Regular punch
+                                      </span>
+                                    )}
+                                    {(job.manualOvertimeHours ?? 0) > 0 ? (
+                                      <span className="text-xs font-medium text-amber-900">
+                                        +{Number(job.manualOvertimeHours).toFixed(2)}h extra OT
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-muted-foreground">Tap row → yellow OT bar</span>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              ) : null}
                               <TableCell className="max-w-xs">
                                 {job.notes ? (
                                   <span className="text-sm text-gray-600 truncate block" title={job.notes}>

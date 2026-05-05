@@ -50,6 +50,8 @@ model User {
   createdBillingMilestones BillingMilestone[]       @relation("BillingMilestoneCreator")
   assignedQuotes           Quote[]                  @relation("QuoteAssignedTo")
   assignedTasks            TaskCard[]               @relation("TaskAssignee")
+  laborScheduleAssignments   JobLaborScheduleAssignment[]
+  machineShopAssignments     MachineShopAssignment[]    @relation("MachineShopAssignmentUser")
 
   @@map("users")
 }
@@ -147,7 +149,8 @@ model Job {
   purchaseOrders     PurchaseOrder[]          @relation("JobPurchaseOrders")
   deliverables       JobDeliverable[]         @relation("JobDeliverables")
   billingMilestones  BillingMilestone[]       @relation("JobBillingMilestones")
-  tasks              TaskCard[]               @relation("JobTasks")
+  tasks                    TaskCard[]                 @relation("JobTasks")
+  machineShopAssignments   MachineShopAssignment[]
 
   @@map("jobs")
 }
@@ -208,17 +211,19 @@ model SystemSetting {
 }
 
 model DevTimeEntry {
-  id          String   @id @default(cuid())
-  userId      String
-  jobId       String?
-  date        DateTime
-  startTime   DateTime
-  endTime     DateTime?
-  hoursWorked Decimal
-  phaseCode   String?
-  notes       String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                    String   @id @default(cuid())
+  userId                String
+  jobId                 String?
+  date                  DateTime
+  startTime             DateTime
+  endTime               DateTime?
+  hoursWorked           Decimal  @db.Decimal(10, 2)
+  punchCountsAsOvertime Boolean  @default(false)
+  manualOvertimeHours   Decimal  @default(0) @db.Decimal(10, 2)
+  phaseCode             String?
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   job  Job? @relation(fields: [jobId], references: [id], onDelete: SetNull)
@@ -255,20 +260,27 @@ model TimesheetSubmission {
 }
 
 model LaborCode {
-  id             String               @id @default(cuid())
-  code           String               @unique
-  name           String
-  description    String?
-  category       String
-  hourlyRate     Decimal              @default(0)
-  isActive       Boolean              @default(true)
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
-  jobEstimates   JobLaborEstimate[]
-  quoteEstimates QuoteLaborEstimate[]
-  timeEntries    TimeEntry[]
-  jobRoleLinks   JobRolePhaseCode[]
-  userOverrides  UserPhaseCodeOverride[]
+  id                       String               @id @default(cuid())
+  code                     String               @unique
+  name                     String
+  description              String?
+  category                 String
+  hourlyRate               Decimal              @default(0)
+  /** When true, costing uses hourlyRate × overtimeRateMultiplier for that phase (see Rates & OT admin copy). */
+  isOvertimePhase          Boolean              @default(false)
+  /** Multiplier applied to hourlyRate when isOvertimePhase (e.g. 1.5). Ignored when isOvertimePhase is false. */
+  overtimeRateMultiplier   Decimal              @default(1.5) @db.Decimal(5, 2)
+  isActive                 Boolean              @default(true)
+  createdAt                DateTime             @default(now())
+  updatedAt                DateTime             @updatedAt
+  jobEstimates             JobLaborEstimate[]
+  quoteEstimates           QuoteLaborEstimate[]
+  timeEntries              TimeEntry[]
+  jobRoleLinks             JobRolePhaseCode[]
+  userOverrides            UserPhaseCodeOverride[]
+  shopMachinesAsPlaceholder ShopMachine[]
+  taskCards                 TaskCard[]
+  quotePlanItems            QuotePlanItem[]
 
   @@map("labor_codes")
 }
@@ -280,6 +292,7 @@ model Quote {
   description          String?
   customerId           String?
   assignedToId         String?
+  planId               String?
   amount               Float                @default(0)
   validUntil           DateTime?
   status               QuoteStatus          @default(DRAFT)
@@ -303,6 +316,7 @@ model Quote {
   job                  Job?
   customer             Customer?            @relation(fields: [customerId], references: [id])
   assignedTo           User?                @relation("QuoteAssignedTo", fields: [assignedToId], references: [id])
+  plan                 QuotePlan?           @relation(fields: [planId], references: [id], onDelete: SetNull)
   fileRecords          FileRecord[]         @relation("QuoteFiles")
   revisions            QuoteRevision[]      @relation("QuoteRevisions")
   lostReason           QuoteLostReason?
@@ -311,6 +325,39 @@ model Quote {
   tasks                TaskCard[]           @relation("QuoteTasks")
 
   @@map("quotes")
+}
+
+model QuotePlan {
+  id          String          @id @default(cuid())
+  name        String          @unique
+  description String?
+  isActive    Boolean         @default(true)
+  isDefault   Boolean         @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  items       QuotePlanItem[]
+  quotes      Quote[]
+
+  @@map("quote_plans")
+}
+
+model QuotePlanItem {
+  id          String    @id @default(cuid())
+  planId      String
+  taskCode    String
+  description String
+  sortOrder   Int       @default(0)
+  laborCodeId String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  plan      QuotePlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  laborCode LaborCode? @relation(fields: [laborCodeId], references: [id], onDelete: SetNull)
+
+  @@unique([planId, taskCode])
+  @@index([planId])
+  @@index([laborCodeId])
+  @@map("quote_plan_items")
 }
 
 model Contact {
@@ -328,17 +375,87 @@ model Contact {
 }
 
 model JobLaborEstimate {
-  id             String    @id @default(cuid())
-  jobId          String
-  laborCodeId    String
-  estimatedHours Float     @default(0)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  laborCode      LaborCode @relation(fields: [laborCodeId], references: [id])
-  job            Job       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  id               String                    @id @default(cuid())
+  jobId            String
+  laborCodeId      String
+  estimatedHours   Float                     @default(0)
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  laborCode        LaborCode                 @relation(fields: [laborCodeId], references: [id])
+  job              Job                       @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  scheduleSegments JobLaborScheduleSegment[]
 
   @@unique([jobId, laborCodeId])
   @@map("job_labor_estimates")
+}
+
+model JobLaborScheduleSegment {
+  id                 String                       @id @default(cuid())
+  jobLaborEstimateId String
+  windowStart        DateTime
+  windowEnd          DateTime
+  hours              Float
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+  estimate           JobLaborEstimate             @relation(fields: [jobLaborEstimateId], references: [id], onDelete: Cascade)
+  assignments        JobLaborScheduleAssignment[]
+
+  @@index([jobLaborEstimateId])
+  @@index([windowStart])
+  @@map("job_labor_schedule_segments")
+}
+
+model JobLaborScheduleAssignment {
+  id         String                  @id @default(cuid())
+  segmentId  String
+  employeeId String
+  hours      Float
+  createdAt  DateTime                @default(now())
+  updatedAt  DateTime                @updatedAt
+  segment    JobLaborScheduleSegment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  employee   User                    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([segmentId])
+  @@index([employeeId])
+  @@map("job_labor_schedule_assignments")
+}
+
+/// Machine / work-center row for shop scheduling (optional link to a phase code as placeholder label).
+model ShopMachine {
+  id          String                  @id @default(cuid())
+  name        String
+  phaseCodeId String?
+  sortOrder   Int                     @default(0)
+  isActive    Boolean                 @default(true)
+  createdAt   DateTime                @default(now())
+  updatedAt   DateTime                @updatedAt
+  phaseCode   LaborCode?              @relation(fields: [phaseCodeId], references: [id], onDelete: SetNull)
+  assignments MachineShopAssignment[]
+
+  @@index([phaseCodeId])
+  @@index([isActive, sortOrder])
+  @@map("shop_machines")
+}
+
+model MachineShopAssignment {
+  id            String      @id @default(cuid())
+  shopMachineId String
+  jobId         String
+  userId        String?
+  plannedStart  DateTime
+  plannedEnd    DateTime
+  hours         Float       @default(0)
+  notes         String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  machine       ShopMachine @relation(fields: [shopMachineId], references: [id], onDelete: Cascade)
+  job           Job         @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user          User?       @relation("MachineShopAssignmentUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([shopMachineId, plannedStart])
+  @@index([jobId])
+  @@index([userId])
+  @@map("machine_shop_assignments")
 }
 
 model PartsService {
@@ -1027,6 +1144,8 @@ model TaskCard {
   description         String?
   assignedToId        String?
   dueDate             DateTime?
+  estimatedHours      Float?    @default(0)
+  laborCodeId         String?
   status              String    @default("BACKLOG") // BACKLOG, IN_PROGRESS, WAITING, COMPLETED
   position            Int       @default(0) // For ordering within column
   taskCode            String? // PM, SV, or AD task code (e.g., PM010-0100)
@@ -1037,11 +1156,13 @@ model TaskCard {
   job        Job?   @relation("JobTasks", fields: [jobId], references: [id], onDelete: Cascade)
   quote      Quote? @relation("QuoteTasks", fields: [quoteId], references: [id], onDelete: Cascade)
   assignedTo User?  @relation("TaskAssignee", fields: [assignedToId], references: [id])
+  laborCode  LaborCode? @relation(fields: [laborCodeId], references: [id], onDelete: SetNull)
 
   @@index([jobId])
   @@index([quoteId])
   @@index([status])
   @@index([taskCode])
+  @@index([laborCodeId])
   @@map("task_cards")
 }
 
@@ -1207,3 +1328,4 @@ model EbayTestStatus {
 
   @@map("ebay_test_statuses")
 }
+

@@ -1,12 +1,14 @@
 import { PrismaClient } from '@prisma/client'
 
 const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined
+  __prismaClient: PrismaClient | undefined
 }
 
 function getPrismaClient(): PrismaClient {
-  if (globalForPrisma.prisma) {
-    return globalForPrisma.prisma
+  // Use a uniquely named global to avoid collisions with other modules/libs
+  // that may also stash a PrismaClient on `globalThis.prisma`.
+  if (globalForPrisma.__prismaClient) {
+    return globalForPrisma.__prismaClient
   }
 
   const client = new PrismaClient({
@@ -18,7 +20,7 @@ function getPrismaClient(): PrismaClient {
   })
 
   // Always set global prisma to ensure it's available in all environments
-  globalForPrisma.prisma = client
+  globalForPrisma.__prismaClient = client
   return client
 }
 

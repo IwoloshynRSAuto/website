@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { wallClockToUtcDate } from '@/lib/utils/import-timezone'
+import { normalizeProjectJobNumber, normalizeQuoteRecordNumber } from '@/lib/utils/job-number'
 import * as XLSX from 'xlsx'
 
 type ParsedRow = {
@@ -235,10 +236,7 @@ async function importVerticalSections(args: {
   const buildLocalDate = (year: number, month: number, day: number, h: number, m: number): Date =>
     wallClockToUtcDate(year, month, day, h, m, args.ianaTimeZone, args.timezoneOffsetMinutes)
 
-  const jobs = await prisma.job.findMany({ select: { id: true, jobNumber: true } })
-  const jobsByNormalized = new Map(
-    jobs.map((j) => [normalizeJobNumber(j.jobNumber), j.jobNumber] as const)
-  )
+  const jobsByNormalized = await buildImportJobNumberLookupMap()
 
   let contextDate: Date | null = null
   let startCol = -1
@@ -359,7 +357,7 @@ async function importVerticalSections(args: {
       continue
     }
 
-    const jobNumber = await ensureJobForImport(
+    const jobNumber = await resolveOrCreateJobNumberForImport(
       parsedJob.jobNumber,
       args.targetUserId,
       jobsByNormalized,
@@ -553,10 +551,7 @@ async function importSheet1Layout(args: {
   const buildLocalDate = (year: number, month: number, day: number, h: number, m: number): Date =>
     wallClockToUtcDate(year, month, day, h, m, args.ianaTimeZone, args.timezoneOffsetMinutes)
 
-  const jobs = await prisma.job.findMany({ select: { id: true, jobNumber: true } })
-  const jobsByNormalized = new Map(
-    jobs.map((j) => [normalizeJobNumber(j.jobNumber), j.jobNumber] as const)
-  )
+  const jobsByNormalized = await buildImportJobNumberLookupMap()
 
   let inserted = 0
   let skipped = 0
@@ -709,7 +704,7 @@ async function importSheet1Layout(args: {
         continue
       }
 
-      const jobNumber = await ensureJobForImport(
+      const jobNumber = await resolveOrCreateJobNumberForImport(
         parsedJob.jobNumber,
         args.targetUserId,
         jobsByNormalized,
@@ -952,10 +947,7 @@ async function importMatrixSheet(args: {
   const sunday = new Date(weekEnding)
   sunday.setDate(weekEnding.getDate() - 6)
 
-  const jobs = await prisma.job.findMany({ select: { id: true, jobNumber: true } })
-  const jobsByNormalized = new Map(
-    jobs.map((j) => [normalizeJobNumber(j.jobNumber), j.jobNumber] as const)
-  )
+  const jobsByNormalized = await buildImportJobNumberLookupMap()
 
   let inserted = 0
   let skipped = 0
@@ -979,7 +971,7 @@ async function importMatrixSheet(args: {
       continue
     }
 
-    const jobNumber = await ensureJobForImport(jobRaw, args.targetUserId, jobsByNormalized, jobsCreated)
+    const jobNumber = await resolveOrCreateJobNumberForImport(jobRaw, args.targetUserId, jobsByNormalized, jobsCreated)
     const phaseCode = parsedJob.phaseCode
 
     for (let dayIdx = 0; dayIdx < DAY_LABELS.length; dayIdx++) {
@@ -1117,8 +1109,70 @@ function normalizeJobNumber(value: string): string {
   return noWhitespace.replace(/\.0+$/, '')
 }
 
-/** If the job number is not in the map, create a minimal Job row so imports never depend on pre-seeded jobs. */
-async function ensureJobForImport(
+/** Warm-cache: existing job numbers + quote numbers so imports resolve without creating duplicates. */
+async function buildImportJobNumberLookupMap(): Promise<Map<string, string>> {
+  const [jobs, quotes] = await Promise.all([
+    prisma.job.findMany({ select: { jobNumber: true } }),
+    prisma.quote.findMany({ select: { quoteNumber: true } }),
+  ])
+  const map = new Map<string, string>()
+  for (const j of jobs) {
+    const k = normalizeJobNumber(j.jobNumber)
+    if (k) map.set(k, j.jobNumber)
+  }
+  for (const q of quotes) {
+    const k = normalizeJobNumber(q.quoteNumber)
+    if (k && !map.has(k)) map.set(k, q.quoteNumber)
+  }
+  return map
+}
+
+function collectImportJobNumberCandidates(raw: string): string[] {
+  const trimmed = raw.trim().replace(/^"+|"+$/g, '').replace(/\.0+$/, '')
+  const compact = normalizeJobNumber(raw)
+  const set = new Set<string>()
+  if (trimmed) set.add(trimmed)
+  if (compact) set.add(compact)
+
+  const primary = trimmed || compact
+  if (!primary) return []
+
+  if (/^q/i.test(primary)) {
+    const canonical = normalizeQuoteRecordNumber(primary)
+    if (canonical) set.add(canonical)
+    const body = primary.replace(/^q/i, '').replace(/^0+/, '') || '0'
+    set.add(`Q${body}`)
+    set.add(`Q${body.padStart(3, '0')}`)
+    set.add(`Q${body.padStart(4, '0')}`)
+  } else {
+    const withE = normalizeProjectJobNumber(primary)
+    if (withE) set.add(withE)
+    set.add(primary.toUpperCase())
+  }
+
+  return [...set].filter(Boolean)
+}
+
+function rememberImportCanonicalJobNumber(
+  jobsByNormalized: Map<string, string>,
+  rawInput: string,
+  canonical: string
+) {
+  const keys = new Set<string>()
+  const ck = normalizeJobNumber(canonical)
+  if (ck) keys.add(ck)
+  for (const c of collectImportJobNumberCandidates(rawInput)) {
+    const k = normalizeJobNumber(c)
+    if (k) keys.add(k)
+  }
+  for (const k of keys) jobsByNormalized.set(k, canonical)
+}
+
+/**
+ * Resolve imports to an existing Job or Quote number when possible (including converted jobs via relatedQuoteId).
+ * Only creates a new Job when nothing matches; Q… numbers become type QUOTE, not JOB.
+ */
+async function resolveOrCreateJobNumberForImport(
   rawJobNumber: string,
   createdById: string,
   jobsByNormalized: Map<string, string>,
@@ -1126,14 +1180,56 @@ async function ensureJobForImport(
 ): Promise<string> {
   const lookupKey = normalizeJobNumber(rawJobNumber)
   if (!lookupKey) return rawJobNumber.trim()
-  const existing = jobsByNormalized.get(lookupKey)
-  if (existing) return existing
+
+  const cached = jobsByNormalized.get(lookupKey)
+  if (cached) return cached
+
+  const candidates = collectImportJobNumberCandidates(rawJobNumber)
+  const orJobNumber =
+    candidates.length > 0
+      ? candidates.map((c) => ({ jobNumber: { equals: c, mode: 'insensitive' as const } }))
+      : []
+
+  if (orJobNumber.length > 0) {
+    const jobHit = await prisma.job.findFirst({
+      where: { OR: orJobNumber },
+      select: { jobNumber: true },
+      orderBy: { updatedAt: 'desc' },
+    })
+    if (jobHit) {
+      rememberImportCanonicalJobNumber(jobsByNormalized, rawJobNumber, jobHit.jobNumber)
+      return jobHit.jobNumber
+    }
+
+    const convertedHit = await prisma.job.findFirst({
+      where: {
+        OR: candidates.map((c) => ({ relatedQuoteId: { equals: c, mode: 'insensitive' } })),
+        type: 'JOB',
+      },
+      select: { jobNumber: true },
+      orderBy: { updatedAt: 'desc' },
+    })
+    if (convertedHit) {
+      rememberImportCanonicalJobNumber(jobsByNormalized, rawJobNumber, convertedHit.jobNumber)
+      return convertedHit.jobNumber
+    }
+
+    const quoteHit = await prisma.quote.findFirst({
+      where: { OR: candidates.map((c) => ({ quoteNumber: { equals: c, mode: 'insensitive' } })) },
+      select: { quoteNumber: true },
+    })
+    if (quoteHit) {
+      rememberImportCanonicalJobNumber(jobsByNormalized, rawJobNumber, quoteHit.quoteNumber)
+      return quoteHit.quoteNumber
+    }
+  }
 
   const base =
     rawJobNumber
       .trim()
       .replace(/^"+|"+$/g, '')
       .replace(/\.0+$/, '') || `IMP-${Date.now()}`
+  const isQuoteLike = /^Q/i.test(base)
   let jobNumber = base
   for (let attempt = 0; attempt < 25; attempt++) {
     try {
@@ -1142,9 +1238,11 @@ async function ensureJobForImport(
           jobNumber,
           title: `Imported — ${jobNumber}`,
           createdById,
+          type: isQuoteLike ? 'QUOTE' : 'JOB',
+          status: isQuoteLike ? 'QUOTE' : 'ACTIVE',
         },
       })
-      jobsByNormalized.set(normalizeJobNumber(created.jobNumber), created.jobNumber)
+      rememberImportCanonicalJobNumber(jobsByNormalized, rawJobNumber, created.jobNumber)
       jobsCreated.n++
       return created.jobNumber
     } catch (e: unknown) {
@@ -1778,10 +1876,7 @@ export async function POST(request: NextRequest) {
     let inserted = 0
     let skipped = 0
     const applyErrors: Array<{ line: number; reason: string }> = [...rowErrors]
-    const jobs = await prisma.job.findMany({ select: { id: true, jobNumber: true } })
-    const jobsByNormalizedNumber = new Map(
-      jobs.map((job) => [normalizeJobNumber(job.jobNumber), job.jobNumber] as const)
-    )
+    const jobsByNormalizedNumber = await buildImportJobNumberLookupMap()
     const jobsCreated = { n: 0 }
     const tz = Number.isFinite(timezoneOffsetMinutes) ? timezoneOffsetMinutes : 0
     const weekFilterStart = importWeekStartRaw ? new Date(importWeekStartRaw) : null
@@ -1835,7 +1930,7 @@ export async function POST(request: NextRequest) {
       const dayEnd = new Date(day)
       dayEnd.setHours(23, 59, 59, 999)
 
-      const normalizedImportJobNumber = await ensureJobForImport(
+      const normalizedImportJobNumber = await resolveOrCreateJobNumberForImport(
         row.jobNumber,
         targetUser.id,
         jobsByNormalizedNumber,

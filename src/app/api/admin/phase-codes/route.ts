@@ -4,15 +4,18 @@ import { authOptions } from '@/lib/auth'
 import { isAdmin } from '@/lib/auth/authorization'
 import { prisma } from '@/lib/prisma'
 import { z } from 'zod'
+import { withOtLaborCodeSuffix } from '@/lib/labor-codes/ot-code'
 
 export const dynamic = 'force-dynamic'
 
 const createSchema = z.object({
-  code: z.string().min(1).max(20),
+  code: z.string().min(1).max(30),
   name: z.string().min(1).max(120),
   description: z.string().optional().nullable(),
   hourlyRate: z.number().optional().nullable(),
   isActive: z.boolean().optional(),
+  isOvertimePhase: z.boolean().optional(),
+  overtimeRateMultiplier: z.number().positive().max(10).optional(),
 })
 
 export async function GET() {
@@ -23,10 +26,24 @@ export async function GET() {
   const codes = await prisma.laborCode.findMany({
     where: {},
     orderBy: [{ code: 'asc' }],
-    select: { id: true, code: true, name: true, description: true, hourlyRate: true, isActive: true },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      description: true,
+      hourlyRate: true,
+      isActive: true,
+      isOvertimePhase: true,
+      overtimeRateMultiplier: true,
+    },
     take: 5000,
   })
-  return NextResponse.json({ success: true, data: codes })
+  const data = codes.map((row) => ({
+    ...row,
+    hourlyRate: row.hourlyRate != null ? Number(row.hourlyRate) : 0,
+    overtimeRateMultiplier: row.overtimeRateMultiplier != null ? Number(row.overtimeRateMultiplier) : 1.5,
+  }))
+  return NextResponse.json({ success: true, data })
 }
 
 export async function POST(request: NextRequest) {
@@ -36,19 +53,45 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json()
   const data = createSchema.parse(body)
+  const raw = data.code.trim().toUpperCase()
+  const wantsOt = Boolean(data.isOvertimePhase)
+  const codeUpper = wantsOt ? withOtLaborCodeSuffix(raw) : raw
+  const isOt = wantsOt || /\/OT$/i.test(codeUpper)
 
   const created = await prisma.laborCode.create({
     data: {
-      code: data.code.trim().toUpperCase(),
+      code: codeUpper,
       name: data.name.trim(),
       description: data.description?.trim() || null,
       category: 'PHASE',
       hourlyRate: data.hourlyRate ?? 0,
       isActive: data.isActive ?? true,
+      isOvertimePhase: isOt,
+      overtimeRateMultiplier: data.overtimeRateMultiplier ?? 1.5,
     },
-    select: { id: true, code: true, name: true, description: true, hourlyRate: true, isActive: true },
+    select: {
+      id: true,
+      code: true,
+      name: true,
+      description: true,
+      hourlyRate: true,
+      isActive: true,
+      isOvertimePhase: true,
+      overtimeRateMultiplier: true,
+    },
   })
 
-  return NextResponse.json({ success: true, data: created }, { status: 201 })
+  return NextResponse.json(
+    {
+      success: true,
+      data: {
+        ...created,
+        hourlyRate: created.hourlyRate != null ? Number(created.hourlyRate) : 0,
+        overtimeRateMultiplier:
+          created.overtimeRateMultiplier != null ? Number(created.overtimeRateMultiplier) : 1.5,
+      },
+    },
+    { status: 201 }
+  )
 }
 
