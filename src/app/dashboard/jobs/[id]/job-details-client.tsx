@@ -15,6 +15,7 @@ import { useToast } from '@/components/ui/use-toast'
 import { format } from 'date-fns'
 import { SubmitECOModal } from '@/components/jobs/submit-eco-modal'
 import { BulkBOMUpdate } from '@/components/jobs/bulk-bom-update'
+import { JobProcurementSection } from '@/components/jobs/job-procurement-section'
 import { MilestoneGanttView } from '@/components/jobs/milestone-gantt-view'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { KanbanBoard } from '@/components/jobs/kanban-board'
@@ -1551,6 +1552,8 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
           </Card>
         </div>
       )}
+
+      <JobProcurementSection jobId={jobId} />
 
       {/* Drill Down Modal */}
       <LaborCodeDrillDownModal

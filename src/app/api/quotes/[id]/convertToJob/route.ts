@@ -173,6 +173,22 @@ async function convertQuoteToJob(
       jobNumber: job.jobNumber,
     })
 
+    // Mark quote as won and ensure BOMs remain linked to the quote.
+    try {
+      await prisma.quote.update({
+        where: { id: quote.id },
+        data: { status: 'WON' },
+      })
+      if (quote.linkedBOMs?.length) {
+        await prisma.bOM.updateMany({
+          where: { id: { in: quote.linkedBOMs.map((b) => b.id) }, linkedQuoteId: null },
+          data: { linkedQuoteId: quote.id },
+        })
+      }
+    } catch (e) {
+      console.warn('[convertToJob] Failed to update quote/BOM linkage after conversion:', e)
+    }
+
     // Copy quote deliverable tasks (TaskCard with taskCode) to job tasks
     try {
       const quoteTasks = await prisma.taskCard.findMany({

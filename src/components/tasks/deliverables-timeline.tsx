@@ -16,6 +16,7 @@ type DeliverableLike = {
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
+const HOURS_PER_WORKDAY = 8
 
 const YEAR_GRID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
 
@@ -56,6 +57,30 @@ function endOfLocalDay(d: Date) {
   const x = new Date(d)
   x.setHours(23, 59, 59, 999)
   return x
+}
+
+function isWeekend(d: Date) {
+  const dow = d.getDay()
+  return dow === 0 || dow === 6
+}
+
+function subtractBusinessDays(end: Date, businessDays: number) {
+  let cur = startOfLocalDay(end)
+  let remaining = businessDays
+  while (remaining > 0) {
+    cur = addLocalDays(cur, -1)
+    if (!isWeekend(cur)) remaining -= 1
+  }
+  return cur
+}
+
+function barStartFromDueAndHours(due: Date, hours: number) {
+  const h = Number(hours || 0)
+  const days = Math.max(1, Math.ceil(h / HOURS_PER_WORKDAY))
+  // If 1 day, start = due day. If 5 days, include due day as day 5.
+  const businessDaysBeforeDue = Math.max(0, days - 1)
+  const start = businessDaysBeforeDue ? subtractBusinessDays(due, businessDaysBeforeDue) : startOfLocalDay(due)
+  return { start, days }
 }
 
 function toDateInputValue(d: Date) {
@@ -519,15 +544,32 @@ export function DeliverablesTimeline({
                 </div>
                 {points.rows.map((t) => {
                   const isSelected = !!selectedTaskId && t.id === selectedTaskId
+                  const due = t.due
+                  const duration = due ? barStartFromDueAndHours(due, t.hours) : null
+                  const startForBar = duration?.start ?? null
                   const markerLeft: number | string = (() => {
                     if (useCalendarGrid) {
-                      if (!t.due) return '98%'
-                      const frac = (t.due.getTime() - viewStart.getTime()) / totalMs
+                      if (!due) return '98%'
+                      const frac = (due.getTime() - viewStart.getTime()) / totalMs
                       const clamped = Math.max(0.03, Math.min(0.97, frac))
                       return `${clamped * 100}%`
                     }
-                    const x = t.due ? dateToX(t.due) : timelineWidth - 8
+                    const x = due ? dateToX(due) : timelineWidth - 8
                     return Math.max(14, Math.min(timelineWidth - 14, x))
+                  })()
+                  const bar: null | { left: number | string; width: number | string } = (() => {
+                    if (!due || !startForBar) return null
+                    if (useCalendarGrid) {
+                      const startFrac = (startForBar.getTime() - viewStart.getTime()) / totalMs
+                      const endFrac = (due.getTime() - viewStart.getTime()) / totalMs
+                      const left = Math.max(0, Math.min(1, startFrac))
+                      const right = Math.max(0, Math.min(1, endFrac))
+                      const width = Math.max(0.02, right - left)
+                      return { left: `${left * 100}%`, width: `${width * 100}%` }
+                    }
+                    const left = Math.max(10, Math.min(timelineWidth - 10, dateToX(startForBar)))
+                    const right = Math.max(10, Math.min(timelineWidth - 10, dateToX(due)))
+                    return { left, width: Math.max(8, right - left) }
                   })()
                   return (
                     <div key={t.id} className="relative border-t" style={{ height: 44 }}>
@@ -541,6 +583,15 @@ export function DeliverablesTimeline({
                       <div className="absolute left-2 top-1/2 z-[1] -translate-y-1/2 text-xs font-mono text-muted-foreground">
                         {t.taskCode}
                       </div>
+                      {bar ? (
+                        <div
+                          className={cn(
+                            'absolute top-1/2 z-[1] -translate-y-1/2 h-3 rounded-full border',
+                            isSelected ? 'bg-purple-700/35 border-purple-900/40' : 'bg-purple-600/25 border-purple-900/30'
+                          )}
+                          style={{ left: bar.left as any, width: bar.width as any }}
+                        />
+                      ) : null}
                       <button
                         type="button"
                         className={cn(
@@ -551,10 +602,13 @@ export function DeliverablesTimeline({
                         )}
                         style={{ left: markerLeft }}
                         onClick={() => onSelectTaskId(t.id)}
-                        title={`${t.taskCode}${t.taskCodeDescription ? ` · ${t.taskCodeDescription}` : ''}${t.due ? ` · due ${format(t.due, 'MMM d, yyyy')}` : ''}`}
+                        title={`${t.taskCode}${t.taskCodeDescription ? ` · ${t.taskCodeDescription}` : ''}${
+                          due ? ` · due ${format(due, 'MMM d, yyyy')}` : ''
+                        }${duration ? ` · ${duration.days} workday(s)` : ''}`}
                       >
-                        {t.due ? <span className="opacity-90">{format(t.due, 'MMM d')}</span> : <span className="opacity-70">No date</span>}
+                        {due ? <span className="opacity-90">{format(due, 'MMM d')}</span> : <span className="opacity-70">No date</span>}
                         {t.hours ? <span className="opacity-90 tabular-nums">{t.hours.toFixed(1)}h</span> : null}
+                        {duration ? <span className="opacity-80 tabular-nums">{duration.days}d</span> : null}
                       </button>
                     </div>
                   )

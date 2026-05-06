@@ -12,6 +12,13 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -69,6 +76,44 @@ interface Quote {
   revisions: Revision[]
 }
 
+type BomPart = {
+  id: string
+  bomId: string
+  partId: string | null
+  quantity: number
+  purchasePrice: number
+  markupPercent: number
+  customerPrice: number
+  manufacturer: string
+  description: string | null
+  source: string | null
+  notes: string | null
+  estimatedDelivery: string | null
+  status: 'HOLD' | 'ORDER' | 'PLACED' | 'HERE' | 'STOCK' | 'CUSTOMER_SUPPLIED'
+  partNumber: string
+}
+
+type Bom = {
+  id: string
+  name: string
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'
+  notes: string | null
+  tags: string | null
+  linkedQuoteId: string | null
+  parts: BomPart[]
+}
+
+type PartsSearchRow = {
+  id: string
+  partNumber: string
+  manufacturer: string
+  description: string | null
+  category: string | null
+  latestVendorPrice: null | { price: number; vendorName: string; leadTimeDays: number | null }
+}
+
+type BomTemplateRow = { id: string; name: string; partsCount: number; updatedAt: string }
+
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'bg-gray-100 text-gray-700',
   SENT: 'bg-blue-100 text-blue-800',
@@ -83,7 +128,6 @@ interface Props {
 }
 
 type CustomerOption = { id: string; name: string }
-type ContactOption = { id: string; name: string; email: string | null; phone: string | null; position: string | null }
 
 type TaskCode = { id: string; code: string; description: string; category: string }
 
@@ -310,9 +354,6 @@ export function QuoteDetailClient({ quote }: Props) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [customers, setCustomers] = useState<CustomerOption[]>([])
-  const [contactOptions, setContactOptions] = useState<ContactOption[]>([])
-  const [contactLoading, setContactLoading] = useState(false)
-  const [selectedContactId, setSelectedContactId] = useState<string>('__none__')
   const [taskCodes, setTaskCodes] = useState<TaskCode[]>([])
   const [phaseCodes, setPhaseCodes] = useState<Array<{ id: string; code: string; name: string; hourlyRate?: number }>>([])
   const [deliverables, setDeliverables] = useState<DeliverableTask[]>([])
@@ -320,13 +361,31 @@ export function QuoteDetailClient({ quote }: Props) {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [filter, setFilter] = useState('')
 
+  const [bomLoading, setBomLoading] = useState(false)
+  const [bom, setBom] = useState<Bom | null>(null)
+  const [bomAddOpen, setBomAddOpen] = useState(false)
+  const [partsSearch, setPartsSearch] = useState('')
+  const [partsSearching, setPartsSearching] = useState(false)
+  const [partsResults, setPartsResults] = useState<PartsSearchRow[]>([])
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  const [templatesLoading, setTemplatesLoading] = useState(false)
+  const [templates, setTemplates] = useState<BomTemplateRow[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('')
+  const [manualRow, setManualRow] = useState({
+    partNumber: '',
+    manufacturer: '',
+    description: '',
+    quantity: '1',
+    purchasePrice: '0',
+    markupPercent: '20',
+    source: '',
+    status: 'HOLD' as BomPart['status'],
+  })
+
   const [title, setTitle] = useState(quote.title)
   const [description, setDescription] = useState(quote.description || '')
   const [amount, setAmount] = useState(String(quote.amount ?? 0))
   const [customerId, setCustomerId] = useState<string>(quote.customer?.id || '')
-  const [customerContactName, setCustomerContactName] = useState<string>(quote.customerContactName || '')
-  const [customerContactEmail, setCustomerContactEmail] = useState<string>(quote.customerContactEmail || '')
-  const [customerContactPhone, setCustomerContactPhone] = useState<string>(quote.customerContactPhone || '')
   const [validUntil, setValidUntil] = useState(() => toInputDate(quote.validUntil))
   const [paymentTerms, setPaymentTerms] = useState(quote.paymentTerms || '')
   // Estimated hours + hourly rate removed from UI (kept in DB for future costing needs)
@@ -336,10 +395,6 @@ export function QuoteDetailClient({ quote }: Props) {
     setDescription(quote.description || '')
     setAmount(String(quote.amount ?? 0))
     setCustomerId(quote.customer?.id || '')
-    setCustomerContactName(quote.customerContactName || '')
-    setCustomerContactEmail(quote.customerContactEmail || '')
-    setCustomerContactPhone(quote.customerContactPhone || '')
-    setSelectedContactId('__none__')
     setValidUntil(toInputDate(quote.validUntil))
     setPaymentTerms(quote.paymentTerms || '')
   }, [
@@ -349,39 +404,53 @@ export function QuoteDetailClient({ quote }: Props) {
     quote.description,
     quote.amount,
     quote.customer?.id,
-    quote.customerContactName,
-    quote.customerContactEmail,
-    quote.customerContactPhone,
     quote.validUntil,
     quote.paymentTerms,
   ])
 
+  const refreshBom = async (bomId: string) => {
+    const res = await fetch(`/api/boms/${bomId}`)
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load BOM')
+    setBom(json.data as Bom)
+  }
+
   useEffect(() => {
     let cancelled = false
     async function run() {
-      const cid = customerId && customerId !== '__none__' ? customerId : ''
-      if (!cid) {
-        setContactOptions([])
-        return
-      }
-      setContactLoading(true)
+      setBomLoading(true)
       try {
-        const res = await fetch(`/api/customers/${cid}/contacts`)
+        const res = await fetch(`/api/quotes/${quote.id}/get-or-create-bom`, { method: 'POST' })
         const json = await res.json().catch(() => ({}))
-        if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load contacts')
-        const opts = (json.data || []) as ContactOption[]
-        if (!cancelled) setContactOptions(opts)
+        if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load BOM')
+        if (!cancelled) setBom(json.data as Bom)
       } catch {
-        if (!cancelled) setContactOptions([])
+        if (!cancelled) setBom(null)
       } finally {
-        if (!cancelled) setContactLoading(false)
+        if (!cancelled) setBomLoading(false)
       }
     }
     void run()
     return () => {
       cancelled = true
     }
-  }, [customerId])
+  }, [quote.id])
+
+  const loadTemplates = async () => {
+    setTemplatesLoading(true)
+    try {
+      const res = await fetch('/api/bom-templates')
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load templates')
+      setTemplates((json.data || []) as BomTemplateRow[])
+    } catch {
+      setTemplates([])
+    } finally {
+      setTemplatesLoading(false)
+    }
+  }
+
+  // Contacts are managed on the Customers page; keep quote UI as customer-only.
 
   useEffect(() => {
     void (async () => {
@@ -727,9 +796,6 @@ export function QuoteDetailClient({ quote }: Props) {
         customerId: customerId && customerId !== '__none__' ? customerId : null,
         validUntil: validUntil.trim() || null,
         paymentTerms: paymentTerms.trim() || null,
-        customerContactName: customerContactName.trim() || null,
-        customerContactEmail: customerContactEmail.trim() || null,
-        customerContactPhone: customerContactPhone.trim() || null,
       }
 
       const res = await fetch(`/api/quotes/${quote.id}`, {
@@ -869,62 +935,6 @@ export function QuoteDetailClient({ quote }: Props) {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Contact</Label>
-              <Select
-                value={selectedContactId}
-                onValueChange={(v) => {
-                  setSelectedContactId(v)
-                  if (v === '__none__') return
-                  const c = contactOptions.find((x) => x.id === v)
-                  if (!c) return
-                  setCustomerContactName(c.name || '')
-                  setCustomerContactEmail(c.email || '')
-                  setCustomerContactPhone(c.phone || '')
-                }}
-                disabled={!customerId || contactLoading}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={contactLoading ? 'Loading…' : 'Select contact'} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">None</SelectItem>
-                  {contactOptions.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <div className="text-[11px] text-muted-foreground">Pick a saved contact or enter custom info below.</div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="qd-contact-name">Contact name</Label>
-              <Input
-                id="qd-contact-name"
-                value={customerContactName}
-                onChange={(e) => setCustomerContactName(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="qd-contact-email">Contact email</Label>
-              <Input
-                id="qd-contact-email"
-                value={customerContactEmail}
-                onChange={(e) => setCustomerContactEmail(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="qd-contact-phone">Contact phone</Label>
-              <Input
-                id="qd-contact-phone"
-                value={customerContactPhone}
-                onChange={(e) => setCustomerContactPhone(e.target.value)}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-2">
               <Label htmlFor="qd-until">Valid until</Label>
               <Input id="qd-until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
             </div>
@@ -940,6 +950,96 @@ export function QuoteDetailClient({ quote }: Props) {
           </div>
         </CardContent>
       </Card>
+
+      <details className="group rounded-lg border bg-card" open>
+        <summary className="cursor-pointer select-none px-6 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Section</p>
+            <p className="text-base font-semibold">Bill of Materials (BOM)</p>
+          </div>
+          <span className="text-xs text-muted-foreground group-open:hidden">Show</span>
+          <span className="text-xs text-muted-foreground hidden group-open:inline">Hide</span>
+        </summary>
+        <div className="px-6 pb-6 space-y-4">
+          {bomLoading ? (
+            <div className="flex items-center gap-2 text-sm text-gray-600 py-4">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading BOM…
+            </div>
+          ) : !bom ? (
+            <div className="text-sm text-gray-600">No BOM available.</div>
+          ) : (
+            <>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="text-sm text-muted-foreground">
+                  {bom.parts.length} line(s) • Total customer price:{' '}
+                  <span className="font-semibold text-foreground">
+                    $
+                    {bom.parts
+                      .reduce((sum, p) => sum + Number(p.customerPrice || 0), 0)
+                      .toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      setSelectedTemplateId('')
+                      setTemplatesOpen(true)
+                      await loadTemplates()
+                    }}
+                  >
+                    Load previous BOM
+                  </Button>
+                  <Button type="button" variant="outline" onClick={() => setBomAddOpen(true)}>
+                    Add line
+                  </Button>
+                </div>
+              </div>
+
+              <div className="overflow-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/30 text-muted-foreground">
+                    <tr>
+                      <th className="text-left font-medium px-3 py-2 w-[170px]">Part #</th>
+                      <th className="text-left font-medium px-3 py-2 min-w-[260px]">Description</th>
+                      <th className="text-left font-medium px-3 py-2 w-[80px]">Qty</th>
+                      <th className="text-left font-medium px-3 py-2 w-[120px]">Purchase</th>
+                      <th className="text-left font-medium px-3 py-2 w-[110px]">Markup %</th>
+                      <th className="text-left font-medium px-3 py-2 w-[140px]">Customer</th>
+                      <th className="text-left font-medium px-3 py-2 w-[140px]">Status</th>
+                      <th className="text-left font-medium px-3 py-2 w-[160px]">Vendor</th>
+                      <th className="text-left font-medium px-3 py-2 w-[140px]">ETA</th>
+                      <th className="px-3 py-2 w-[170px]" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bom.parts.length === 0 ? (
+                      <tr>
+                        <td className="px-3 py-3 text-sm text-muted-foreground" colSpan={10}>
+                          No BOM lines yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      bom.parts.map((p) => (
+                        <BomRowInline
+                          key={p.id}
+                          bomId={bom.id}
+                          part={p}
+                          onChanged={async () => {
+                            await refreshBom(bom.id)
+                          }}
+                        />
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </details>
 
       <details className="group rounded-lg border bg-card" open>
         <summary className="cursor-pointer select-none px-6 py-4 flex items-center justify-between">
@@ -1156,6 +1256,420 @@ export function QuoteDetailClient({ quote }: Props) {
           </CardContent>
         </Card>
       )}
+
+      <Dialog open={bomAddOpen} onOpenChange={setBomAddOpen}>
+        <DialogContent className="sm:max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Add BOM line</DialogTitle>
+          </DialogHeader>
+
+          {!bom ? (
+            <div className="text-sm text-muted-foreground">No BOM loaded.</div>
+          ) : (
+            <div className="space-y-6">
+              <div className="space-y-2">
+                <Label>Quick add from Parts DB</Label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Input
+                    value={partsSearch}
+                    onChange={(e) => setPartsSearch(e.target.value)}
+                    placeholder="Search by part #, manufacturer, description…"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      setPartsSearching(true)
+                      try {
+                        const res = await fetch(`/api/parts?search=${encodeURIComponent(partsSearch.trim())}&limit=25`)
+                        const json = await res.json().catch(() => ({}))
+                        if (!res.ok || !json?.success) throw new Error(json?.error || 'Search failed')
+                        setPartsResults((json.data || []) as PartsSearchRow[])
+                      } catch (e: unknown) {
+                        toast({
+                          title: 'Parts search failed',
+                          description: e instanceof Error ? e.message : undefined,
+                          variant: 'destructive',
+                        })
+                        setPartsResults([])
+                      } finally {
+                        setPartsSearching(false)
+                      }
+                    }}
+                    disabled={partsSearching}
+                  >
+                    {partsSearching ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Search'}
+                  </Button>
+                </div>
+
+                {partsResults.length > 0 && (
+                  <div className="max-h-64 overflow-auto rounded-md border">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/30 text-muted-foreground">
+                        <tr>
+                          <th className="text-left font-medium px-3 py-2 w-[180px]">Part #</th>
+                          <th className="text-left font-medium px-3 py-2 w-[180px]">Mfr</th>
+                          <th className="text-left font-medium px-3 py-2">Description</th>
+                          <th className="text-left font-medium px-3 py-2 w-[140px]">Latest price</th>
+                          <th className="px-3 py-2 w-[120px]" />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {partsResults.map((r) => (
+                          <tr key={r.id} className="border-t">
+                            <td className="px-3 py-2 font-mono text-xs">{r.partNumber}</td>
+                            <td className="px-3 py-2 text-xs">{r.manufacturer}</td>
+                            <td className="px-3 py-2 text-xs text-muted-foreground">{r.description || '—'}</td>
+                            <td className="px-3 py-2 text-xs">
+                              {r.latestVendorPrice
+                                ? `$${r.latestVendorPrice.price.toFixed(2)} (${r.latestVendorPrice.vendorName})`
+                                : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <Button
+                                type="button"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    const purchasePrice = r.latestVendorPrice?.price ?? 0
+                                    const source = r.latestVendorPrice?.vendorName ?? null
+                                    const res = await fetch(`/api/boms/${bom.id}/parts`, {
+                                      method: 'POST',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({
+                                        partId: r.id,
+                                        quantity: 1,
+                                        purchasePrice,
+                                        markupPercent: 20,
+                                        source,
+                                        status: 'HOLD',
+                                      }),
+                                    })
+                                    const json = await res.json().catch(() => ({}))
+                                    if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to add line')
+                                    toast({ title: 'Added to BOM' })
+                                    await refreshBom(bom.id)
+                                  } catch (e: unknown) {
+                                    toast({
+                                      title: 'Could not add line',
+                                      description: e instanceof Error ? e.message : undefined,
+                                      variant: 'destructive',
+                                    })
+                                  }
+                                }}
+                              >
+                                Add
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="font-semibold">Manual line</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label>Part #</Label>
+                    <Input value={manualRow.partNumber} onChange={(e) => setManualRow((p) => ({ ...p, partNumber: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Manufacturer</Label>
+                    <Input value={manualRow.manufacturer} onChange={(e) => setManualRow((p) => ({ ...p, manufacturer: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1 sm:col-span-3">
+                    <Label>Description</Label>
+                    <Input value={manualRow.description} onChange={(e) => setManualRow((p) => ({ ...p, description: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Qty</Label>
+                    <Input value={manualRow.quantity} inputMode="numeric" onChange={(e) => setManualRow((p) => ({ ...p, quantity: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Purchase price</Label>
+                    <Input value={manualRow.purchasePrice} inputMode="decimal" onChange={(e) => setManualRow((p) => ({ ...p, purchasePrice: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Markup %</Label>
+                    <Input value={manualRow.markupPercent} inputMode="decimal" onChange={(e) => setManualRow((p) => ({ ...p, markupPercent: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1">
+                    <Label>Status</Label>
+                    <Select value={manualRow.status} onValueChange={(v) => setManualRow((p) => ({ ...p, status: v as BomPart['status'] }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="HOLD">Hold</SelectItem>
+                        <SelectItem value="ORDER">Order</SelectItem>
+                        <SelectItem value="PLACED">Placed</SelectItem>
+                        <SelectItem value="HERE">Here</SelectItem>
+                        <SelectItem value="STOCK">Stock</SelectItem>
+                        <SelectItem value="CUSTOMER_SUPPLIED">Customer Supplied</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <Label>Vendor/source</Label>
+                    <Input value={manualRow.source} onChange={(e) => setManualRow((p) => ({ ...p, source: e.target.value }))} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" type="button" onClick={() => setBomAddOpen(false)}>
+              Close
+            </Button>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (!bom) return
+                try {
+                  const res = await fetch(`/api/boms/${bom.id}/parts`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      partId: null,
+                      partNumber: manualRow.partNumber || null,
+                      manufacturer: manualRow.manufacturer || null,
+                      description: manualRow.description || null,
+                      quantity: Math.max(1, Number(manualRow.quantity) || 1),
+                      purchasePrice: Math.max(0, Number(manualRow.purchasePrice) || 0),
+                      markupPercent: Math.max(0, Number(manualRow.markupPercent) || 0),
+                      source: manualRow.source || null,
+                      status: manualRow.status,
+                    }),
+                  })
+                  const json = await res.json().catch(() => ({}))
+                  if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to add line')
+                  toast({ title: 'Added manual line' })
+                  await refreshBom(bom.id)
+                  setManualRow({
+                    partNumber: '',
+                    manufacturer: '',
+                    description: '',
+                    quantity: '1',
+                    purchasePrice: '0',
+                    markupPercent: '20',
+                    source: '',
+                    status: 'HOLD',
+                  })
+                } catch (e: unknown) {
+                  toast({
+                    title: 'Could not add manual line',
+                    description: e instanceof Error ? e.message : undefined,
+                    variant: 'destructive',
+                  })
+                }
+              }}
+              disabled={!bom}
+            >
+              Add manual line
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={templatesOpen} onOpenChange={setTemplatesOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Load previous BOM (template)</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {templatesLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading templates…
+              </div>
+            ) : templates.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No templates found.</div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Template</Label>
+                <Select value={selectedTemplateId || '__none__'} onValueChange={(v) => setSelectedTemplateId(v === '__none__' ? '' : v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select template" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Select…</SelectItem>
+                    {templates.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name} ({t.partsCount})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <div className="text-xs text-muted-foreground">Loading replaces the current quote BOM lines.</div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setTemplatesOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={async () => {
+                if (!selectedTemplateId) return
+                try {
+                  const res = await fetch(`/api/bom-templates/${selectedTemplateId}/load-into-quote`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ quoteId: quote.id, replaceExisting: true }),
+                  })
+                  const json = await res.json().catch(() => ({}))
+                  if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load template')
+                  toast({ title: 'BOM loaded' })
+                  setTemplatesOpen(false)
+                  if (bom) await refreshBom(bom.id)
+                } catch (e: unknown) {
+                  toast({
+                    title: 'Could not load BOM',
+                    description: e instanceof Error ? e.message : undefined,
+                    variant: 'destructive',
+                  })
+                }
+              }}
+              disabled={!selectedTemplateId}
+            >
+              Load
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  )
+}
+
+function BomRowInline({
+  bomId,
+  part,
+  onChanged,
+}: {
+  bomId: string
+  part: BomPart
+  onChanged: () => Promise<void> | void
+}) {
+  const { toast } = useToast()
+  const [qty, setQty] = useState(String(part.quantity))
+  const [purchasePrice, setPurchasePrice] = useState(String(part.purchasePrice))
+  const [markupPercent, setMarkupPercent] = useState(String(part.markupPercent))
+  const [status, setStatus] = useState<BomPart['status']>(part.status)
+  const [source, setSource] = useState(part.source || '')
+  const [eta, setEta] = useState(part.estimatedDelivery ? part.estimatedDelivery.split('T')[0] : '')
+  const [saving, setSaving] = useState(false)
+
+  const hasChanges =
+    Math.max(1, Number(qty) || 1) !== part.quantity ||
+    Math.max(0, Number(purchasePrice) || 0) !== part.purchasePrice ||
+    Math.max(0, Number(markupPercent) || 0) !== part.markupPercent ||
+    status !== part.status ||
+    source !== (part.source || '') ||
+    eta !== (part.estimatedDelivery ? part.estimatedDelivery.split('T')[0] : '')
+
+  return (
+    <tr className="border-t">
+      <td className="px-3 py-2 font-mono text-xs">{part.partNumber}</td>
+      <td className="px-3 py-2 text-xs text-muted-foreground">{part.description || '—'}</td>
+      <td className="px-3 py-2">
+        <Input className="h-8 text-xs" value={qty} inputMode="numeric" onChange={(e) => setQty(e.target.value)} />
+      </td>
+      <td className="px-3 py-2">
+        <Input className="h-8 text-xs" value={purchasePrice} inputMode="decimal" onChange={(e) => setPurchasePrice(e.target.value)} />
+      </td>
+      <td className="px-3 py-2">
+        <Input className="h-8 text-xs" value={markupPercent} inputMode="decimal" onChange={(e) => setMarkupPercent(e.target.value)} />
+      </td>
+      <td className="px-3 py-2 text-xs font-medium tabular-nums">${Number(part.customerPrice || 0).toFixed(2)}</td>
+      <td className="px-3 py-2">
+        <Select value={status} onValueChange={(v) => setStatus(v as BomPart['status'])}>
+          <SelectTrigger className="h-8 text-xs">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="HOLD">Hold</SelectItem>
+            <SelectItem value="ORDER">Order</SelectItem>
+            <SelectItem value="PLACED">Placed</SelectItem>
+            <SelectItem value="HERE">Here</SelectItem>
+            <SelectItem value="STOCK">Stock</SelectItem>
+            <SelectItem value="CUSTOMER_SUPPLIED">Customer Supplied</SelectItem>
+          </SelectContent>
+        </Select>
+      </td>
+      <td className="px-3 py-2">
+        <Input className="h-8 text-xs" value={source} onChange={(e) => setSource(e.target.value)} />
+      </td>
+      <td className="px-3 py-2">
+        <Input className="h-8 text-xs" type="date" value={eta} onChange={(e) => setEta(e.target.value)} />
+      </td>
+      <td className="px-3 py-2 text-right space-x-2 whitespace-nowrap">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!hasChanges || saving}
+          onClick={async () => {
+            setSaving(true)
+            try {
+              const res = await fetch(`/api/boms/${bomId}/parts/${part.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  quantity: Math.max(1, Number(qty) || 1),
+                  purchasePrice: Math.max(0, Number(purchasePrice) || 0),
+                  markupPercent: Math.max(0, Number(markupPercent) || 0),
+                  source: source || null,
+                  status,
+                  estimatedDelivery: eta || null,
+                }),
+              })
+              const json = await res.json().catch(() => ({}))
+              if (!res.ok || !json?.success) throw new Error(json?.error || 'Save failed')
+              toast({ title: 'BOM line saved' })
+              await onChanged()
+            } catch (e: unknown) {
+              toast({
+                title: 'Could not save BOM line',
+                description: e instanceof Error ? e.message : undefined,
+                variant: 'destructive',
+              })
+            } finally {
+              setSaving(false)
+            }
+          }}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="destructive"
+          disabled={saving}
+          onClick={async () => {
+            if (!confirm('Delete this BOM line?')) return
+            setSaving(true)
+            try {
+              const res = await fetch(`/api/boms/${bomId}/parts/${part.id}`, { method: 'DELETE' })
+              const json = await res.json().catch(() => ({}))
+              if (!res.ok || !json?.success) throw new Error(json?.error || 'Delete failed')
+              toast({ title: 'BOM line deleted' })
+              await onChanged()
+            } catch (e: unknown) {
+              toast({
+                title: 'Could not delete BOM line',
+                description: e instanceof Error ? e.message : undefined,
+                variant: 'destructive',
+              })
+            } finally {
+              setSaving(false)
+            }
+          }}
+        >
+          Delete
+        </Button>
+      </td>
+    </tr>
   )
 }

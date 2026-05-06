@@ -16,6 +16,7 @@ import {
   Database,
   Tags,
   Calendar,
+  Package,
 } from 'lucide-react'
 
 const navigation = [
@@ -42,6 +43,7 @@ const navigation = [
     children: [
       { name: 'Jobs', href: '/dashboard/jobs', icon: Wrench },
       { name: 'Quotes', href: '/dashboard/jobs/quotes', icon: FileText },
+      { name: 'Parts database', href: '/dashboard/parts', icon: Package },
     ],
   },
   {
@@ -66,6 +68,7 @@ const navigation = [
       { name: 'Employees', href: '/dashboard/admin/employees', icon: Shield, visibility: 'admin' as const },
       { name: 'Quote plans', href: '/dashboard/admin/quote-plans', icon: FileText, visibility: 'admin' as const },
       { name: 'Phase codes', href: '/dashboard/admin/job-roles', icon: Tags, visibility: 'admin' as const },
+      { name: 'BOM templates', href: '/dashboard/admin/bom-templates', icon: Tags, visibility: 'admin' as const },
       { name: 'Machine shop', href: '/dashboard/admin/machine-shop', icon: Calendar, visibility: 'admin' as const },
       { name: 'Export / import', href: '/dashboard/admin/database', icon: Database, visibility: 'admin' as const },
     ],
