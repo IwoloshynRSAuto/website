@@ -23,8 +23,52 @@ export async function ensureJobForTimeSubmission(
     if (found) return found
   }
 
-  const isQuoteLike = /^Q/i.test(trimmed)
-  const jobNumberToCreate = isQuoteLike ? trimmed : normalized || trimmed
+  const quote =
+    (await tx.quote.findFirst({
+      where: { quoteNumber: trimmed },
+      select: { id: true, quoteNumber: true, title: true, customerId: true },
+    })) ??
+    (normalized && normalized !== trimmed
+      ? await tx.quote.findFirst({
+          where: { quoteNumber: normalized },
+          select: { id: true, quoteNumber: true, title: true, customerId: true },
+        })
+      : null)
+
+  if (quote) {
+    const linked = await tx.job.findFirst({
+      where: { quoteId: quote.id },
+      select: {
+        id: true,
+        jobNumber: true,
+        title: true,
+        quoteId: true,
+        customerId: true,
+        createdById: true,
+        status: true,
+        type: true,
+        priority: true,
+      },
+    })
+    if (linked) {
+      return await tx.job.findUniqueOrThrow({ where: { id: linked.id } })
+    }
+
+    return tx.job.create({
+      data: {
+        jobNumber: quote.quoteNumber,
+        title: quote.title?.trim() ? quote.title : `Quote ${quote.quoteNumber}`,
+        type: 'JOB',
+        status: 'ACTIVE',
+        priority: 'MEDIUM',
+        createdById,
+        customerId: quote.customerId ?? undefined,
+        quoteId: quote.id,
+      },
+    })
+  }
+
+  const jobNumberToCreate = normalized || trimmed
 
   return tx.job.create({
     data: {

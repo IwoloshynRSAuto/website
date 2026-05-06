@@ -13,7 +13,7 @@ export default async function TimeTrackingPage() {
   return (
     <TimekeepingDevWorkspace
       pageTitle="Time (Job Time Tracking)"
-      pageDescription="Track job time here, then submit the calendar week so hours appear on each job. Submit saves immediately to the job; approval controls locks and workflow."
+      pageDescription="Track time to jobs or open quotes here, then submit the calendar week. Quote numbers book to the quote (a linked job record is created when needed so costing stays consistent)."
     />
   )
 }

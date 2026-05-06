@@ -29,6 +29,27 @@ export default async function AttendancePage() {
     <DashboardPageShell
       title="Attendance (Punch In / Punch Out)"
       description="Track clock in and clock out times"
+      howTo={{
+        title: 'Attendance — how it works',
+        description: 'Clock in/out daily, then submit the week for approval to lock it for review.',
+        content: (
+          <div className="rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
+            <div className="font-semibold mb-1">Quick guide</div>
+            <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
+              <li>
+                Use <span className="font-medium text-foreground">Clock In Now</span> /{' '}
+                <span className="font-medium text-foreground">Clock Out Now</span> for today.
+              </li>
+              <li>
+                Click a day to view entries. Past days use <span className="font-medium text-foreground">Request Change</span>.
+              </li>
+              <li>
+                In Week view, use <span className="font-medium text-foreground">Submit for Approval</span> to lock the week for review.
+              </li>
+            </ul>
+          </div>
+        ),
+      }}
     >
       <AttendanceView
         currentUserId={session.user.id}

@@ -39,7 +39,13 @@ export async function GET(request: NextRequest) {
       quotedLabor: { select: { estimatedHours: true } },
       deliverables: {
         where: { dueDate: { not: null } },
-        select: { id: true, name: true, dueDate: true, status: true },
+        select: {
+          id: true,
+          name: true,
+          dueDate: true,
+          status: true,
+          assignedTo: { select: { name: true, email: true } },
+        },
       },
     },
     orderBy: [{ jobNumber: 'asc' }],
@@ -83,6 +89,9 @@ export async function GET(request: NextRequest) {
         name: d.name,
         dueDate: d.dueDate!.toISOString(),
         status: d.status,
+        assignedTo: d.assignedTo
+          ? { name: d.assignedTo.name ?? null, email: d.assignedTo.email ?? '' }
+          : null,
       })),
     }
   })

@@ -32,8 +32,8 @@ export async function recomputeTimeEntryCostSnapshot(
       const otSuffix = isOtLaborCode(code)
       const usePhaseMult = Boolean(lc?.isOvertimePhase || otSuffix)
       if (usePhaseMult) {
-        const pm = lc?.overtimeRateMultiplier != null ? Number(lc.overtimeRateMultiplier) : 1.5
-        otMultToUse = Number.isFinite(pm) && pm > 0 ? pm : 1.5
+        const pm = lc?.overtimeRateMultiplier != null ? Number(lc.overtimeRateMultiplier) : globalOtMult
+        otMultToUse = Number.isFinite(pm) && pm > 0 ? pm : globalOtMult
       } else {
         otMultToUse = globalOtMult
       }

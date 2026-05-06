@@ -12,6 +12,7 @@ import { dashboardUi } from '@/components/layout/dashboard-ui'
 import { cn } from '@/lib/utils'
 import { stripOtLaborCodeSuffix, withOtLaborCodeSuffix } from '@/lib/labor-codes/ot-code'
 import { Badge } from '@/components/ui/badge'
+import { downloadCsv } from '@/lib/client/download-csv'
 
 type JobRole = {
   id: string
@@ -614,12 +615,34 @@ export function JobRolesAdminClient() {
                 <div className="lg:col-span-2 rounded-md border p-3 space-y-2">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <p className="text-sm font-semibold">All phase codes</p>
-                    <Input
-                      value={phaseLibSearch}
-                      onChange={(e) => setPhaseLibSearch(e.target.value)}
-                      placeholder="Search…"
-                      className="max-w-sm"
-                    />
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={phaseLibSearch}
+                        onChange={(e) => setPhaseLibSearch(e.target.value)}
+                        placeholder="Search…"
+                        className="max-w-sm"
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          downloadCsv(
+                            phaseLibrary.map((c) => ({
+                              code: c.code ?? '',
+                              name: c.name ?? '',
+                              description: c.description ?? '',
+                              hourlyRate: c.hourlyRate ?? '',
+                              isActive: c.isActive ?? '',
+                              isOvertimePhase: c.isOvertimePhase ?? '',
+                              overtimeRateMultiplier: c.overtimeRateMultiplier ?? '',
+                            })),
+                            'phase-codes'
+                          )
+                        }}
+                        disabled={loading || phaseLibrary.length === 0}
+                      >
+                        Export CSV
+                      </Button>
+                    </div>
                   </div>
                   <div className="max-h-[520px] overflow-auto divide-y">
                     {phaseLibrary.map((c) => (

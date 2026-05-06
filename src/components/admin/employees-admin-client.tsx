@@ -11,6 +11,7 @@ import { Plus, Search } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 import { dashboardUi } from '@/components/layout/dashboard-ui'
 import { cn } from '@/lib/utils'
+import { downloadCsv } from '@/lib/client/download-csv'
 
 type Employee = {
   id: string
@@ -79,6 +80,25 @@ export function EmployeesAdminClient() {
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={() => setShowInactive((v) => !v)} disabled={loading}>
             {showInactive ? 'Active only' : 'Include inactive'}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={loading || filtered.length === 0}
+            onClick={() => {
+              downloadCsv(
+                filtered.map((e) => ({
+                  name: e.name ?? '',
+                  email: e.email ?? '',
+                  role: e.role ?? '',
+                  status: e.isActive ? 'ACTIVE' : 'INACTIVE',
+                  position: e.position ?? '',
+                  phone: e.phone ?? '',
+                })),
+                `employees-${showInactive ? 'all' : 'active'}`
+              )
+            }}
+          >
+            Export CSV
           </Button>
           <Button asChild className={dashboardUi.primaryButton}>
             <Link href="/dashboard/admin/employees/new">

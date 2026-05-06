@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Plus, Search, Pencil, Loader2 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 import { dashboardUi } from '@/components/layout/dashboard-ui'
+import { downloadCsv } from '@/lib/client/download-csv'
 
 type Customer = {
   id: string
@@ -285,6 +286,19 @@ export function CustomersAdminClient() {
     )
   }, [customers, norm])
 
+  const exportCustomersCsv = () => {
+    const rows = filtered.map((c) => ({
+      id: c.id,
+      name: c.name,
+      email: c.email,
+      phone: c.phone,
+      address: c.address,
+      isActive: c.isActive,
+      fileLink: c.fileLink,
+    }))
+    downloadCsv(`customers-${new Date().toISOString().slice(0, 10)}.csv`, rows)
+  }
+
   return (
     <div className="space-y-4">
       <div className={dashboardUi.toolbarRow}>
@@ -301,6 +315,9 @@ export function CustomersAdminClient() {
         <div className="flex flex-wrap items-center gap-2 justify-end">
           <Button variant="outline" onClick={() => setShowInactive((v) => !v)} disabled={loading}>
             {showInactive ? 'Active only' : 'Include inactive'}
+          </Button>
+          <Button variant="outline" onClick={exportCustomersCsv} disabled={loading || filtered.length === 0}>
+            Export CSV
           </Button>
           <Button className={dashboardUi.primaryButton} onClick={openNew} disabled={loading}>
             <Plus className="h-4 w-4 mr-2" />

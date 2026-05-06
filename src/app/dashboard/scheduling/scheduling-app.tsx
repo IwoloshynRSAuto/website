@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { paddedVisibleYearBounds, matchesScheduleYearVisibleRange } from '@/lib/schedule-year-strip'
 import { ActiveJobsPanel } from './active-jobs-panel'
 import { MachineShopPanel } from './machine-shop-panel'
@@ -59,6 +58,18 @@ function startOfYear(d: Date) {
 
 function endOfYear(d: Date) {
   return new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999)
+}
+
+function addLocalDays(d: Date, days: number) {
+  const x = new Date(d)
+  x.setDate(x.getDate() + days)
+  return x
+}
+
+function addLocalMonths(d: Date, months: number) {
+  const x = new Date(d)
+  x.setMonth(x.getMonth() + months)
+  return x
 }
 
 type RangePreset = 'month' | 'quarter' | 'year' | 'week' | 'custom'
@@ -134,32 +145,74 @@ export function SchedulingApp({ initialTab = 'portfolio' }: { initialTab?: 'port
     setRangeEnd(end)
   }
 
+  const shiftRange = (dir: -1 | 1) => {
+    // If user manually set from/to, slide by the current span.
+    if (rangePreset === 'custom') {
+      const span = Math.max(RANGE_MIN_SPAN_MS, rangeEnd.getTime() - rangeStart.getTime())
+      const nextStart = new Date(rangeStart.getTime() + dir * span)
+      const nextEnd = new Date(rangeEnd.getTime() + dir * span)
+      const next = normalizeRangeBounds(nextStart, nextEnd)
+      setRangeStart(next.start)
+      setRangeEnd(next.end)
+      return
+    }
+
+    if (rangePreset === 'week') {
+      const next = normalizeRangeBounds(addLocalDays(rangeStart, dir * 7), addLocalDays(rangeEnd, dir * 7))
+      setRangeStart(next.start)
+      setRangeEnd(next.end)
+      return
+    }
+    if (rangePreset === 'month') {
+      const next = normalizeRangeBounds(addLocalDays(rangeStart, dir * 28), addLocalDays(rangeEnd, dir * 28))
+      setRangeStart(next.start)
+      setRangeEnd(next.end)
+      return
+    }
+    if (rangePreset === 'quarter') {
+      const next = normalizeRangeBounds(addLocalMonths(rangeStart, dir * 3), addLocalMonths(rangeEnd, dir * 3))
+      setRangeStart(next.start)
+      setRangeEnd(next.end)
+      return
+    }
+    if (rangePreset === 'year') {
+      const y = rangeStart.getFullYear() + dir
+      const next = normalizeRangeBounds(new Date(y, 0, 1, 0, 0, 0, 0), new Date(y, 11, 31, 23, 59, 59, 999))
+      setRangeStart(next.start)
+      setRangeEnd(next.end)
+      return
+    }
+  }
+
   const pixelsPerDay =
     rangePreset === 'week' ? 34 : rangePreset === 'month' ? 22 : rangePreset === 'quarter' ? 14 : rangePreset === 'year' ? 6 : 14
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Schedule</h1>
-        <p className="text-sm text-muted-foreground mt-1">Jobs and shop resources.</p>
-      </div>
-
-      <details className="rounded-lg border bg-card px-3 py-2 text-sm">
-        <summary className="cursor-pointer font-medium text-foreground select-none">Tips</summary>
-        <ul className="list-disc pl-4 mt-2 space-y-1 text-muted-foreground">
-          <li>Active jobs: click a bar to set start and target end (job owner or admin).</li>
-          <li>Deliverable deadlines are configured on each job; they show as purple lines on the job row.</li>
-          <li>Machine shop: book windows on this page; add or edit machine rows under Admin → Machine shop.</li>
-        </ul>
-      </details>
-
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 space-y-0 pb-2">
           <div>
             <CardTitle className="text-base">Visible range</CardTitle>
-            <p className="text-xs text-muted-foreground mt-1">Applies to both tabs below.</p>
+            <p className="text-xs text-muted-foreground mt-1">Controls the chart range.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-md border bg-background overflow-hidden">
+              <Button type="button" size="sm" className="rounded-none h-8" variant="ghost" onClick={() => shiftRange(-1)}>
+                Prev
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                className="rounded-none h-8"
+                variant="ghost"
+                onClick={() => setPreset(rangePreset === 'custom' ? 'month' : rangePreset)}
+              >
+                Today
+              </Button>
+              <Button type="button" size="sm" className="rounded-none h-8" variant="ghost" onClick={() => shiftRange(1)}>
+                Next
+              </Button>
+            </div>
             <div className="flex rounded-md border bg-background overflow-hidden mr-1">
               <Button
                 type="button"
@@ -268,12 +321,8 @@ export function SchedulingApp({ initialTab = 'portfolio' }: { initialTab?: 'port
         </CardContent>
       </Card>
 
-      <Tabs defaultValue={initialTab} className="space-y-4">
-        <TabsList className="flex flex-wrap h-auto gap-1">
-          <TabsTrigger value="portfolio">Active jobs</TabsTrigger>
-          <TabsTrigger value="machines">Machine shop</TabsTrigger>
-        </TabsList>
-        <TabsContent value="portfolio" className="mt-4 space-y-4 w-full min-w-0 max-w-none">
+      {initialTab === 'portfolio' ? (
+        <div className="space-y-4 w-full min-w-0 max-w-none">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div className="flex-1 space-y-1">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Search</p>
@@ -298,8 +347,9 @@ export function SchedulingApp({ initialTab = 'portfolio' }: { initialTab?: 'port
             density={density}
             jobSearch={jobSearch}
           />
-        </TabsContent>
-        <TabsContent value="machines" className="mt-4 space-y-4 w-full min-w-0 max-w-none">
+        </div>
+      ) : (
+        <div className="space-y-4 w-full min-w-0 max-w-none">
           <MachineShopPanel
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}
@@ -310,8 +360,8 @@ export function SchedulingApp({ initialTab = 'portfolio' }: { initialTab?: 'port
             showBookings
             showMachineManagement={false}
           />
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
     </div>
   )
 }

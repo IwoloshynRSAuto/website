@@ -37,12 +37,14 @@ import { DashboardPageShell } from '@/components/layout/dashboard-page-shell'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Clock, FileText, Loader2, Plus, Send, Upload } from 'lucide-react'
-import { HowToButton } from '@/components/ui/how-to-button'
 import { convert12To24Hour, convert24To12Hour, formatTime12Hour, roundTimeString } from '@/lib/utils/time-rounding'
 import { getWeekBoundariesUTC } from '@/lib/utils/date-utils'
 import { normalizeProjectJobNumber } from '@/lib/utils/job-number'
 import { billableHoursFromPunchRange, sanitizeBillableHours } from '@/lib/timekeeping/punch-hours'
 import { jobEntryPunchIsOvertime } from '@/lib/timekeeping/job-entry-ot-flag'
+
+const PROJECT_JOB_PREFIX = 'job:'
+const PROJECT_QUOTE_PREFIX = 'quote:'
 
 function jobOptionMatchingNumber(jobs: JobOption[], jobNumber: string): JobOption | undefined {
   const raw = jobNumber.trim()
@@ -50,6 +52,36 @@ function jobOptionMatchingNumber(jobs: JobOption[], jobNumber: string): JobOptio
   const norm = normalizeProjectJobNumber(raw)
   const candidates = new Set([raw, norm].filter(Boolean))
   return jobs.find((j) => candidates.has(j.jobNumber))
+}
+
+type QuoteOption = { id: string; quoteNumber: string; title: string }
+
+function quoteMatchingNumber(quotes: QuoteOption[], jobNumber: string): QuoteOption | undefined {
+  const raw = jobNumber.trim()
+  if (!raw) return undefined
+  const lower = raw.toLowerCase()
+  return quotes.find((q) => q.quoteNumber === raw || q.quoteNumber.toLowerCase() === lower)
+}
+
+function jobNumberFromProjectKey(key: string, jobs: JobOption[], quotes: QuoteOption[]): string | null {
+  if (!key) return null
+  if (key.startsWith(PROJECT_JOB_PREFIX)) {
+    const id = key.slice(PROJECT_JOB_PREFIX.length)
+    return jobs.find((j) => j.id === id)?.jobNumber ?? null
+  }
+  if (key.startsWith(PROJECT_QUOTE_PREFIX)) {
+    const id = key.slice(PROJECT_QUOTE_PREFIX.length)
+    return quotes.find((q) => q.id === id)?.quoteNumber ?? null
+  }
+  return null
+}
+
+function projectKeyFromJobNumber(jobNumber: string, jobs: JobOption[], quotes: QuoteOption[]): string {
+  const j = jobOptionMatchingNumber(jobs, jobNumber)
+  if (j) return `${PROJECT_JOB_PREFIX}${j.id}`
+  const q = quoteMatchingNumber(quotes, jobNumber)
+  if (q) return `${PROJECT_QUOTE_PREFIX}${q.id}`
+  return ''
 }
 
 type FlatJobRow = {
@@ -179,11 +211,12 @@ export function TimekeepingDevWorkspace({
   const [selectedUserId, setSelectedUserId] = useState('')
   const [usersOptions, setUsersOptions] = useState<Array<{ id: string; name: string; email: string }>>([])
   const [jobs, setJobs] = useState<JobOption[]>([])
+  const [quotes, setQuotes] = useState<QuoteOption[]>([])
   const [laborCodes, setLaborCodes] = useState<PhaseOption[]>([])
   const [weekSubmissionStatus, setWeekSubmissionStatus] = useState<string | null>(null)
   const [isSubmittingWeek, setIsSubmittingWeek] = useState(false)
 
-  const [selectedJobId, setSelectedJobId] = useState('')
+  const [selectedProjectKey, setSelectedProjectKey] = useState('')
   const [draftStartTime, setDraftStartTime] = useState('')
   const [draftHours, setDraftHours] = useState('1')
   const [draftHasOt, setDraftHasOt] = useState(false)
@@ -196,15 +229,19 @@ export function TimekeepingDevWorkspace({
   const hoursRef = useRef<HTMLInputElement | null>(null)
   const notesRef = useRef<HTMLInputElement | null>(null)
 
-  const jobOptionsForSelect = useMemo(
-    () =>
-      jobs.map((j) => ({
-        value: j.id,
-        label: `${j.jobNumber} — ${j.title}`,
-        searchText: `${j.jobNumber} ${j.title}`,
-      })),
-    [jobs]
-  )
+  const projectOptionsForSelect = useMemo(() => {
+    const quoteOpts = quotes.map((q) => ({
+      value: `${PROJECT_QUOTE_PREFIX}${q.id}`,
+      label: `Quote · ${q.quoteNumber} — ${q.title}`,
+      searchText: `${q.quoteNumber} ${q.title}`,
+    }))
+    const jobOpts = jobs.map((j) => ({
+      value: `${PROJECT_JOB_PREFIX}${j.id}`,
+      label: `Job · ${j.jobNumber} — ${j.title}`,
+      searchText: `${j.jobNumber} ${j.title}`,
+    }))
+    return [...quoteOpts, ...jobOpts]
+  }, [jobs, quotes])
 
   const phaseOptionsForSelect = useMemo(
     () =>
@@ -245,12 +282,16 @@ export function TimekeepingDevWorkspace({
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch('/api/timekeeping-dev/jobs', { cache: 'no-store' })
-        const data = await jsonOrThrow<{ success: boolean; data: JobOption[] }>(res)
-        setJobs(data.data)
-        if (!selectedJobId && data.data.length > 0) setSelectedJobId(data.data[0].id)
+        const [jobsRes, quotesRes] = await Promise.all([
+          fetch('/api/timekeeping-dev/jobs', { cache: 'no-store' }),
+          fetch('/api/timekeeping-dev/quotes', { cache: 'no-store' }),
+        ])
+        const jobsJson = await jsonOrThrow<{ success: boolean; data: JobOption[] }>(jobsRes)
+        const quotesJson = await jsonOrThrow<{ success: boolean; data: QuoteOption[] }>(quotesRes)
+        setJobs(jobsJson.data || [])
+        setQuotes(Array.isArray(quotesJson.data) ? quotesJson.data : [])
       } catch (e: any) {
-        toast({ title: 'Failed to load jobs', description: e.message, variant: 'destructive' })
+        toast({ title: 'Failed to load jobs or quotes', description: e.message, variant: 'destructive' })
       }
     })()
     void (async () => {
@@ -264,6 +305,15 @@ export function TimekeepingDevWorkspace({
     })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => {
+    setSelectedProjectKey((prev) => {
+      if (prev) return prev
+      if (jobs.length > 0) return `${PROJECT_JOB_PREFIX}${jobs[0].id}`
+      if (quotes.length > 0) return `${PROJECT_QUOTE_PREFIX}${quotes[0].id}`
+      return ''
+    })
+  }, [jobs, quotes])
 
   const currentDayKey = useMemo(() => isoDateOnly(currentDate), [currentDate])
 
@@ -506,9 +556,9 @@ export function TimekeepingDevWorkspace({
     }
     if (normalizedHours !== draftHours) setDraftHours(normalizedHours)
     const hours = Number(normalizedHours)
-    const job = jobs.find((j) => j.id === selectedJobId)
-    if (!job) {
-      toast({ title: 'Pick a job', variant: 'destructive' })
+    const jobNumber = jobNumberFromProjectKey(selectedProjectKey, jobs, quotes)
+    if (!jobNumber) {
+      toast({ title: 'Pick a job or quote', variant: 'destructive' })
       return
     }
 
@@ -520,7 +570,7 @@ export function TimekeepingDevWorkspace({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jobNumber: job.jobNumber,
+          jobNumber,
           laborCode: draftPhase || '',
           punchInTime: startIso.toISOString(),
           punchOutTime: punchOut.toISOString(),
@@ -729,26 +779,10 @@ export function TimekeepingDevWorkspace({
             <div className="flex items-center justify-between flex-wrap gap-3">
               <CardTitle className="flex items-center gap-2">
                 <FileText className="h-5 w-5" />
-                Job time
+                Job & quote time
               </CardTitle>
 
               <div className="flex items-center gap-2 flex-wrap">
-                <HowToButton
-                  title="Job time — how it works"
-                  description="Enter job punches, then submit the week so hours are recorded to the job."
-                  className="h-9 border-gray-300 hover:bg-gray-50"
-                >
-                  <div className="rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
-                    <div className="font-semibold mb-1">Basics</div>
-                    <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-                      <li>Add rows for a day (job, start time, hours, phase, notes).</li>
-                      <li>
-                        Use <span className="font-medium text-foreground">Submit for approval</span> to record job hours for the week.
-                      </li>
-                      <li>Approval is a workflow lock; it doesn’t delay recording time.</li>
-                    </ul>
-                  </div>
-                </HowToButton>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -934,7 +968,7 @@ export function TimekeepingDevWorkspace({
                         <tr className="align-bottom">
                           <td className="p-0 align-bottom whitespace-nowrap">
                             <Label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground leading-none">
-                              Job
+                              Job / quote
                             </Label>
                           </td>
                           <td className="p-0 align-bottom whitespace-nowrap">
@@ -971,11 +1005,11 @@ export function TimekeepingDevWorkspace({
                         <tr className="align-top">
                           <td className="p-0 align-top w-[260px] max-w-[260px] min-w-[200px]">
                             <SearchableSelect
-                              options={jobOptionsForSelect}
-                              value={selectedJobId}
-                              onValueChange={setSelectedJobId}
-                              placeholder="Select job…"
-                              emptyMessage="No jobs"
+                              options={projectOptionsForSelect}
+                              value={selectedProjectKey}
+                              onValueChange={setSelectedProjectKey}
+                              placeholder="Select job or quote…"
+                              emptyMessage="No jobs or quotes"
                               className="w-full min-w-0 !space-y-0"
                               dense
                               triggerClassName="h-9 text-xs"
@@ -1078,7 +1112,7 @@ export function TimekeepingDevWorkspace({
                     </colgroup>
                     <TableHeader className="sticky top-0 z-20 bg-background">
                       <TableRow className="hover:bg-transparent">
-                        <TableHead className="h-10 px-2 py-2 text-xs font-semibold">Job</TableHead>
+                        <TableHead className="h-10 px-2 py-2 text-xs font-semibold">Job / quote</TableHead>
                         <TableHead className="h-10 px-2 py-2 text-xs font-semibold">Start</TableHead>
                         <TableHead className="h-10 px-2 py-2 text-xs font-semibold">Hours</TableHead>
                         <TableHead className="h-10 px-2 py-2 text-xs font-semibold text-center">OT</TableHead>
@@ -1097,15 +1131,15 @@ export function TimekeepingDevWorkspace({
                           <TableRow key={e.id}>
                             <TableCell className="p-2 align-middle min-w-0">
                               <SearchableSelect
-                                options={jobOptionsForSelect}
-                                value={jobOptionMatchingNumber(jobs, e.jobNumber)?.id || ''}
-                                onValueChange={(jobId) => {
-                                  const j = jobs.find((x) => x.id === jobId)
-                                  if (!j || locked) return
-                                  void patchJobEntry(e.id, { jobNumber: j.jobNumber })
+                                options={projectOptionsForSelect}
+                                value={projectKeyFromJobNumber(e.jobNumber, jobs, quotes)}
+                                onValueChange={(key) => {
+                                  const nextNum = jobNumberFromProjectKey(key, jobs, quotes)
+                                  if (!nextNum || locked) return
+                                  void patchJobEntry(e.id, { jobNumber: nextNum })
                                 }}
                                 placeholder="—"
-                                emptyMessage="No jobs"
+                                emptyMessage="No jobs or quotes"
                                 className="w-full min-w-0 space-y-1"
                                 dense
                                 disabled={locked}

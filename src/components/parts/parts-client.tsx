@@ -7,9 +7,11 @@ import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useToast } from '@/components/ui/use-toast'
 import { Plus, Search, Loader2, Pencil } from 'lucide-react'
 import { dashboardUi } from '@/components/layout/dashboard-ui'
+import { downloadCsv } from '@/lib/client/download-csv'
 
 type LatestVendorPrice = {
   id: string
@@ -80,6 +82,7 @@ export function PartsClient() {
   const [parts, setParts] = useState<PartRow[]>([])
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
+  const [sortBy, setSortBy] = useState<'partNumber' | 'manufacturer'>('partNumber')
 
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [vendorsLoading, setVendorsLoading] = useState(false)
@@ -151,7 +154,7 @@ export function PartsClient() {
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase()
     const c = category.trim().toLowerCase()
-    return parts.filter((p) => {
+    const base = parts.filter((p) => {
       const matchesSearch =
         !s ||
         p.partNumber.toLowerCase().includes(s) ||
@@ -160,7 +163,33 @@ export function PartsClient() {
       const matchesCategory = !c || (p.category || '').toLowerCase() === c
       return matchesSearch && matchesCategory
     })
-  }, [parts, search, category])
+    return base.sort((a, b) => {
+      if (sortBy === 'manufacturer') {
+        const am = String(a.manufacturer || '')
+        const bm = String(b.manufacturer || '')
+        const byM = am.localeCompare(bm)
+        if (byM !== 0) return byM
+        return String(a.partNumber || '').localeCompare(String(b.partNumber || ''))
+      }
+      return String(a.partNumber || '').localeCompare(String(b.partNumber || ''))
+    })
+  }, [parts, search, category, sortBy])
+
+  const exportPartsCsv = () => {
+    const rows = filtered.map((p) => ({
+      id: p.id,
+      partNumber: p.partNumber,
+      manufacturer: p.manufacturer,
+      description: p.description,
+      category: p.category,
+      subcategory: p.subcategory,
+      latestVendor: p.latestVendorPrice?.vendorName ?? null,
+      latestPrice: p.latestVendorPrice?.price ?? null,
+      leadTimeDays: p.latestVendorPrice?.leadTimeDays ?? null,
+      updatedAt: p.updatedAt,
+    }))
+    downloadCsv(`parts-${new Date().toISOString().slice(0, 10)}.csv`, rows)
+  }
 
   const categoryOptions = useMemo(() => {
     const set = new Set<string>()
@@ -296,9 +325,8 @@ export function PartsClient() {
   }
 
   return (
-    <div className={dashboardUi.pageWrap}>
-      <div className={dashboardUi.sectionGap}>
-        <div className={dashboardUi.toolbarRow}>
+    <div className={dashboardUi.sectionGap}>
+      <div className={dashboardUi.toolbarRow}>
           <div className="flex flex-col gap-2 w-full sm:flex-row sm:items-center">
             <div className={dashboardUi.searchInputWrap}>
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -325,12 +353,26 @@ export function PartsClient() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="w-full sm:max-w-[220px]">
+              <Label className="sr-only">Sort</Label>
+              <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'partNumber' | 'manufacturer')}>
+                <SelectTrigger className="min-h-[44px]">
+                  <SelectValue placeholder="Sort" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="partNumber">Sort: Part #</SelectItem>
+                  <SelectItem value="manufacturer">Sort: Manufacturer</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <Button onClick={openNew} className={dashboardUi.primaryButton}>
             <Plus className="h-4 w-4 mr-2" />
             Add Part
           </Button>
-        </div>
+          <Button variant="outline" onClick={exportPartsCsv} disabled={loading || filtered.length === 0}>
+            Export CSV
+          </Button>
       </div>
 
       <Card>

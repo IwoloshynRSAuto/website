@@ -17,6 +17,10 @@ import {
   Tags,
   Calendar,
   Package,
+  BarChart3,
+  LineChart,
+  Table2,
+  ListTodo,
 } from 'lucide-react'
 
 const navigation = [
@@ -24,6 +28,20 @@ const navigation = [
     name: 'Home',
     href: '/dashboard/home',
     icon: Home,
+  },
+  {
+    name: 'My work',
+    href: '/dashboard/my-work',
+    icon: ListTodo,
+  },
+  {
+    name: 'Insights',
+    href: '/dashboard/insights/metrics',
+    icon: BarChart3,
+    children: [
+      { name: 'Metrics & charts', href: '/dashboard/insights/metrics', icon: LineChart },
+      { name: 'Data tables', href: '/dashboard/insights/tables', icon: Table2 },
+    ],
   },
   {
     name: 'Timekeeping',
@@ -91,6 +109,13 @@ export function Sidebar() {
         active: 'bg-blue-100 text-blue-700 border-l-2 border-blue-600',
         icon: 'text-blue-600',
         childActive: 'bg-blue-50 text-blue-600 border-l-2 border-blue-600',
+      }
+    }
+    if (href.includes('/insights')) {
+      return {
+        active: 'bg-emerald-100 text-emerald-900 border-l-2 border-emerald-600',
+        icon: 'text-emerald-600',
+        childActive: 'bg-emerald-50 text-emerald-800 border-l-2 border-emerald-600',
       }
     }
     return {

@@ -13,8 +13,8 @@ export default async function BomTemplatesPage() {
 
   return (
     <DashboardPageShell
-      title="BOM templates"
-      description="Create reusable BOM templates and load them into quotes."
+      title="BOM templates & reusable assemblies"
+      description="Saved BOM templates are your reusable parts lists and assembly library — load them into quotes instead of rebuilding from scratch each time."
     >
       <BomTemplatesAdminClient />
     </DashboardPageShell>

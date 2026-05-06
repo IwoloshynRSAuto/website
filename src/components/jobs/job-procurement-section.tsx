@@ -53,6 +53,24 @@ export function JobProcurementSection({ jobId }: { jobId: string }) {
   const [activePoId, setActivePoId] = useState<string | null>(null)
   const [itemForm, setItemForm] = useState({ description: '', quantity: '1', unitPrice: '0' })
 
+  const [importOpen, setImportOpen] = useState(false)
+  const [importPoId, setImportPoId] = useState<string | null>(null)
+  const [importFile, setImportFile] = useState<File | null>(null)
+  const [importPreview, setImportPreview] = useState<
+    | {
+        extractedCount: number
+        proposedUpdates: Array<{
+          raw: string
+          matchedItemId: string
+          matchScore: number
+          matchedDescription: string | null
+          currentUnitPrice: number | null
+          proposedUnitPrice: number | null
+        }>
+      }
+    | null
+  >(null)
+
   const load = async () => {
     setLoading(true)
     try {
@@ -187,6 +205,18 @@ export function JobProcurementSection({ jobId }: { jobId: string }) {
                           }}
                         >
                           Add item
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setImportPoId(po.id)
+                            setImportFile(null)
+                            setImportPreview(null)
+                            setImportOpen(true)
+                          }}
+                        >
+                          Import PDF
                         </Button>
                       </div>
                     </div>
@@ -455,6 +485,140 @@ export function JobProcurementSection({ jobId }: { jobId: string }) {
               disabled={saving || !vendorId}
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={importOpen}
+        onOpenChange={(open) => {
+          setImportOpen(open)
+          if (!open) {
+            setImportPoId(null)
+            setImportFile(null)
+            setImportPreview(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Import PDF into PO (no duplicates)</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>PDF file</Label>
+              <Input
+                type="file"
+                accept="application/pdf,.pdf"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null
+                  setImportFile(f)
+                  setImportPreview(null)
+                }}
+              />
+              <div className="text-xs text-muted-foreground">
+                This will match PDF lines to existing PO items and fill in missing/updated unit costs. It will not create new items.
+              </div>
+            </div>
+
+            {importPreview ? (
+              <div className="space-y-2">
+                <div className="text-sm text-muted-foreground">
+                  Extracted {importPreview.extractedCount} line(s). Proposed {importPreview.proposedUpdates.length} update(s).
+                </div>
+                {importPreview.proposedUpdates.length === 0 ? (
+                  <div className="text-sm">No confident matches found.</div>
+                ) : (
+                  <div className="max-h-[280px] overflow-auto rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Matched item</TableHead>
+                          <TableHead className="w-[110px] text-right">Current</TableHead>
+                          <TableHead className="w-[110px] text-right">Proposed</TableHead>
+                          <TableHead className="w-[90px] text-right">Score</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {importPreview.proposedUpdates.map((u) => (
+                          <TableRow key={`${u.matchedItemId}-${u.raw.slice(0, 20)}`}>
+                            <TableCell className="text-sm">
+                              <div className="font-medium">{u.matchedDescription || u.matchedItemId}</div>
+                              <div className="text-xs text-muted-foreground line-clamp-1">{u.raw}</div>
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {u.currentUnitPrice == null ? '—' : `$${Number(u.currentUnitPrice).toFixed(2)}`}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {u.proposedUnitPrice == null ? '—' : `$${Number(u.proposedUnitPrice).toFixed(2)}`}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums">{Number(u.matchScore).toFixed(2)}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setImportOpen(false)} disabled={saving}>
+              Close
+            </Button>
+            <Button
+              variant="outline"
+              disabled={saving || !importPoId || !importFile}
+              onClick={async () => {
+                if (!importPoId || !importFile) return
+                setSaving(true)
+                try {
+                  const fd = new FormData()
+                  fd.append('file', importFile)
+                  const res = await fetch(`/api/purchase-orders/${importPoId}/import-pdf`, { method: 'POST', body: fd })
+                  const json = await res.json()
+                  if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to preview import')
+                  setImportPreview(json.data)
+                } catch (e: unknown) {
+                  toast({
+                    title: 'Could not preview PDF import',
+                    description: e instanceof Error ? e.message : undefined,
+                    variant: 'destructive',
+                  })
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Preview'}
+            </Button>
+            <Button
+              disabled={saving || !importPoId || !importFile || !importPreview || importPreview.proposedUpdates.length === 0}
+              onClick={async () => {
+                if (!importPoId || !importFile) return
+                setSaving(true)
+                try {
+                  const fd = new FormData()
+                  fd.append('file', importFile)
+                  const res = await fetch(`/api/purchase-orders/${importPoId}/import-pdf?apply=true`, { method: 'POST', body: fd })
+                  const json = await res.json()
+                  if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to apply import')
+                  toast({ title: `Imported ${json.data?.updatedCount ?? 0} update(s)` })
+                  setImportOpen(false)
+                  await load()
+                } catch (e: unknown) {
+                  toast({
+                    title: 'Could not apply PDF import',
+                    description: e instanceof Error ? e.message : undefined,
+                    variant: 'destructive',
+                  })
+                } finally {
+                  setSaving(false)
+                }
+              }}
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Apply'}
             </Button>
           </DialogFooter>
         </DialogContent>

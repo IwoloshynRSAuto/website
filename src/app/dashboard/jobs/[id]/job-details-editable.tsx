@@ -15,6 +15,18 @@ import { format } from 'date-fns'
 import Link from 'next/link'
 import { useToast } from '@/components/ui/use-toast'
 
+/** Values that have explicit SelectItem rows — anything else still appears via a legacy option so Radix Select does not throw. */
+const JOB_DETAILS_STATUSES = ['QUOTE', 'ACTIVE', 'COMPLETED', 'ON_HOLD', 'CANCELLED'] as const
+const JOB_DETAILS_PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const
+
+function isJobDetailsStatus(value: string): value is (typeof JOB_DETAILS_STATUSES)[number] {
+  return (JOB_DETAILS_STATUSES as readonly string[]).includes(value)
+}
+
+function isJobDetailsPriority(value: string): value is (typeof JOB_DETAILS_PRIORITIES)[number] {
+  return (JOB_DETAILS_PRIORITIES as readonly string[]).includes(value)
+}
+
 interface Job {
   id: string
   jobNumber: string
@@ -87,6 +99,28 @@ interface JobDetailsEditableProps {
 
 export function JobDetailsEditable({ job, users, customers }: JobDetailsEditableProps) {
   const { toast } = useToast()
+
+  const customerSelectOptions = [
+    { value: 'no-customer', label: 'No Customer', searchText: '' },
+    ...(job.customerId && job.customer && !customers.some((c) => c.id === job.customerId)
+      ? [
+          {
+            value: job.customer.id,
+            label: `${job.customer.name}${job.customer.isActive ? '' : ' (inactive)'}`,
+            searchText: `${job.customer.name} ${job.customer.email || ''} ${job.customer.phone || ''}`,
+          },
+        ]
+      : []),
+    ...customers.map((customer) => ({
+      value: customer.id,
+      label: customer.name,
+      searchText: `${customer.name} ${customer.email || ''} ${customer.phone || ''}`,
+    })),
+  ]
+
+  const assignedUserMissing =
+    Boolean(job.assignedToId) && !users.some((u) => u.id === job.assignedToId)
+
   const [formData, setFormData] = useState({
     title: job.title,
     description: job.description || '',
@@ -226,6 +260,9 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    {!isJobDetailsStatus(formData.status) ? (
+                      <SelectItem value={formData.status}>{formData.status} (legacy)</SelectItem>
+                    ) : null}
                     <SelectItem value="QUOTE">Quote</SelectItem>
                     <SelectItem value="ACTIVE">Active</SelectItem>
                     <SelectItem value="COMPLETED">Completed</SelectItem>
@@ -241,6 +278,9 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    {!isJobDetailsPriority(formData.priority) ? (
+                      <SelectItem value={formData.priority}>{formData.priority} (legacy)</SelectItem>
+                    ) : null}
                     <SelectItem value="LOW">Low</SelectItem>
                     <SelectItem value="MEDIUM">Medium</SelectItem>
                     <SelectItem value="HIGH">High</SelectItem>
@@ -286,14 +326,7 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
           <CardContent className="space-y-4">
             <SearchableSelect
               label="Customer"
-              options={[
-                { value: 'no-customer', label: 'No Customer' },
-                ...customers.map(customer => ({
-                  value: customer.id,
-                  label: customer.name,
-                  searchText: `${customer.name} ${customer.email || ''} ${customer.phone || ''}`
-                }))
-              ]}
+              options={customerSelectOptions}
               value={formData.customerId}
               onValueChange={(value) => setFormData(prev => ({ ...prev, customerId: value }))}
               placeholder="Select a customer"
@@ -307,6 +340,11 @@ export function JobDetailsEditable({ job, users, customers }: JobDetailsEditable
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="unassigned">Unassigned</SelectItem>
+                  {assignedUserMissing && job.assignedToId ? (
+                    <SelectItem value={job.assignedToId}>
+                      {job.assignedTo?.name?.trim() || 'Former assignee'} (not in user list)
+                    </SelectItem>
+                  ) : null}
                   {users.map((user) => (
                     <SelectItem key={user.id} value={user.id}>
                       {user.name} ({user.email})

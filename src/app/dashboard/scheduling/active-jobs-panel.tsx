@@ -1,5 +1,6 @@
 'use client'
 
+import type { CSSProperties } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,12 @@ import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { matchesScheduleYearVisibleRange } from '@/lib/schedule-year-strip'
+import {
+  deliverableWorkSpanWithHours,
+  inferDeliverableEffortHours,
+  layoutSpanOnTimeline,
+  type TimelineBarLayout,
+} from '@/lib/scheduling/deliverable-bar-layout'
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
@@ -32,7 +39,20 @@ function gridStyle(cols: number) {
   } as const
 }
 
-type DeliverableM = { id: string; name: string; dueDate: string; status: string }
+type DeliverableM = {
+  id: string
+  name: string
+  dueDate: string
+  status: string
+  assignedTo?: { name: string | null; email: string } | null
+}
+
+type DeliverableScheduleLayout = {
+  deliverable: DeliverableM
+  layout: TimelineBarLayout
+  businessDays: number
+  hoursUsed: number
+}
 
 type ActiveJobRow = {
   id: string
@@ -132,6 +152,19 @@ export function ActiveJobsPanel({
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
   const [saving, setSaving] = useState(false)
+  const [jobSummary, setJobSummary] = useState<ActiveJobRow | null>(null)
+  const [deliverableDetail, setDeliverableDetail] = useState<{
+    job: ActiveJobRow
+    deliverable: DeliverableM
+    hoursUsed: number
+    businessDays: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (!editJob) return
+    setEditStart(toLocalDatetimeValue(new Date(editJob.startDate)))
+    setEditEnd(toLocalDatetimeValue(new Date(editJob.endDate)))
+  }, [editJob])
 
   const normJobSearch = jobSearch.trim().toLowerCase()
   const visibleJobs = useMemo(() => {
@@ -315,9 +348,8 @@ export function ActiveJobsPanel({
         return {
           job: j,
           visible: false as const,
-          left: 0,
-          width: 0,
-          markers: [] as { left: number | string; label: string }[],
+          left: 0 as number | string,
+          width: 0 as number | string,
         }
       }
 
@@ -325,34 +357,53 @@ export function ActiveJobsPanel({
       const lf = Math.max(0, Math.min(1, (lo - vs) / totalMs))
       const rf = Math.max(0, Math.min(1, (hi - vs) / totalMs))
 
-      const markers = j.deliverables
-        .map((d) => {
-          const dt = new Date(d.dueDate).getTime()
-          if (dt < rs || dt > re) return null
-          if (useCalendarGrid) {
-            const mf = Math.max(0, Math.min(1, (dt - vs) / totalMs))
-            return { left: `${mf * 100}%`, label: d.name }
-          }
-          return { left: dateToX(new Date(d.dueDate)), label: d.name }
-        })
-        .filter(Boolean) as { left: number | string; label: string }[]
-
       if (useCalendarGrid) {
         return {
           job: j,
           visible: true as const,
           left: `${lf * 100}%`,
           width: `${Math.max(rf - lf, 0.003) * 100}%`,
-          markers,
         }
       }
 
       const left = dateToX(new Date(lo))
       const right = dateToX(new Date(hi))
       const width = Math.max(right - left, 4)
-      return { job: j, visible: true as const, left, width, markers }
+      return { job: j, visible: true as const, left, width }
     })
   }, [visibleJobs, rangeStart, rangeEnd, viewStart, totalMs, dateToX, useCalendarGrid])
+
+  const deliverablesLayoutByJobId = useMemo(() => {
+    const map = new Map<string, DeliverableScheduleLayout[]>()
+    for (const j of visibleJobs) {
+      const items: DeliverableScheduleLayout[] = []
+      const n = Math.max(j.deliverables.length, 1)
+      for (const d of j.deliverables) {
+        const due = new Date(d.dueDate)
+        if (Number.isNaN(due.getTime())) continue
+        const hoursUsed = inferDeliverableEffortHours({
+          quotedHours: j.quotedHours,
+          deliverableCount: n,
+          deliverableId: d.id,
+        })
+        const { start, businessDays } = deliverableWorkSpanWithHours(due, hoursUsed)
+        const layout = layoutSpanOnTimeline(start, due, {
+          rangeStart,
+          rangeEnd,
+          viewStart,
+          totalMs,
+          useCalendarGrid,
+          dateToX,
+          minWidthPx: 6,
+          minWidthFrac: 0.002,
+        })
+        if (!layout) continue
+        items.push({ deliverable: d, layout, businessDays, hoursUsed })
+      }
+      map.set(j.id, items)
+    }
+    return map
+  }, [visibleJobs, rangeStart, rangeEnd, viewStart, totalMs, useCalendarGrid, dateToX])
 
   const saveDates = async () => {
     if (!editJob) return
@@ -392,8 +443,8 @@ export function ActiveJobsPanel({
           <div>
             <CardTitle className="text-base">Active jobs</CardTitle>
             <p className="text-xs text-muted-foreground mt-1">
-              Bars use each job&apos;s start and target end. Purple ticks are deliverable due dates. Hours left = quoted labor minus time entered on the
-              job.
+              Blue bars are job timelines (click for summary). Purple strips are deliverables: length reflects estimated effort (from quoted labor split
+              across items). Hours left = quoted labor minus time entered on the job.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -528,26 +579,41 @@ export function ActiveJobsPanel({
                               style={{ left: t.x }}
                             />
                           ))}
-                      {b.markers.map((m, i) => (
-                        <div
-                          key={`${b.job.id}-m-${i}`}
-                          className="absolute top-0 bottom-0 z-[2] w-px bg-violet-500 pointer-events-none"
-                          style={{ left: m.left }}
-                          title={`${m.label} (due)`}
-                        />
-                      ))}
+                      {(deliverablesLayoutByJobId.get(b.job.id) || []).map((item) => {
+                        const dl = item.layout
+                        return (
+                          <button
+                            key={`${b.job.id}-del-${item.deliverable.id}`}
+                            type="button"
+                            className="absolute bottom-1 z-[3] h-2.5 rounded-sm bg-violet-600/90 border border-violet-900/50 shadow-sm hover:bg-violet-600 cursor-pointer min-w-0 px-0"
+                            style={{ left: dl.left, width: dl.width } as CSSProperties}
+                            title={`${item.deliverable.name} · ~${item.hoursUsed.toFixed(1)}h · ${item.businessDays} workday(s)`}
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setDeliverableDetail({
+                                job: b.job,
+                                deliverable: item.deliverable,
+                                hoursUsed: item.hoursUsed,
+                                businessDays: item.businessDays,
+                              })
+                            }}
+                          />
+                        )
+                      })}
                       {b.visible ? (
-                        <Link
-                          href={`/dashboard/jobs/${b.job.id}`}
-                          className="absolute top-1.5 bottom-1.5 rounded-md bg-sky-600/90 border border-sky-800 text-left text-white px-2 text-[11px] shadow-sm hover:bg-sky-600 z-[1] min-w-[4px] flex items-center"
+                        <button
+                          type="button"
+                          className="absolute top-1.5 bottom-4 rounded-md bg-sky-600/90 border border-sky-800 text-left text-white px-2 text-[11px] shadow-sm hover:bg-sky-600 z-[1] min-w-[4px] flex items-center overflow-hidden"
                           style={{ left: b.left, width: b.width }}
                           title={`${b.job.jobNumber} — ${b.job.title}`}
+                          onClick={() => setJobSummary(b.job)}
                         >
-                          <div className="min-w-0 leading-4">
+                          <div className="min-w-0 leading-4 text-left">
                             <div className="truncate font-semibold">{b.job.jobNumber}</div>
                             <div className="truncate text-white/90">{b.job.title}</div>
                           </div>
-                        </Link>
+                        </button>
                       ) : null}
                     </div>
                   ))}
@@ -580,6 +646,106 @@ export function ActiveJobsPanel({
             </Button>
             <Button type="button" onClick={() => void saveDates()} disabled={saving}>
               Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!jobSummary} onOpenChange={(o) => !o && setJobSummary(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{jobSummary?.jobNumber ?? 'Job'}</DialogTitle>
+            <DialogDescription className="line-clamp-3">{jobSummary?.title ?? ''}</DialogDescription>
+          </DialogHeader>
+          {jobSummary ? (
+            <div className="space-y-2 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <span className="text-muted-foreground">Start</span>
+                <span className="col-span-2">{new Date(jobSummary.startDate).toLocaleString()}</span>
+                <span className="text-muted-foreground">Target end</span>
+                <span className="col-span-2">{new Date(jobSummary.endDate).toLocaleString()}</span>
+                <span className="text-muted-foreground">Hours</span>
+                <span className="col-span-2 tabular-nums">
+                  {jobSummary.actualHours.toFixed(1)} actual / {jobSummary.quotedHours.toFixed(1)} quoted ({jobSummary.hoursRemaining.toFixed(1)} left)
+                </span>
+                <span className="text-muted-foreground">Deliverables</span>
+                <span className="col-span-2">{jobSummary.deliverables.length} with due dates</span>
+              </div>
+              <p className="text-xs text-muted-foreground pt-1">
+                Purple bars estimate effort from quoted labor (split across deliverables with light variation). Refine per-deliverable hours on the job
+                when you track them there.
+              </p>
+            </div>
+          ) : null}
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+            {jobSummary ? (
+              <Button type="button" variant="outline" asChild>
+                <Link href={`/dashboard/jobs/${jobSummary.id}`}>Open job</Link>
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" onClick={() => setJobSummary(null)}>
+                Close
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  const j = jobSummary
+                  if (!j) return
+                  setJobSummary(null)
+                  setEditJob(j)
+                }}
+              >
+                Adjust timeline dates
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deliverableDetail} onOpenChange={(o) => !o && setDeliverableDetail(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{deliverableDetail?.deliverable.name ?? 'Deliverable'}</DialogTitle>
+            <DialogDescription>
+              {deliverableDetail ? `${deliverableDetail.job.jobNumber} — ${deliverableDetail.job.title}` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          {deliverableDetail ? (
+            <div className="space-y-2 text-sm">
+              <div className="grid grid-cols-3 gap-2">
+                <span className="text-muted-foreground">Status</span>
+                <span className="col-span-2">{deliverableDetail.deliverable.status}</span>
+                <span className="text-muted-foreground">Due</span>
+                <span className="col-span-2">{new Date(deliverableDetail.deliverable.dueDate).toLocaleString()}</span>
+                <span className="text-muted-foreground">Assigned</span>
+                <span className="col-span-2">
+                  {deliverableDetail.deliverable.assignedTo?.name ||
+                    deliverableDetail.deliverable.assignedTo?.email ||
+                    '—'}
+                </span>
+                <span className="text-muted-foreground">Effort (est.)</span>
+                <span className="col-span-2 tabular-nums">
+                  ~{deliverableDetail.hoursUsed.toFixed(1)}h · {deliverableDetail.businessDays} workday(s) on calendar
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Effort width is inferred from total quoted labor on the job until per-deliverable hours are maintained in the job editor.
+              </p>
+            </div>
+          ) : null}
+          <DialogFooter className="sm:justify-between">
+            {deliverableDetail ? (
+              <Button type="button" variant="outline" asChild>
+                <Link href={`/dashboard/jobs/${deliverableDetail.job.id}`}>Open job</Link>
+              </Button>
+            ) : (
+              <span />
+            )}
+            <Button type="button" onClick={() => setDeliverableDetail(null)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>

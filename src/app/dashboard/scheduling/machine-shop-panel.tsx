@@ -167,7 +167,9 @@ export function MachineShopPanel({
   const [users, setUsers] = useState<UserOpt[]>([])
   const [phases, setPhases] = useState<PhaseOpt[]>([])
   const [filterUserId, setFilterUserId] = useState<string>('') // '' = all
-  const [selectedAssignment, setSelectedAssignment] = useState<Assignment | null>(null)
+  const [selectedAssignment, setSelectedAssignment] = useState<{ assignment: Assignment; machineName: string } | null>(
+    null
+  )
 
   const [newMachineName, setNewMachineName] = useState('')
   const [newMachinePhaseId, setNewMachinePhaseId] = useState<string>('')
@@ -851,7 +853,7 @@ export function MachineShopPanel({
                           : (() => {
                               const left = dateToX(new Date(lo))
                               const right = dateToX(new Date(hi))
-                              const w = Math.max(right - left, 3)
+                              const w = Math.max(right - left, 2)
                               return { left, width: w }
                             })()
                         const who = a.user?.name || a.user?.email || 'Unassigned'
@@ -863,9 +865,9 @@ export function MachineShopPanel({
                             title={`${a.job.jobNumber} · ${who}`}
                             role="button"
                             tabIndex={0}
-                            onClick={() => setSelectedAssignment(a)}
+                            onClick={() => setSelectedAssignment({ assignment: a, machineName: m.name })}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') setSelectedAssignment(a)
+                              if (e.key === 'Enter' || e.key === ' ') setSelectedAssignment({ assignment: a, machineName: m.name })
                             }}
                           >
                             <div className="min-w-0">
@@ -897,26 +899,39 @@ export function MachineShopPanel({
       <Dialog open={!!selectedAssignment} onOpenChange={(o) => !o && setSelectedAssignment(null)}>
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>Reservation</DialogTitle>
+            <DialogTitle>Machine booking</DialogTitle>
             <DialogDescription>
-              {selectedAssignment ? `${selectedAssignment.job.jobNumber} — ${selectedAssignment.job.title}` : ''}
+              {selectedAssignment
+                ? `${selectedAssignment.machineName} · ${selectedAssignment.assignment.job.jobNumber} — ${selectedAssignment.assignment.job.title}`
+                : ''}
             </DialogDescription>
           </DialogHeader>
           {selectedAssignment ? (
             <div className="space-y-3 text-sm">
               <div className="grid grid-cols-3 gap-2">
+                <div className="text-muted-foreground">Machine</div>
+                <div className="col-span-2 font-medium">{selectedAssignment.machineName}</div>
                 <div className="text-muted-foreground">Operator</div>
-                <div className="col-span-2">{selectedAssignment.user?.name || selectedAssignment.user?.email || 'Unassigned'}</div>
+                <div className="col-span-2">
+                  {selectedAssignment.assignment.user?.name || selectedAssignment.assignment.user?.email || 'Unassigned'}
+                </div>
                 <div className="text-muted-foreground">Start</div>
-                <div className="col-span-2">{new Date(selectedAssignment.plannedStart).toLocaleString()}</div>
+                <div className="col-span-2">{new Date(selectedAssignment.assignment.plannedStart).toLocaleString()}</div>
                 <div className="text-muted-foreground">End</div>
-                <div className="col-span-2">{new Date(selectedAssignment.plannedEnd).toLocaleString()}</div>
-                <div className="text-muted-foreground">Hours</div>
-                <div className="col-span-2">{selectedAssignment.hours.toFixed(2)}</div>
-                {selectedAssignment.notes ? (
+                <div className="col-span-2">{new Date(selectedAssignment.assignment.plannedEnd).toLocaleString()}</div>
+                <div className="text-muted-foreground">Duration</div>
+                <div className="col-span-2 tabular-nums">
+                  {(
+                    (new Date(selectedAssignment.assignment.plannedEnd).getTime() -
+                      new Date(selectedAssignment.assignment.plannedStart).getTime()) /
+                    HOUR_MS
+                  ).toFixed(2)}{' '}
+                  h (calendar) · booked {selectedAssignment.assignment.hours.toFixed(2)} h
+                </div>
+                {selectedAssignment.assignment.notes ? (
                   <>
                     <div className="text-muted-foreground">Notes</div>
-                    <div className="col-span-2 whitespace-pre-wrap">{selectedAssignment.notes}</div>
+                    <div className="col-span-2 whitespace-pre-wrap">{selectedAssignment.assignment.notes}</div>
                   </>
                 ) : null}
               </div>
@@ -925,7 +940,7 @@ export function MachineShopPanel({
           <DialogFooter className="flex flex-row justify-between sm:justify-between">
             {selectedAssignment ? (
               <Button asChild variant="outline">
-                <Link href={`/dashboard/jobs/${selectedAssignment.jobId}`}>Open job</Link>
+                <Link href={`/dashboard/jobs/${selectedAssignment.assignment.jobId}`}>Open job</Link>
               </Button>
             ) : (
               <div />
@@ -939,7 +954,7 @@ export function MachineShopPanel({
                   type="button"
                   variant="destructive"
                   onClick={() => {
-                    const id = selectedAssignment.id
+                    const id = selectedAssignment.assignment.id
                     setSelectedAssignment(null)
                     void deleteAssignment(id)
                   }}

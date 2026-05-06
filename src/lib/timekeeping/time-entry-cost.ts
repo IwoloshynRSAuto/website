@@ -103,8 +103,9 @@ export async function buildTimeEntryCostSnapshot(
     const useOtPricing = Boolean(lc?.isOvertimePhase || otSuffix)
 
     if (useOtPricing) {
-      const pm = lc!.overtimeRateMultiplier != null ? Number(lc!.overtimeRateMultiplier) : 1.5
-      const phaseMult = Number.isFinite(pm) && pm > 0 ? pm : 1.5
+      // If the phase doesn't define its own OT multiplier, fall back to the global Admin setting.
+      const pm = lc!.overtimeRateMultiplier != null ? Number(lc!.overtimeRateMultiplier) : globalOtMult
+      const phaseMult = Number.isFinite(pm) && pm > 0 ? pm : globalOtMult
       let rateFrom = hr
       if (otSuffix && lc?.code) {
         const stripped = stripOtLaborCodeSuffix(lc.code)

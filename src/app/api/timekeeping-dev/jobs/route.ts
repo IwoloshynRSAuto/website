@@ -13,6 +13,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const q = String(searchParams.get('q') || '').trim()
 
+    // Without a search query, return all active jobs (newest activity first) so recently
+    // added jobs are never cut off by a low take limit + jobNumber sort.
     const jobs = await prisma.job.findMany({
       where: {
         status: { not: 'COMPLETED' },
@@ -26,8 +28,8 @@ export async function GET(request: NextRequest) {
           : {}),
       },
       select: { id: true, jobNumber: true, title: true },
-      orderBy: { jobNumber: 'asc' },
-      take: 200,
+      orderBy: q ? [{ jobNumber: 'asc' }] : [{ updatedAt: 'desc' }, { createdAt: 'desc' }, { jobNumber: 'desc' }],
+      ...(q ? { take: 500 } : {}),
     })
 
     return NextResponse.json({

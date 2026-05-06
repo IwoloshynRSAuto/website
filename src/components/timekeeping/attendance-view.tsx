@@ -11,7 +11,6 @@ import { TimeEntryModal } from './time-entry-modal'
 import { DayTimesheetModal } from './day-timesheet-modal'
 import { useToast } from '@/components/ui/use-toast'
 import { cn } from '@/lib/utils'
-import { HowToButton } from '@/components/ui/how-to-button'
 interface User {
   id: string
   name: string | null
@@ -1904,20 +1903,6 @@ export function AttendanceView({
                 Attendance
               </CardTitle>
               <div className="flex items-center gap-2 flex-wrap">
-                <HowToButton
-                  title="Attendance — how it works"
-                  description="Clock in/out daily, then submit the week for approval to lock it for review."
-                  className="border-gray-300 hover:bg-gray-50"
-                >
-                  <div className="rounded-lg border bg-muted/30 p-3 text-sm text-foreground">
-                    <div className="font-semibold mb-1">Quick guide</div>
-                    <ul className="list-disc pl-5 space-y-1 text-muted-foreground">
-                      <li>Use <span className="font-medium text-foreground">Clock In Now</span> / <span className="font-medium text-foreground">Clock Out Now</span> for today.</li>
-                      <li>Click a day to view entries. Past days use <span className="font-medium text-foreground">Request Change</span>.</li>
-                      <li>In Week view, use <span className="font-medium text-foreground">Submit for Approval</span> to lock the week for review.</li>
-                    </ul>
-                  </div>
-                </HowToButton>
                 {isAdmin && (
                   <select
                     value={selectedUserId}
