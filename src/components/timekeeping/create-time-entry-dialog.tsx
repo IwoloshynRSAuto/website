@@ -35,6 +35,8 @@ interface Job {
   id: string
   jobNumber: string
   title: string
+  type?: string
+  status?: string
 }
 
 interface LaborCode {
@@ -118,10 +120,21 @@ function CreateTimeEntryDialogComponent({ isOpen, onClose }: CreateTimeEntryDial
 
   const fetchJobs = async () => {
     try {
-      const response = await fetch('/api/jobs')
+      const response = await fetch('/api/jobs?schedulePicker=true&sortOrder=asc&limit=1000')
       if (response.ok) {
         const data = await response.json()
-        setJobs(data)
+        const rows = (data?.jobs || data?.data || data || []) as any[]
+        setJobs(
+          Array.isArray(rows)
+            ? rows.map((j) => ({
+                id: j.id,
+                jobNumber: j.jobNumber,
+                title: j.title,
+                type: j.type,
+                status: j.status,
+              }))
+            : []
+        )
       }
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
@@ -334,6 +347,7 @@ function CreateTimeEntryDialogComponent({ isOpen, onClose }: CreateTimeEntryDial
                     {jobs.map((job) => (
                       <SelectItem key={job.id} value={job.id}>
                         {job.jobNumber} - {job.title}
+                        {job.type === 'QUOTE' ? ' (Quote)' : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>

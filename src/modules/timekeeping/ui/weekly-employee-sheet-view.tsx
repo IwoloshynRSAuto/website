@@ -6,7 +6,7 @@ import { format, eachDayOfInterval, endOfWeek } from 'date-fns'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { ArrowLeft, Loader2, CalendarDays } from 'lucide-react'
+import { ArrowLeft, Loader2, CalendarDays, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useToast } from '@/components/ui/use-toast'
 import { dashboardUi } from '@/components/layout/dashboard-ui'
@@ -97,6 +97,58 @@ export function WeeklyEmployeeSheetView({
 
   const employeeLabel = rows[0]?.user?.name || rows[0]?.user?.email || 'Employee'
 
+  const exportTimeCsv = () => {
+    const timeRow = rows.find((r) => r.type === 'TIME')
+    if (!timeRow) return
+    const csvData: string[][] = []
+    csvData.push(['Date', 'Job', 'Labor code', 'Regular hours', 'Overtime hours'])
+    for (const te of timeRow.timeEntries || []) {
+      const job = te.job ? `${te.job.jobNumber} — ${te.job.title}` : ''
+      csvData.push([
+        format(new Date(te.date), 'yyyy-MM-dd'),
+        job,
+        te.laborCode?.code || '',
+        String(Number(te.regularHours || 0).toFixed(2)),
+        String(Number(te.overtimeHours || 0).toFixed(2)),
+      ])
+    }
+    const csvString = csvData.map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csvString], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `submitted-job-time-${employeeLabel.replaceAll(' ', '_')}-${format(weekAnchor, 'yyyy-MM-dd')}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  }
+
+  const exportAttendanceCsv = () => {
+    const attRow = rows.find((r) => r.type === 'ATTENDANCE')
+    if (!attRow) return
+    const csvData: string[][] = []
+    csvData.push(['Date', 'Clock in', 'Clock out', 'Hours'])
+    for (const ts of attRow.timesheets || []) {
+      csvData.push([
+        format(new Date(ts.date), 'yyyy-MM-dd'),
+        ts.clockInTime ? format(new Date(ts.clockInTime), 'HH:mm') : '',
+        ts.clockOutTime ? format(new Date(ts.clockOutTime), 'HH:mm') : '',
+        ts.totalHours != null ? String(Number(ts.totalHours).toFixed(2)) : '',
+      ])
+    }
+    const csvString = csvData.map((row) => row.map((cell) => `"${String(cell ?? '').replaceAll('"', '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csvString], { type: 'text/csv' })
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `submitted-attendance-${employeeLabel.replaceAll(' ', '_')}-${format(weekAnchor, 'yyyy-MM-dd')}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    window.URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
@@ -105,6 +157,14 @@ export function WeeklyEmployeeSheetView({
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back to approvals
           </Link>
+        </Button>
+        <Button variant="outline" size="sm" onClick={exportAttendanceCsv} disabled={loading || !rows.some((r) => r.type === 'ATTENDANCE')}>
+          <Download className="h-4 w-4 mr-1" />
+          Export attendance
+        </Button>
+        <Button variant="outline" size="sm" onClick={exportTimeCsv} disabled={loading || !rows.some((r) => r.type === 'TIME')}>
+          <Download className="h-4 w-4 mr-1" />
+          Export job time
         </Button>
       </div>
 

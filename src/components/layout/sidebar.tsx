@@ -45,9 +45,18 @@ const navigation = [
     ],
   },
   {
+    name: 'Customers',
+    href: '/dashboard/customers',
+    icon: Building2,
+  },
+  {
     name: 'Schedule',
     href: '/dashboard/scheduling',
     icon: Calendar,
+    children: [
+      { name: 'Schedule', href: '/dashboard/scheduling', icon: Calendar },
+      { name: 'Machine shop', href: '/dashboard/scheduling/machine-shop', icon: Calendar },
+    ],
   },
   {
     name: 'Admin',
@@ -57,7 +66,6 @@ const navigation = [
       { name: 'Employees', href: '/dashboard/admin/employees', icon: Shield, visibility: 'admin' as const },
       { name: 'Quote plans', href: '/dashboard/admin/quote-plans', icon: FileText, visibility: 'admin' as const },
       { name: 'Phase codes', href: '/dashboard/admin/job-roles', icon: Tags, visibility: 'admin' as const },
-      { name: 'Customers', href: '/dashboard/admin/customers', icon: Building2, visibility: 'admin' as const },
       { name: 'Machine shop', href: '/dashboard/admin/machine-shop', icon: Calendar, visibility: 'admin' as const },
       { name: 'Export / import', href: '/dashboard/admin/database', icon: Database, visibility: 'admin' as const },
     ],

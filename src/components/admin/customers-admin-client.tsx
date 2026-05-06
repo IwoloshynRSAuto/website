@@ -28,12 +28,28 @@ type Customer = {
   fileLink: string | null
 }
 
+type Contact = {
+  id: string
+  customerId: string
+  name: string
+  email: string | null
+  phone: string | null
+  position: string | null
+}
+
 const emptyForm = {
   name: '',
   email: '',
   phone: '',
   address: '',
   fileLink: '',
+}
+
+const emptyContactForm = {
+  name: '',
+  email: '',
+  phone: '',
+  position: '',
 }
 
 export function CustomersAdminClient() {
@@ -46,6 +62,12 @@ export function CustomersAdminClient() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState(emptyForm)
+
+  const [contactsLoading, setContactsLoading] = useState(false)
+  const [contactsSaving, setContactsSaving] = useState(false)
+  const [contacts, setContacts] = useState<Contact[]>([])
+  const [editingContact, setEditingContact] = useState<Contact | null>(null)
+  const [contactForm, setContactForm] = useState(emptyContactForm)
 
   const load = async () => {
     setLoading(true)
@@ -75,6 +97,9 @@ export function CustomersAdminClient() {
   const openNew = () => {
     setEditing(null)
     setForm(emptyForm)
+    setContacts([])
+    setEditingContact(null)
+    setContactForm(emptyContactForm)
     setDialogOpen(true)
   }
 
@@ -87,7 +112,106 @@ export function CustomersAdminClient() {
       address: c.address || '',
       fileLink: c.fileLink || '',
     })
+    setContacts([])
+    setEditingContact(null)
+    setContactForm(emptyContactForm)
     setDialogOpen(true)
+    void loadContacts(c.id)
+  }
+
+  const loadContacts = async (customerId: string) => {
+    setContactsLoading(true)
+    try {
+      const res = await fetch(`/api/customers/${customerId}/contacts`)
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load contacts')
+      setContacts((json.data || []) as Contact[])
+    } catch (e: unknown) {
+      toast({
+        title: 'Could not load contacts',
+        description: e instanceof Error ? e.message : undefined,
+        variant: 'destructive',
+      })
+      setContacts([])
+    } finally {
+      setContactsLoading(false)
+    }
+  }
+
+  const startEditContact = (c: Contact) => {
+    setEditingContact(c)
+    setContactForm({
+      name: c.name,
+      email: c.email || '',
+      phone: c.phone || '',
+      position: c.position || '',
+    })
+  }
+
+  const saveContact = async () => {
+    const customer = editing
+    if (!customer) return
+    const name = contactForm.name.trim()
+    if (!name) {
+      toast({ title: 'Contact name is required', variant: 'destructive' })
+      return
+    }
+    setContactsSaving(true)
+    try {
+      const body = {
+        name,
+        email: contactForm.email.trim() || null,
+        phone: contactForm.phone.trim() || null,
+        position: contactForm.position.trim() || null,
+      }
+
+      const res = editingContact
+        ? await fetch(`/api/contacts/${editingContact.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+        : await fetch(`/api/customers/${customer.id}/contacts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json?.success) throw new Error(json?.error || 'Save failed')
+
+      toast({ title: editingContact ? 'Contact updated' : 'Contact added' })
+      setEditingContact(null)
+      setContactForm(emptyContactForm)
+      await loadContacts(customer.id)
+    } catch (e: unknown) {
+      toast({
+        title: 'Save failed',
+        description: e instanceof Error ? e.message : undefined,
+        variant: 'destructive',
+      })
+    } finally {
+      setContactsSaving(false)
+    }
+  }
+
+  const deleteContact = async (c: Contact) => {
+    if (!confirm(`Delete contact "${c.name}"?`)) return
+    setContactsSaving(true)
+    try {
+      const res = await fetch(`/api/contacts/${c.id}`, { method: 'DELETE' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok || !json?.success) throw new Error(json?.error || 'Delete failed')
+      toast({ title: 'Contact deleted' })
+      if (editing) await loadContacts(editing.id)
+    } catch (e: unknown) {
+      toast({
+        title: 'Delete failed',
+        description: e instanceof Error ? e.message : undefined,
+        variant: 'destructive',
+      })
+    } finally {
+      setContactsSaving(false)
+    }
   }
 
   const save = async () => {
@@ -197,7 +321,6 @@ export function CustomersAdminClient() {
                 <TableRow className="hover:bg-transparent">
                   <TableHead className={dashboardUi.tableHead}>Name</TableHead>
                   <TableHead className={dashboardUi.tableHead}>Email</TableHead>
-                  <TableHead className={dashboardUi.tableHead}>Phone</TableHead>
                   <TableHead className={dashboardUi.tableHead}>Status</TableHead>
                   <TableHead className={`${dashboardUi.tableHead} text-right`}>Actions</TableHead>
                 </TableRow>
@@ -207,7 +330,6 @@ export function CustomersAdminClient() {
                   <TableRow key={c.id} className="text-sm">
                     <TableCell className="py-2 px-3 font-medium">{c.name}</TableCell>
                     <TableCell className="py-2 px-3 text-slate-600">{c.email || '—'}</TableCell>
-                    <TableCell className="py-2 px-3 text-slate-600">{c.phone || '—'}</TableCell>
                     <TableCell className="py-2 px-3">
                       {c.isActive ? (
                         <Badge className="bg-emerald-100 text-emerald-900">Active</Badge>
@@ -228,7 +350,7 @@ export function CustomersAdminClient() {
                 ))}
                 {!loading && filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="py-10 text-center text-slate-500 text-sm">
+                    <TableCell colSpan={4} className="py-10 text-center text-slate-500 text-sm">
                       No customers found.
                     </TableCell>
                   </TableRow>
@@ -240,7 +362,7 @@ export function CustomersAdminClient() {
       </Card>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editing ? 'Edit customer' : 'New customer'}</DialogTitle>
           </DialogHeader>
@@ -254,34 +376,41 @@ export function CustomersAdminClient() {
                 placeholder="Company name"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="cust-email">Email</Label>
-              <Input
-                id="cust-email"
-                type="email"
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cust-phone">Phone</Label>
-              <Input
-                id="cust-phone"
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                placeholder="Optional"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cust-addr">Address</Label>
-              <Input
-                id="cust-addr"
-                value={form.address}
-                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
-                placeholder="Optional"
-              />
-            </div>
+            <details className="rounded-lg border bg-muted/10 px-3 py-2">
+              <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide text-slate-600/90">
+                Optional customer details
+              </summary>
+              <div className="grid gap-3 py-3">
+                <div className="space-y-2">
+                  <Label htmlFor="cust-email">Email</Label>
+                  <Input
+                    id="cust-email"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cust-phone">Phone</Label>
+                  <Input
+                    id="cust-phone"
+                    value={form.phone}
+                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                    placeholder="Optional"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="cust-addr">Address</Label>
+                  <Input
+                    id="cust-addr"
+                    value={form.address}
+                    onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+                    placeholder="Optional"
+                  />
+                </div>
+              </div>
+            </details>
             <div className="space-y-2">
               <Label htmlFor="cust-link">File / link</Label>
               <Input
@@ -290,6 +419,134 @@ export function CustomersAdminClient() {
                 onChange={(e) => setForm((f) => ({ ...f, fileLink: e.target.value }))}
                 placeholder="Optional URL or path"
               />
+            </div>
+
+            <div className="rounded-lg border bg-muted/10 p-3 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Customer contacts</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {editing ? 'Add as many contacts as you need.' : 'Create the customer first, then add contacts.'}
+                  </p>
+                </div>
+                <div className="text-[11px] text-muted-foreground">{editing ? `${contacts.length} contact(s)` : null}</div>
+              </div>
+
+              {editing ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Name</Label>
+                      <Input
+                        value={contactForm.name}
+                        onChange={(e) => setContactForm((f) => ({ ...f, name: e.target.value }))}
+                        placeholder="Contact name"
+                        disabled={contactsSaving || contactsLoading}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Notes</Label>
+                      <Input
+                        value={contactForm.position}
+                        onChange={(e) => setContactForm((f) => ({ ...f, position: e.target.value }))}
+                        placeholder="Optional notes (billing, shipping, etc.)"
+                        disabled={contactsSaving || contactsLoading}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Email</Label>
+                      <Input
+                        value={contactForm.email}
+                        onChange={(e) => setContactForm((f) => ({ ...f, email: e.target.value }))}
+                        placeholder="Optional"
+                        disabled={contactsSaving || contactsLoading}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Phone</Label>
+                      <Input
+                        value={contactForm.phone}
+                        onChange={(e) => setContactForm((f) => ({ ...f, phone: e.target.value }))}
+                        placeholder="Optional"
+                        disabled={contactsSaving || contactsLoading}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2">
+                    {editingContact ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={contactsSaving || contactsLoading}
+                        onClick={() => {
+                          setEditingContact(null)
+                          setContactForm(emptyContactForm)
+                        }}
+                      >
+                        Cancel edit
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={contactsSaving || contactsLoading}
+                      onClick={() => void saveContact()}
+                    >
+                      {contactsSaving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}
+                      {editingContact ? 'Save contact' : 'Add contact'}
+                    </Button>
+                  </div>
+
+                  <div className="max-h-56 overflow-auto rounded-md border bg-background">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="hover:bg-transparent">
+                          <TableHead className={dashboardUi.tableHead}>Name</TableHead>
+                          <TableHead className={dashboardUi.tableHead}>Email</TableHead>
+                          <TableHead className={dashboardUi.tableHead}>Phone</TableHead>
+                          <TableHead className={`${dashboardUi.tableHead} text-right`}>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {contacts.map((c) => (
+                          <TableRow key={c.id} className="text-sm">
+                            <TableCell className="py-2 px-3 font-medium">{c.name}</TableCell>
+                            <TableCell className="py-2 px-3 text-slate-600">{c.email || '—'}</TableCell>
+                            <TableCell className="py-2 px-3 text-slate-600">{c.phone || '—'}</TableCell>
+                            <TableCell className="py-2 px-3 text-right space-x-2">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={contactsSaving || contactsLoading}
+                                onClick={() => startEditContact(c)}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={contactsSaving || contactsLoading}
+                                onClick={() => void deleteContact(c)}
+                              >
+                                Delete
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {!contactsLoading && contacts.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="py-8 text-center text-slate-500 text-sm">
+                              No contacts yet.
+                            </TableCell>
+                          </TableRow>
+                        ) : null}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </>
+              ) : null}
             </div>
           </div>
           <DialogFooter className="gap-2">

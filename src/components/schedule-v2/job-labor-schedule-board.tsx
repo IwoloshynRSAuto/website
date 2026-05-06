@@ -35,6 +35,20 @@ type ApiSegment = {
 type DraftCreate = { estimateId: string; start: Date; end: Date }
 type DraftHours = { segmentId: string; hours: number; maxHours: number }
 
+function startOfWeek(d: Date) {
+  const x = new Date(d)
+  const day = x.getDay()
+  x.setDate(x.getDate() - day)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
+function endOfDay(d: Date) {
+  const x = new Date(d)
+  x.setHours(23, 59, 59, 999)
+  return x
+}
+
 function startOfMonth(d: Date) {
   const x = new Date(d)
   x.setDate(1)
@@ -65,13 +79,21 @@ function endOfYear(d: Date) {
   return new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999)
 }
 
-type Preset = 'month' | 'quarter' | 'year'
+type Preset = 'week' | 'month' | 'quarter' | 'year'
 
 function applyPreset(p: Preset): { start: Date; end: Date } {
   const now = new Date()
+  if (p === 'week') {
+    const start = startOfWeek(now)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 6)
+    return { start, end: endOfDay(end) }
+  }
   if (p === 'month') {
-    const start = startOfMonth(now)
-    return { start, end: endOfMonth(now) }
+    const start = startOfWeek(now)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 27)
+    return { start, end: endOfDay(end) }
   }
   if (p === 'quarter') {
     const start = startOfQuarter(now)
@@ -94,9 +116,9 @@ export function JobLaborScheduleBoard({
   laborCodes: LaborCodeLite[]
 }) {
   const { toast } = useToast()
-  const [preset, setPreset] = useState<Preset>('quarter')
-  const [rangeStart, setRangeStart] = useState(() => applyPreset('quarter').start)
-  const [rangeEnd, setRangeEnd] = useState(() => applyPreset('quarter').end)
+  const [preset, setPreset] = useState<Preset>('month')
+  const [rangeStart, setRangeStart] = useState(() => applyPreset('month').start)
+  const [rangeEnd, setRangeEnd] = useState(() => applyPreset('month').end)
   const [segments, setSegments] = useState<ApiSegment[]>([])
   const [loading, setLoading] = useState(true)
   const [createDraft, setCreateDraft] = useState<DraftCreate | null>(null)
@@ -332,6 +354,9 @@ export function JobLaborScheduleBoard({
           <CardTitle>Quoted labor schedule</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-muted-foreground">Range</span>
+            <Button type="button" size="sm" variant={preset === 'week' ? 'default' : 'outline'} onClick={() => applyPresetClick('week')}>
+              Week
+            </Button>
             <Button type="button" size="sm" variant={preset === 'month' ? 'default' : 'outline'} onClick={() => applyPresetClick('month')}>
               Month
             </Button>
@@ -361,6 +386,8 @@ export function JobLaborScheduleBoard({
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}
             pixelsPerHour={48}
+            fitToWidth
+            ganttStyle
             onRangeCreate={onRangeCreate}
             onBlockMove={onBlockMove}
             emptyHint="Drag across a row to schedule hours for that labor line."

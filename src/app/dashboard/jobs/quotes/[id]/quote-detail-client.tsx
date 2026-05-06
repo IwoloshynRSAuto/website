@@ -59,6 +59,9 @@ interface Quote {
   createdAt: string
   updatedAt: string
   paymentTerms: string | null
+  customerContactName: string | null
+  customerContactEmail: string | null
+  customerContactPhone: string | null
   estimatedHours: number | null
   hourlyRate: number | null
   customer: { id: string; name: string; email: string | null; phone: string | null } | null
@@ -80,6 +83,7 @@ interface Props {
 }
 
 type CustomerOption = { id: string; name: string }
+type ContactOption = { id: string; name: string; email: string | null; phone: string | null; position: string | null }
 
 type TaskCode = { id: string; code: string; description: string; category: string }
 
@@ -306,6 +310,9 @@ export function QuoteDetailClient({ quote }: Props) {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [customers, setCustomers] = useState<CustomerOption[]>([])
+  const [contactOptions, setContactOptions] = useState<ContactOption[]>([])
+  const [contactLoading, setContactLoading] = useState(false)
+  const [selectedContactId, setSelectedContactId] = useState<string>('__none__')
   const [taskCodes, setTaskCodes] = useState<TaskCode[]>([])
   const [phaseCodes, setPhaseCodes] = useState<Array<{ id: string; code: string; name: string; hourlyRate?: number }>>([])
   const [deliverables, setDeliverables] = useState<DeliverableTask[]>([])
@@ -317,6 +324,9 @@ export function QuoteDetailClient({ quote }: Props) {
   const [description, setDescription] = useState(quote.description || '')
   const [amount, setAmount] = useState(String(quote.amount ?? 0))
   const [customerId, setCustomerId] = useState<string>(quote.customer?.id || '')
+  const [customerContactName, setCustomerContactName] = useState<string>(quote.customerContactName || '')
+  const [customerContactEmail, setCustomerContactEmail] = useState<string>(quote.customerContactEmail || '')
+  const [customerContactPhone, setCustomerContactPhone] = useState<string>(quote.customerContactPhone || '')
   const [validUntil, setValidUntil] = useState(() => toInputDate(quote.validUntil))
   const [paymentTerms, setPaymentTerms] = useState(quote.paymentTerms || '')
   // Estimated hours + hourly rate removed from UI (kept in DB for future costing needs)
@@ -326,6 +336,10 @@ export function QuoteDetailClient({ quote }: Props) {
     setDescription(quote.description || '')
     setAmount(String(quote.amount ?? 0))
     setCustomerId(quote.customer?.id || '')
+    setCustomerContactName(quote.customerContactName || '')
+    setCustomerContactEmail(quote.customerContactEmail || '')
+    setCustomerContactPhone(quote.customerContactPhone || '')
+    setSelectedContactId('__none__')
     setValidUntil(toInputDate(quote.validUntil))
     setPaymentTerms(quote.paymentTerms || '')
   }, [
@@ -335,9 +349,39 @@ export function QuoteDetailClient({ quote }: Props) {
     quote.description,
     quote.amount,
     quote.customer?.id,
+    quote.customerContactName,
+    quote.customerContactEmail,
+    quote.customerContactPhone,
     quote.validUntil,
     quote.paymentTerms,
   ])
+
+  useEffect(() => {
+    let cancelled = false
+    async function run() {
+      const cid = customerId && customerId !== '__none__' ? customerId : ''
+      if (!cid) {
+        setContactOptions([])
+        return
+      }
+      setContactLoading(true)
+      try {
+        const res = await fetch(`/api/customers/${cid}/contacts`)
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok || !json?.success) throw new Error(json?.error || 'Failed to load contacts')
+        const opts = (json.data || []) as ContactOption[]
+        if (!cancelled) setContactOptions(opts)
+      } catch {
+        if (!cancelled) setContactOptions([])
+      } finally {
+        if (!cancelled) setContactLoading(false)
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [customerId])
 
   useEffect(() => {
     void (async () => {
@@ -683,6 +727,9 @@ export function QuoteDetailClient({ quote }: Props) {
         customerId: customerId && customerId !== '__none__' ? customerId : null,
         validUntil: validUntil.trim() || null,
         paymentTerms: paymentTerms.trim() || null,
+        customerContactName: customerContactName.trim() || null,
+        customerContactEmail: customerContactEmail.trim() || null,
+        customerContactPhone: customerContactPhone.trim() || null,
       }
 
       const res = await fetch(`/api/quotes/${quote.id}`, {
@@ -822,6 +869,62 @@ export function QuoteDetailClient({ quote }: Props) {
               </Select>
             </div>
             <div className="space-y-2">
+              <Label>Contact</Label>
+              <Select
+                value={selectedContactId}
+                onValueChange={(v) => {
+                  setSelectedContactId(v)
+                  if (v === '__none__') return
+                  const c = contactOptions.find((x) => x.id === v)
+                  if (!c) return
+                  setCustomerContactName(c.name || '')
+                  setCustomerContactEmail(c.email || '')
+                  setCustomerContactPhone(c.phone || '')
+                }}
+                disabled={!customerId || contactLoading}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={contactLoading ? 'Loading…' : 'Select contact'} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None</SelectItem>
+                  {contactOptions.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="text-[11px] text-muted-foreground">Pick a saved contact or enter custom info below.</div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qd-contact-name">Contact name</Label>
+              <Input
+                id="qd-contact-name"
+                value={customerContactName}
+                onChange={(e) => setCustomerContactName(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qd-contact-email">Contact email</Label>
+              <Input
+                id="qd-contact-email"
+                value={customerContactEmail}
+                onChange={(e) => setCustomerContactEmail(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="qd-contact-phone">Contact phone</Label>
+              <Input
+                id="qd-contact-phone"
+                value={customerContactPhone}
+                onChange={(e) => setCustomerContactPhone(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="qd-until">Valid until</Label>
               <Input id="qd-until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
             </div>
@@ -838,13 +941,21 @@ export function QuoteDetailClient({ quote }: Props) {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Deliverables</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <details className="group rounded-lg border bg-card" open>
+        <summary className="cursor-pointer select-none px-6 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Section</p>
+            <p className="text-base font-semibold">Deliverables</p>
+          </div>
+          <span className="text-xs text-muted-foreground group-open:hidden">Show</span>
+          <span className="text-xs text-muted-foreground hidden group-open:inline">Hide</span>
+        </summary>
+        <div className="px-6 pb-6 space-y-4">
           <DeliverablesTimeline
-            tasks={deliverables}
+            tasks={deliverables.map((d) => ({
+              ...d,
+              groupCode: d.laborCodeId ? (phaseCodeById.get(d.laborCodeId)?.code || '').slice(0, 2) : null,
+            }))}
             selectedTaskId={selectedTaskId}
             onSelectTaskId={(id) => setSelectedTaskId(id)}
           />
@@ -979,8 +1090,8 @@ export function QuoteDetailClient({ quote }: Props) {
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </details>
 
       <Card>
         <CardHeader>

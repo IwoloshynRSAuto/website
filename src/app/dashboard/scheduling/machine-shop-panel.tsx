@@ -140,6 +140,7 @@ export function MachineShopPanel({
   rangeEnd,
   showBookings = true,
   showMachineManagement = false,
+  showTimeline = true,
   pixelsPerDay,
   rangePreset,
   onRangePresetChange,
@@ -150,6 +151,8 @@ export function MachineShopPanel({
   showBookings?: boolean
   /** Add/edit/disable machines — use Admin → Machine shop, not the Schedule tab. */
   showMachineManagement?: boolean
+  /** Hide the timeline on Admin page (management only). */
+  showTimeline?: boolean
   pixelsPerDay: number
   rangePreset?: 'week' | 'month' | 'quarter' | 'year' | 'custom'
   onRangePresetChange?: (preset: 'week' | 'month' | 'quarter' | 'year') => void
@@ -673,7 +676,7 @@ export function MachineShopPanel({
         </Card>
       ) : null}
 
-      <Card>
+      {showTimeline ? <Card>
         <CardHeader className="flex flex-row flex-wrap justify-between items-center gap-2 pb-2">
           <CardTitle className="text-base">Machine timeline</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
@@ -889,7 +892,7 @@ export function MachineShopPanel({
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card> : null}
 
       <Dialog open={!!selectedAssignment} onOpenChange={(o) => !o && setSelectedAssignment(null)}>
         <DialogContent className="max-w-xl">

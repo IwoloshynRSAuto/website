@@ -115,12 +115,14 @@ export function ActiveJobsPanel({
   rangeEnd,
   pixelsPerDay,
   rangePreset,
+  jobSearch = '',
   density = 'comfortable',
 }: {
   rangeStart: Date
   rangeEnd: Date
   pixelsPerDay: number
   rangePreset?: 'week' | 'month' | 'quarter' | 'year' | 'custom'
+  jobSearch?: string
   density?: 'compact' | 'comfortable'
 }) {
   const { toast } = useToast()
@@ -130,6 +132,16 @@ export function ActiveJobsPanel({
   const [editStart, setEditStart] = useState('')
   const [editEnd, setEditEnd] = useState('')
   const [saving, setSaving] = useState(false)
+
+  const normJobSearch = jobSearch.trim().toLowerCase()
+  const visibleJobs = useMemo(() => {
+    if (!normJobSearch) return jobs
+    return jobs.filter((j) => {
+      const num = String(j.jobNumber || '').toLowerCase()
+      const title = String(j.title || '').toLowerCase()
+      return num.includes(normJobSearch) || title.includes(normJobSearch)
+    })
+  }, [jobs, normJobSearch])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -292,7 +304,7 @@ export function ActiveJobsPanel({
   }, [useCalendarGrid, viewStart, viewEnd, rangeDays, dateToX])
 
   const bars = useMemo(() => {
-    return jobs.map((j) => {
+    return visibleJobs.map((j) => {
       const a = new Date(j.startDate).getTime()
       const b = new Date(j.endDate).getTime()
       const rs = rangeStart.getTime()
@@ -340,7 +352,7 @@ export function ActiveJobsPanel({
       const width = Math.max(right - left, 4)
       return { job: j, visible: true as const, left, width, markers }
     })
-  }, [jobs, rangeStart, rangeEnd, viewStart, totalMs, dateToX, useCalendarGrid])
+  }, [visibleJobs, rangeStart, rangeEnd, viewStart, totalMs, dateToX, useCalendarGrid])
 
   const saveDates = async () => {
     if (!editJob) return
@@ -396,15 +408,17 @@ export function ActiveJobsPanel({
         <CardContent>
           {loading && jobs.length === 0 ? (
             <div className="text-sm text-muted-foreground py-10 text-center">Loading…</div>
-          ) : jobs.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-10 text-center">No active jobs found.</div>
+          ) : visibleJobs.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-10 text-center">
+              {jobs.length === 0 ? 'No active jobs found.' : 'No jobs match your search.'}
+            </div>
           ) : (
             <div className="flex rounded-lg border bg-card">
               <div className={`shrink-0 border-r bg-muted/40 ${density === 'comfortable' ? 'w-[26rem] min-w-[26rem]' : 'w-80 min-w-[20rem]'}`}>
                 <div className="h-11 min-h-[44px] border-b flex items-center px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Job
                 </div>
-                {jobs.map((j) => (
+                {visibleJobs.map((j) => (
                   <div
                     key={j.id}
                     className="border-b flex flex-col justify-center px-3 text-sm"

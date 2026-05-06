@@ -865,11 +865,16 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
         users={users}
       />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Deliverables</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <details className="group rounded-lg border bg-card" open>
+        <summary className="cursor-pointer select-none px-6 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Section</p>
+            <p className="text-base font-semibold">Deliverables</p>
+          </div>
+          <span className="text-xs text-muted-foreground group-open:hidden">Show</span>
+          <span className="text-xs text-muted-foreground hidden group-open:inline">Hide</span>
+        </summary>
+        <div className="px-6 pb-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="rounded-lg border bg-muted/20 p-3">
               <div className="text-xs text-muted-foreground">PM hours</div>
@@ -886,7 +891,10 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
           </div>
 
           <DeliverablesTimeline
-            tasks={deliverableTasks}
+            tasks={deliverableTasks.map((d) => ({
+              ...d,
+              groupCode: d.laborCodeId ? (laborCodes.find((lc) => lc.id === d.laborCodeId)?.code || '').slice(0, 2) : null,
+            }))}
             selectedTaskId={selectedDeliverableTaskId}
             onSelectTaskId={(id) => setSelectedDeliverableTaskId(id)}
           />
@@ -968,8 +976,8 @@ export function JobDetailsClient({ jobId, jobNumber, laborCodes, timeEntries, qu
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </details>
 
       {/* Old deliverables + quoted labor schedule removed */}
 

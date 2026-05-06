@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format, isValid } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { sameLocalCalendarDay, TWELVE_MONTH_GRID_STYLE } from '@/lib/schedule-year-strip'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 type DeliverableLike = {
   id: string
@@ -8,10 +11,13 @@ type DeliverableLike = {
   taskCodeDescription: string | null
   dueDate: string | null
   estimatedHours: number | null
+  groupCode: string | null
 }
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
+
+const YEAR_GRID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
 
 function startOfLocalDay(d: Date) {
   const x = new Date(d)
@@ -32,10 +38,38 @@ function startOfLocalMonth(d: Date) {
   return x
 }
 
+function startOfLocalWeekSunday(d: Date) {
+  const x = new Date(d)
+  const day = x.getDay()
+  x.setDate(x.getDate() - day)
+  x.setHours(0, 0, 0, 0)
+  return x
+}
+
 function addLocalMonths(d: Date, months: number) {
   const x = new Date(d)
   x.setMonth(x.getMonth() + months)
   return x
+}
+
+function endOfLocalDay(d: Date) {
+  const x = new Date(d)
+  x.setHours(23, 59, 59, 999)
+  return x
+}
+
+function toDateInputValue(d: Date) {
+  const x = new Date(d)
+  const y = x.getFullYear()
+  const m = String(x.getMonth() + 1).padStart(2, '0')
+  const day = String(x.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function parseDateInputLocal(isoDate: string, endOfDay: boolean) {
+  const [y, mo, da] = isoDate.split('-').map(Number)
+  if (!y || !mo || !da) return null
+  return new Date(y, mo - 1, da, endOfDay ? 23 : 0, endOfDay ? 59 : 0, endOfDay ? 59 : 0, endOfDay ? 999 : 0)
 }
 
 function useElementWidth<T extends HTMLElement>() {
@@ -64,7 +98,10 @@ export function DeliverablesTimeline({
   selectedTaskId: string | null
   onSelectTaskId: (id: string | null) => void
 }) {
-  const [rangePreset, setRangePreset] = useState<'week' | 'month' | 'quarter' | 'year'>('month')
+  const [rangePreset, setRangePreset] = useState<'week' | 'month' | 'quarter' | 'year' | 'custom'>('month')
+  const today = useMemo(() => startOfLocalDay(new Date()), [])
+  const [rangeStartInput, setRangeStartInput] = useState(() => toDateInputValue(addLocalDays(today, -16)))
+  const [rangeEndInput, setRangeEndInput] = useState(() => toDateInputValue(addLocalDays(today, 16)))
 
   const points = useMemo(() => {
     const byGroup = new Map<
@@ -85,9 +122,9 @@ export function DeliverablesTimeline({
       })
       .filter((t) => !!t.code)
 
-    // Aggregate to high-level groups (first 2 letters of taskCode: PM/AD/SV/etc)
+    // Aggregate to high-level groups (prefer groupCode, otherwise first 2 letters of taskCode)
     for (const r of rows) {
-      const g = r.code.slice(0, 2).toUpperCase() || '??'
+      const g = (r.groupCode || r.code.slice(0, 2)).toUpperCase() || '??'
       const cur = byGroup.get(g)
       // Pick a representative underlying task id for selection.
       // Prefer the earliest due date when present; otherwise keep the first seen.
@@ -130,26 +167,83 @@ export function DeliverablesTimeline({
     }
   }, [tasks])
 
-  const today = useMemo(() => startOfLocalDay(new Date()), [])
   const mid = useMemo(() => {
     if (rangePreset === 'year') return today
     if (points.min && points.max) return new Date((points.min.getTime() + points.max.getTime()) / 2)
     return points.min || points.max || today
   }, [points.min, points.max, rangePreset, today])
 
-  const viewStart = useMemo(() => {
-    if (rangePreset === 'year') return new Date(mid.getFullYear(), 0, 1, 0, 0, 0, 0)
-    if (rangePreset === 'quarter') return addLocalDays(startOfLocalDay(mid), -45)
-    if (rangePreset === 'month') return addLocalDays(startOfLocalDay(mid), -16)
-    return addLocalDays(startOfLocalDay(mid), -4)
+  const presetBounds = useMemo(() => {
+    if (rangePreset === 'custom') return null
+    if (rangePreset === 'year') {
+      const y = mid.getFullYear()
+      return { start: new Date(y, 0, 1, 0, 0, 0, 0), end: new Date(y, 11, 31, 23, 59, 59, 999) }
+    }
+    if (rangePreset === 'quarter') {
+      const q = Math.floor(mid.getMonth() / 3)
+      const start = new Date(mid.getFullYear(), q * 3, 1, 0, 0, 0, 0)
+      const end = new Date(mid.getFullYear(), q * 3 + 3, 0, 23, 59, 59, 999)
+      return { start, end }
+    }
+    if (rangePreset === 'month') {
+      const start = startOfLocalWeekSunday(mid)
+      const end = endOfLocalDay(addLocalDays(start, 27))
+      return { start, end }
+    }
+    // week
+    const start = startOfLocalWeekSunday(mid)
+    const end = endOfLocalDay(addLocalDays(start, 6))
+    return { start, end }
   }, [rangePreset, mid])
 
+  const viewStart = useMemo(() => {
+    if (rangePreset === 'custom') {
+      const s = parseDateInputLocal(rangeStartInput, false)
+      const e = parseDateInputLocal(rangeEndInput, true)
+      if (!s || !e || e.getTime() <= s.getTime()) return startOfLocalDay(today)
+      return startOfLocalDay(s)
+    }
+    return presetBounds?.start ?? startOfLocalDay(today)
+  }, [rangePreset, rangeStartInput, rangeEndInput, presetBounds, today])
+
   const viewEnd = useMemo(() => {
-    if (rangePreset === 'year') return new Date(mid.getFullYear(), 11, 31, 23, 59, 59, 999)
-    if (rangePreset === 'quarter') return addLocalDays(startOfLocalDay(mid), 45)
-    if (rangePreset === 'month') return addLocalDays(startOfLocalDay(mid), 16)
-    return addLocalDays(startOfLocalDay(mid), 4)
-  }, [rangePreset, mid])
+    if (rangePreset === 'custom') {
+      const s = parseDateInputLocal(rangeStartInput, false)
+      const e = parseDateInputLocal(rangeEndInput, true)
+      if (!s || !e || e.getTime() <= s.getTime()) return endOfLocalDay(addLocalDays(startOfLocalDay(today), 14))
+      return e
+    }
+    return presetBounds?.end ?? endOfLocalDay(addLocalDays(startOfLocalDay(today), 14))
+  }, [rangePreset, rangeStartInput, rangeEndInput, presetBounds, today])
+
+  const applyPreset = (p: 'week' | 'month' | 'quarter' | 'year') => {
+    setRangePreset(p)
+    const b =
+      p === 'custom'
+        ? null
+        : p === 'year'
+          ? { start: new Date(mid.getFullYear(), 0, 1, 0, 0, 0, 0), end: new Date(mid.getFullYear(), 11, 31, 23, 59, 59, 999) }
+          : p === 'quarter'
+            ? (() => {
+                const q = Math.floor(mid.getMonth() / 3)
+                const start = new Date(mid.getFullYear(), q * 3, 1, 0, 0, 0, 0)
+                const end = new Date(mid.getFullYear(), q * 3 + 3, 0, 23, 59, 59, 999)
+                return { start, end }
+              })()
+            : p === 'month'
+              ? (() => {
+                  const start = startOfLocalWeekSunday(mid)
+                  return { start, end: endOfLocalDay(addLocalDays(start, 27)) }
+                })()
+              : (() => {
+                  const start = startOfLocalWeekSunday(mid)
+                  return { start, end: endOfLocalDay(addLocalDays(start, 6)) }
+                })()
+    const start = b?.start ?? startOfLocalDay(today)
+    const end = b?.end ?? endOfLocalDay(addLocalDays(startOfLocalDay(today), 14))
+    setRangeStartInput(toDateInputValue(start))
+    setRangeEndInput(toDateInputValue(end))
+  }
 
   const totalMs = Math.max(viewEnd.getTime() - viewStart.getTime(), HOUR_MS)
   const rangeDays = totalMs / DAY_MS
@@ -165,22 +259,44 @@ export function DeliverablesTimeline({
     [viewStart, totalMs, timelineWidth]
   )
 
-  const isYearLike = rangePreset === 'year' || rangeDays >= 300
+  const YEAR_GRID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
 
-  const yearCols = useMemo(() => {
-    if (rangePreset !== 'year') return []
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    const w = timelineWidth / 12
-    return months.map((label, i) => ({
-      left: i * w,
-      width: w,
-      mid: (i + 0.5) * w,
-      label,
-      alt: i % 2 === 1,
-    }))
-  }, [rangePreset, timelineWidth])
+  const calendarLabels = useMemo(() => {
+    if (rangePreset === 'custom') return null
+    if (rangePreset === 'year') return [...YEAR_GRID_MONTHS]
+    if (rangePreset === 'quarter') {
+      const q = Math.floor(mid.getMonth() / 3)
+      return YEAR_GRID_MONTHS.slice(q * 3, q * 3 + 3)
+    }
+    if (rangePreset === 'month') {
+      const w0 = startOfLocalWeekSunday(viewStart)
+      return Array.from({ length: 4 }, (_, i) => {
+        const ws = addLocalDays(w0, i * 7)
+        return ws.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      })
+    }
+    // week
+    const d0 = startOfLocalDay(viewStart)
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = addLocalDays(d0, i)
+      return d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' })
+    })
+  }, [rangePreset, mid, viewStart])
+
+  const useCalendarGrid = !!calendarLabels
+
+  const gridStyle = useMemo(() => {
+    if (!calendarLabels) return undefined
+    return {
+      display: 'grid',
+      gridTemplateColumns: `repeat(${calendarLabels.length}, minmax(0, 1fr))`,
+      width: '100%',
+      minWidth: 0,
+    } as const
+  }, [calendarLabels])
 
   const dayTicks = useMemo(() => {
+    if (useCalendarGrid) return []
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
     const first = startOfLocalDay(viewStart)
@@ -196,10 +312,10 @@ export function DeliverablesTimeline({
       arr.push({ x: dateToX(d), label, isMajor })
     }
     return arr
-  }, [viewStart, viewEnd, dateToX, rangeDays])
+  }, [useCalendarGrid, viewStart, viewEnd, dateToX, rangeDays])
 
   const monthLines = useMemo(() => {
-    if (isYearLike) return []
+    if (useCalendarGrid) return []
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
     const first = startOfLocalMonth(viewStart)
@@ -212,12 +328,13 @@ export function DeliverablesTimeline({
       arr.push({ x: dateToX(m), label: m.toLocaleDateString(undefined, { month: 'short' }) })
     }
     return arr
-  }, [isYearLike, viewStart, viewEnd, dateToX])
+  }, [useCalendarGrid, viewStart, viewEnd, dateToX])
 
   const majorTickLabels = useMemo(() => {
-    if (isYearLike) return []
+    if (useCalendarGrid) return []
     const majors = dayTicks.filter((t) => t.isMajor && t.label)
-    const minPx = rangePreset === 'week' ? 64 : rangePreset === 'month' ? 90 : 120
+    const minPx =
+      rangePreset === 'week' ? 64 : rangePreset === 'month' ? 90 : rangePreset === 'custom' ? (rangeDays > 120 ? 120 : 90) : 120
     const kept: typeof majors = []
     let last = -Infinity
     for (const t of majors) {
@@ -227,11 +344,11 @@ export function DeliverablesTimeline({
       }
     }
     return kept
-  }, [dayTicks, isYearLike, rangePreset])
+  }, [dayTicks, useCalendarGrid, rangePreset, rangeDays])
 
   const weekendBands = useMemo(() => {
-    if (isYearLike) return []
-    if (rangePreset === 'quarter') return []
+    if (useCalendarGrid) return []
+    if (rangePreset === 'quarter' || rangePreset === 'custom') return []
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
     const first = startOfLocalDay(viewStart)
@@ -255,19 +372,13 @@ export function DeliverablesTimeline({
       bands.push({ left, width })
     }
     return bands
-  }, [isYearLike, rangePreset, viewStart, viewEnd, rangeDays, dateToX])
+  }, [useCalendarGrid, rangePreset, viewStart, viewEnd, rangeDays, dateToX])
 
-  if (points.rows.length === 0) {
-    return (
-      <div className="rounded-lg border bg-muted/10 p-3 text-sm text-muted-foreground">
-        No deliverables selected yet.
-      </div>
-    )
-  }
+  const isEmpty = points.rows.length === 0
 
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b bg-muted/20 text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-1 items-center">
+    <div className="w-full max-w-none rounded-lg border bg-card overflow-hidden">
+      <div className="px-3 py-2 border-b bg-muted/20 text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-2 items-center">
         <div className="font-medium text-foreground">Deliverables timeline</div>
         <div>
           Range: {format(viewStart, 'MMM d, yyyy')} → {format(viewEnd, 'MMM d, yyyy')}
@@ -276,31 +387,69 @@ export function DeliverablesTimeline({
           <button
             type="button"
             className={cn('px-2 py-1 rounded border', rangePreset === 'week' ? 'bg-background text-foreground' : 'bg-transparent')}
-            onClick={() => setRangePreset('week')}
+            onClick={() => applyPreset('week')}
           >
             Week
           </button>
           <button
             type="button"
             className={cn('px-2 py-1 rounded border', rangePreset === 'month' ? 'bg-background text-foreground' : 'bg-transparent')}
-            onClick={() => setRangePreset('month')}
+            onClick={() => applyPreset('month')}
           >
             Month
           </button>
           <button
             type="button"
             className={cn('px-2 py-1 rounded border', rangePreset === 'quarter' ? 'bg-background text-foreground' : 'bg-transparent')}
-            onClick={() => setRangePreset('quarter')}
+            onClick={() => applyPreset('quarter')}
           >
             Quarter
           </button>
           <button
             type="button"
             className={cn('px-2 py-1 rounded border', rangePreset === 'year' ? 'bg-background text-foreground' : 'bg-transparent')}
-            onClick={() => setRangePreset('year')}
+            onClick={() => applyPreset('year')}
           >
             Year
           </button>
+        </div>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-[132px] space-y-1">
+            <Label className="text-[10px] text-muted-foreground">From</Label>
+            <Input
+              type="date"
+              className="h-8 text-[11px]"
+              value={rangeStartInput}
+              onChange={(e) => {
+                const v = e.target.value
+                setRangeStartInput(v)
+                const s = parseDateInputLocal(v, false)
+                const eEnd = parseDateInputLocal(rangeEndInput, true)
+                const y = mid.getFullYear()
+                const ys = new Date(y, 0, 1, 0, 0, 0, 0)
+                const ye = new Date(y, 11, 31, 23, 59, 59, 999)
+                setRangePreset(s && eEnd && sameLocalCalendarDay(s, ys) && sameLocalCalendarDay(eEnd, ye) ? 'year' : 'custom')
+              }}
+            />
+          </div>
+          <div className="w-[132px] space-y-1">
+            <Label className="text-[10px] text-muted-foreground">To</Label>
+            <Input
+              type="date"
+              className="h-8 text-[11px]"
+              value={rangeEndInput}
+              onChange={(e) => {
+                const v = e.target.value
+                setRangeEndInput(v)
+                const s = parseDateInputLocal(rangeStartInput, false)
+                const eEnd = parseDateInputLocal(v, true)
+                const y = mid.getFullYear()
+                const ys = new Date(y, 0, 1, 0, 0, 0, 0)
+                const ye = new Date(y, 11, 31, 23, 59, 59, 999)
+                setRangePreset(s && eEnd && sameLocalCalendarDay(s, ys) && sameLocalCalendarDay(eEnd, ye) ? 'year' : 'custom')
+              }}
+            />
+          </div>
         </div>
         <button
           type="button"
@@ -312,115 +461,136 @@ export function DeliverablesTimeline({
       </div>
 
       <div className="p-3 space-y-3">
-        <div ref={timelineRef} className="relative rounded-md border overflow-hidden bg-muted/10">
-          <div className="h-8 border-b bg-muted/20 relative">
-            {isYearLike ? (
-              <>
-                {yearCols.map((m) => (
-                  <div
-                    key={m.label}
-                    className={cn('absolute top-0 bottom-0 border-r', m.alt ? 'bg-muted/10' : '')}
-                    style={{ left: m.left, width: m.width }}
-                  />
-                ))}
-                {yearCols.map((m) => (
-                  <div
-                    key={`label-${m.label}`}
-                    className="absolute top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground"
-                    style={{ left: m.mid, transform: 'translate(-50%,-50%)' }}
-                  >
-                    {m.label}
-                  </div>
-                ))}
-              </>
-            ) : (
-              <>
-                {weekendBands.map((b, idx) => (
-                  <div
-                    key={`wk-${idx}`}
-                    className="absolute top-0 bottom-0 bg-muted/20"
-                    style={{ left: b.left, width: b.width }}
-                  />
-                ))}
-                {monthLines.map((m, idx) => (
-                  <div key={`ml-${idx}`} className="absolute top-0 bottom-0 border-r border-border/80" style={{ left: m.x }} />
-                ))}
-                {dayTicks.map((t, idx) => (
-                  <div
-                    key={`dl-${idx}`}
-                    className={cn('absolute top-0 bottom-0 border-r', t.isMajor ? 'border-border/80' : 'border-border/30')}
-                    style={{ left: t.x }}
-                  />
-                ))}
-                {majorTickLabels.map((t, idx) => (
-                  <div key={`lbl-${idx}`} className="absolute top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground" style={{ left: t.x + 6 }}>
-                    {t.label}
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
+        {isEmpty ? (
+          <div className="rounded-lg border bg-muted/10 p-3 text-sm text-muted-foreground">No deliverables selected yet.</div>
+        ) : (
+          <>
+            <div ref={timelineRef} className="relative w-full min-w-0 rounded-md border overflow-hidden bg-muted/10">
+              <div
+                className={
+                  useCalendarGrid ? 'h-8 border-b bg-muted/20 [&>*]:min-w-0' : 'h-8 border-b bg-muted/20 relative'
+                }
+                style={useCalendarGrid ? gridStyle : undefined}
+              >
+                {useCalendarGrid && calendarLabels ? (
+                  calendarLabels.map((label, i) => (
+                    <div
+                      key={label}
+                      className={cn(
+                        'flex items-center justify-center border-r border-border/80 text-[11px] text-muted-foreground',
+                        i % 2 === 1 ? 'bg-muted/10' : ''
+                      )}
+                    >
+                      {label}
+                    </div>
+                  ))
+                ) : null}
+                {!useCalendarGrid ? (
+                  <>
+                    {weekendBands.map((b, idx) => (
+                      <div
+                        key={`wk-${idx}`}
+                        className="absolute top-0 bottom-0 bg-muted/20"
+                        style={{ left: b.left, width: b.width }}
+                      />
+                    ))}
+                    {monthLines.map((m, idx) => (
+                      <div key={`ml-${idx}`} className="absolute top-0 bottom-0 border-r border-border/80" style={{ left: m.x }} />
+                    ))}
+                    {dayTicks.map((t, idx) => (
+                      <div
+                        key={`dl-${idx}`}
+                        className={cn('absolute top-0 bottom-0 border-r', t.isMajor ? 'border-border/80' : 'border-border/30')}
+                        style={{ left: t.x }}
+                      />
+                    ))}
+                    {majorTickLabels.map((t, idx) => (
+                      <div key={`lbl-${idx}`} className="absolute top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground" style={{ left: t.x + 6 }}>
+                        {t.label}
+                      </div>
+                    ))}
+                  </>
+                ) : null}
+              </div>
 
-          <div className="relative">
-            <div className="absolute left-0 right-0 top-0 bottom-0 pointer-events-none">
-              {/* grid overlay - already drawn in header; keep row separators */}
+              <div className="relative">
+                <div className="absolute left-0 right-0 top-0 bottom-0 pointer-events-none">
+                  {/* grid overlay - already drawn in header; keep row separators */}
+                </div>
+                {points.rows.map((t) => {
+                  const isSelected = !!selectedTaskId && t.id === selectedTaskId
+                  const markerLeft: number | string = (() => {
+                    if (useCalendarGrid) {
+                      if (!t.due) return '98%'
+                      const frac = (t.due.getTime() - viewStart.getTime()) / totalMs
+                      const clamped = Math.max(0.03, Math.min(0.97, frac))
+                      return `${clamped * 100}%`
+                    }
+                    const x = t.due ? dateToX(t.due) : timelineWidth - 8
+                    return Math.max(14, Math.min(timelineWidth - 14, x))
+                  })()
+                  return (
+                    <div key={t.id} className="relative border-t" style={{ height: 44 }}>
+                      {useCalendarGrid && calendarLabels && gridStyle ? (
+                        <div className="absolute inset-0 z-0 pointer-events-none [&>*]:min-w-0" style={gridStyle}>
+                          {calendarLabels.map((label, i) => (
+                            <div key={`${t.id}-cg-${label}`} className={cn('border-r border-border/40', i % 2 === 1 ? 'bg-muted/10' : '')} />
+                          ))}
+                        </div>
+                      ) : null}
+                      <div className="absolute left-2 top-1/2 z-[1] -translate-y-1/2 text-xs font-mono text-muted-foreground">
+                        {t.taskCode}
+                      </div>
+                      <button
+                        type="button"
+                        className={cn(
+                          'absolute top-1/2 z-[1] -translate-y-1/2 -translate-x-1/2 h-7 px-2 rounded-md text-[11px] border shadow-sm flex items-center gap-2',
+                          isSelected
+                            ? 'bg-purple-700 border-purple-900 text-white'
+                            : 'bg-purple-600/90 border-purple-900/80 text-white hover:bg-purple-600'
+                        )}
+                        style={{ left: markerLeft }}
+                        onClick={() => onSelectTaskId(t.id)}
+                        title={`${t.taskCode}${t.taskCodeDescription ? ` · ${t.taskCodeDescription}` : ''}${t.due ? ` · due ${format(t.due, 'MMM d, yyyy')}` : ''}`}
+                      >
+                        {t.due ? <span className="opacity-90">{format(t.due, 'MMM d')}</span> : <span className="opacity-70">No date</span>}
+                        {t.hours ? <span className="opacity-90 tabular-nums">{t.hours.toFixed(1)}h</span> : null}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
-            {points.rows.map((t) => {
-              const isSelected = !!selectedTaskId && t.id === selectedTaskId
-              const x = t.due ? dateToX(t.due) : timelineWidth - 8
-              return (
-                <div key={t.id} className="relative border-t" style={{ height: 44 }}>
-                  <div className="absolute left-2 top-1/2 -translate-y-1/2 text-xs font-mono text-muted-foreground">
-                    {t.taskCode}
-                  </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {points.rows.slice(0, 6).map((t) => {
+                const isSelected = !!selectedTaskId && t.id === selectedTaskId
+                return (
                   <button
+                    key={`list-${t.id}`}
                     type="button"
                     className={cn(
-                      'absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-7 px-2 rounded-md text-[11px] border shadow-sm flex items-center gap-2',
-                      isSelected
-                        ? 'bg-purple-700 border-purple-900 text-white'
-                        : 'bg-purple-600/90 border-purple-900/80 text-white hover:bg-purple-600'
+                      'text-left rounded-md border px-3 py-2 hover:bg-muted/15 transition-colors',
+                      isSelected ? 'bg-muted/20 border-foreground/20' : 'bg-background'
                     )}
-                    style={{ left: x }}
                     onClick={() => onSelectTaskId(t.id)}
-                    title={`${t.taskCode}${t.taskCodeDescription ? ` · ${t.taskCodeDescription}` : ''}${t.due ? ` · due ${format(t.due, 'MMM d, yyyy')}` : ''}`}
                   >
-                    {t.due ? <span className="opacity-90">{format(t.due, 'MMM d')}</span> : <span className="opacity-70">No date</span>}
-                    {t.hours ? <span className="opacity-90 tabular-nums">{t.hours.toFixed(1)}h</span> : null}
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-xs font-mono truncate">{t.taskCode}</div>
+                        <div className="text-xs text-muted-foreground truncate">{t.taskCodeDescription || '—'}</div>
+                      </div>
+                      <div className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                        {t.due ? format(t.due, 'yyyy-MM-dd') : 'No date'}
+                        {t.hours ? ` · ${t.hours.toFixed(2)}h` : ''}
+                      </div>
+                    </div>
                   </button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {points.rows.slice(0, 6).map((t) => {
-            const isSelected = !!selectedTaskId && t.id === selectedTaskId
-            return (
-              <button
-                key={`list-${t.id}`}
-                type="button"
-                className={cn(
-                  'text-left rounded-md border px-3 py-2 hover:bg-muted/15 transition-colors',
-                  isSelected ? 'bg-muted/20 border-foreground/20' : 'bg-background'
-                )}
-                onClick={() => onSelectTaskId(t.id)}
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-xs font-mono truncate">{t.taskCode}</div>
-                    <div className="text-xs text-muted-foreground truncate">{t.taskCodeDescription || '—'}</div>
-                  </div>
-                  <div className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {t.due ? format(t.due, 'yyyy-MM-dd') : 'No date'}
-                    {t.hours ? ` · ${t.hours.toFixed(2)}h` : ''}
-                  </div>
-                </div>
-              </button>
-            )
-          })}
-        </div>
+                )
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

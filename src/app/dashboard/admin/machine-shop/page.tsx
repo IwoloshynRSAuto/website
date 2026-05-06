@@ -20,6 +20,7 @@ export default async function AdminMachineShopPage() {
         rangeEnd={rangeEnd}
         showBookings={false}
         showMachineManagement
+        showTimeline={false}
         pixelsPerDay={18}
       />
     </DashboardPageShell>

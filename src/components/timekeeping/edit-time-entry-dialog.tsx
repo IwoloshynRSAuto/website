@@ -130,10 +130,11 @@ export function EditTimeEntryDialog({ isOpen, onClose, timeEntry }: EditTimeEntr
 
   const fetchJobs = async () => {
     try {
-      const response = await fetch('/api/jobs')
+      const response = await fetch('/api/jobs?schedulePicker=true&sortOrder=asc&limit=1000')
       if (response.ok) {
         const data = await response.json()
-        setJobs(data)
+        const rows = (data?.jobs || data?.data || data || []) as any[]
+        setJobs(Array.isArray(rows) ? rows : [])
       }
     } catch (error) {
       console.error('Failed to fetch jobs:', error)
@@ -324,7 +325,7 @@ export function EditTimeEntryDialog({ isOpen, onClose, timeEntry }: EditTimeEntr
                   required
                   options={jobs.map(job => ({
                     value: job.id,
-                    label: `${job.jobNumber} - ${job.title}`,
+                    label: `${job.jobNumber} - ${job.title}${job.type === 'QUOTE' ? ' (Quote)' : ''}`,
                     searchText: `${job.jobNumber} ${job.title} ${job.status || ''}`
                   }))}
                   value={formData.jobId}

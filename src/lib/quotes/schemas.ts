@@ -55,6 +55,9 @@ export const updateQuoteSchema = z.object({
   materialCost: z.number().nonnegative().optional(),
   overheadCost: z.number().nonnegative().optional(),
   profitMargin: z.number().nonnegative().optional(),
+  customerContactName: z.string().optional().nullable(),
+  customerContactEmail: z.string().optional().nullable(),
+  customerContactPhone: z.string().optional().nullable(),
 })
 
 export const quoteStatusSchema = z.enum(['DRAFT', 'SENT', 'WON', 'LOST'])

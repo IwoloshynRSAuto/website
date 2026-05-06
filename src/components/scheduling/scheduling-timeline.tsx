@@ -102,6 +102,8 @@ type SchedulingTimelineProps = {
   ganttStyle?: boolean
   /** Left column title (default "Resource") */
   resourceLabel?: string
+  /** Compress to fit container width (no horizontal scroll). */
+  fitToWidth?: boolean
 }
 
 export function SchedulingTimeline({
@@ -117,20 +119,41 @@ export function SchedulingTimeline({
   className,
   ganttStyle = false,
   resourceLabel = 'Resource',
+  fitToWidth = false,
 }: SchedulingTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const laneRef = useRef<HTMLDivElement>(null)
+  const [containerW, setContainerW] = useState(0)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.floor(entries[0]?.contentRect?.width || 0)
+      setContainerW(w)
+    })
+    ro.observe(el)
+    setContainerW(Math.floor(el.getBoundingClientRect().width || 0))
+    return () => ro.disconnect()
+  }, [])
 
   const totalMs = Math.max(rangeEnd.getTime() - rangeStart.getTime(), 60_000)
   const rangeDays = totalMs / DAY_MS
   const snapMode = snapModeForRangeDays(rangeDays)
   const minSegMs = minSegmentMs(snapMode)
 
-  /** Big-picture: cap width for multi-week views so the chart fits on screen (time is compressed). */
+  /**
+   * Timeline width:
+   * - Always allow horizontal scrolling for long ranges (e.g. Year) so the right side (Aug–Dec) is reachable.
+   * - Still keeps short ranges readable by honoring pixelsPerHour.
+   */
   const hourSpacedWidth = (totalMs / HOUR_MS) * pixelsPerHour
-  const maxTimelineW = rangeDays >= 14 ? 1760 : rangeDays >= 3 ? 2200 : 28_000
-  const minTimelineW = Math.max(800, Math.ceil(rangeDays) * (rangeDays >= 14 ? 5 : 10))
-  const timelineWidth = Math.min(Math.max(hourSpacedWidth, minTimelineW), maxTimelineW)
+  const pxPerDay = Math.max(2, Math.round((pixelsPerHour * 24) / (snapMode === 'week' ? 7 : 1)))
+  const daySpacedWidth = Math.ceil(rangeDays * pxPerDay)
+  const minTimelineW = 800
+  const maxTimelineW = 28_000
+  const computedWidth = Math.min(Math.max(hourSpacedWidth, daySpacedWidth, minTimelineW), maxTimelineW)
+  const timelineWidth = fitToWidth ? Math.max(minTimelineW, containerW || minTimelineW) : computedWidth
 
   const xToDateRaw = useCallback(
     (x: number) => {
@@ -466,7 +489,7 @@ export function SchedulingTimeline({
   }
 
   return (
-    <div className={cn('flex rounded-lg border bg-card overflow-hidden shadow-sm', className)}>
+    <div className={cn('flex rounded-lg border bg-card shadow-sm', className)}>
       <div className={cn('shrink-0 border-r bg-muted/40', ganttStyle ? 'w-56 min-w-[14rem]' : 'w-44')}>
         <div className="h-[52px] min-h-[52px] border-b flex items-center px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           {resourceLabel}
@@ -483,7 +506,7 @@ export function SchedulingTimeline({
         ))}
       </div>
 
-      <div ref={scrollRef} className="flex-1 overflow-x-auto overflow-y-hidden">
+      <div ref={scrollRef} className={cn('flex-1 overflow-y-hidden', fitToWidth ? 'overflow-x-hidden' : 'overflow-x-auto')}>
         <div style={{ width: timelineWidth }} className="relative">
           {ganttStyle ? (
             <>

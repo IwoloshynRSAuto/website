@@ -120,11 +120,12 @@ function parseDateInputLocal(isoDate: string, endOfDay: boolean) {
   return d
 }
 
-export function SchedulingApp() {
+export function SchedulingApp({ initialTab = 'portfolio' }: { initialTab?: 'portfolio' | 'machines' }) {
   const [rangePreset, setRangePreset] = useState<RangePreset>('year')
   const [rangeStart, setRangeStart] = useState(() => applyRangePreset('year').start)
   const [rangeEnd, setRangeEnd] = useState(() => applyRangePreset('year').end)
   const [density, setDensity] = useState<'compact' | 'comfortable'>('comfortable')
+  const [jobSearch, setJobSearch] = useState('')
 
   const setPreset = (p: Exclude<RangePreset, 'custom'>) => {
     setRangePreset(p)
@@ -267,13 +268,36 @@ export function SchedulingApp() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="portfolio" className="space-y-4">
+      <Tabs defaultValue={initialTab} className="space-y-4">
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="portfolio">Active jobs</TabsTrigger>
           <TabsTrigger value="machines">Machine shop</TabsTrigger>
         </TabsList>
         <TabsContent value="portfolio" className="mt-4 space-y-4 w-full min-w-0 max-w-none">
-          <ActiveJobsPanel rangeStart={rangeStart} rangeEnd={rangeEnd} pixelsPerDay={pixelsPerDay} rangePreset={rangePreset} density={density} />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex-1 space-y-1">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600/90">Search</p>
+              <Input
+                value={jobSearch}
+                onChange={(e) => setJobSearch(e.target.value)}
+                placeholder="Search job number or title…"
+                className="h-9"
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button type="button" variant="outline" size="sm" className="h-9" onClick={() => setJobSearch('')}>
+                Clear
+              </Button>
+            </div>
+          </div>
+          <ActiveJobsPanel
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            pixelsPerDay={pixelsPerDay}
+            rangePreset={rangePreset}
+            density={density}
+            jobSearch={jobSearch}
+          />
         </TabsContent>
         <TabsContent value="machines" className="mt-4 space-y-4 w-full min-w-0 max-w-none">
           <MachineShopPanel
