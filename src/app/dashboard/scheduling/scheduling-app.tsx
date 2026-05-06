@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { paddedVisibleYearBounds, matchesScheduleYearVisibleRange } from '@/lib/schedule-year-strip'
 import { ActiveJobsPanel } from './active-jobs-panel'
 import { MachineShopPanel } from './machine-shop-panel'
 
@@ -35,6 +36,12 @@ function endOfMonth(d: Date) {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999)
 }
 
+function endOfDay(d: Date) {
+  const x = new Date(d)
+  x.setHours(23, 59, 59, 999)
+  return x
+}
+
 function startOfQuarter(d: Date) {
   const q = Math.floor(d.getMonth() / 3)
   return new Date(d.getFullYear(), q * 3, 1, 0, 0, 0, 0)
@@ -57,13 +64,15 @@ function endOfYear(d: Date) {
 type RangePreset = 'month' | 'quarter' | 'year' | 'week' | 'custom'
 
 const RANGE_MIN_SPAN_MS = 2 * 86_400_000
-const YEAR_PAD_DAYS = 7
 
 function applyRangePreset(p: Exclude<RangePreset, 'custom'>): { start: Date; end: Date } {
   const now = new Date()
   if (p === 'month') {
-    const start = startOfMonth(now)
-    return { start, end: endOfMonth(now) }
+    // Rolling 4-week view (28 days), aligned to week boundary.
+    const start = startOfWeek(now)
+    const end = new Date(start)
+    end.setDate(end.getDate() + 27)
+    return { start, end: endOfDay(end) }
   }
   if (p === 'quarter') {
     const start = startOfQuarter(now)
@@ -73,14 +82,7 @@ function applyRangePreset(p: Exclude<RangePreset, 'custom'>): { start: Date; end
     return { start: startOfWeek(now), end: endOfWeek(now) }
   }
   if (p === 'year') {
-    // Add padding so Year view feels “zoomed out” without horizontal scrolling.
-    const start = startOfYear(now)
-    const end = endOfYear(now)
-    const s = new Date(start)
-    s.setDate(s.getDate() - YEAR_PAD_DAYS)
-    const e = new Date(end)
-    e.setDate(e.getDate() + YEAR_PAD_DAYS)
-    return { start: s, end: e }
+    return paddedVisibleYearBounds(now)
   }
   return { start: startOfYear(now), end: endOfYear(now) }
 }
@@ -119,9 +121,9 @@ function parseDateInputLocal(isoDate: string, endOfDay: boolean) {
 }
 
 export function SchedulingApp() {
-  const [rangePreset, setRangePreset] = useState<RangePreset>('quarter')
-  const [rangeStart, setRangeStart] = useState(() => applyRangePreset('quarter').start)
-  const [rangeEnd, setRangeEnd] = useState(() => applyRangePreset('quarter').end)
+  const [rangePreset, setRangePreset] = useState<RangePreset>('year')
+  const [rangeStart, setRangeStart] = useState(() => applyRangePreset('year').start)
+  const [rangeEnd, setRangeEnd] = useState(() => applyRangePreset('year').end)
   const [density, setDensity] = useState<'compact' | 'comfortable'>('comfortable')
 
   const setPreset = (p: Exclude<RangePreset, 'custom'>) => {
@@ -232,10 +234,10 @@ export function SchedulingApp() {
                   onChange={(e) => {
                     const d = parseDateInputLocal(e.target.value, false)
                     if (!d) return
-                    setRangePreset('custom')
                     const next = normalizeRangeBounds(d, rangeEnd)
                     setRangeStart(next.start)
                     setRangeEnd(next.end)
+                    setRangePreset(matchesScheduleYearVisibleRange(next.start, next.end) ? 'year' : 'custom')
                   }}
                 />
               </div>
@@ -248,10 +250,10 @@ export function SchedulingApp() {
                   onChange={(e) => {
                     const d = parseDateInputLocal(e.target.value, true)
                     if (!d) return
-                    setRangePreset('custom')
                     const next = normalizeRangeBounds(rangeStart, d)
                     setRangeStart(next.start)
                     setRangeEnd(next.end)
+                    setRangePreset(matchesScheduleYearVisibleRange(next.start, next.end) ? 'year' : 'custom')
                   }}
                 />
               </div>
@@ -270,10 +272,10 @@ export function SchedulingApp() {
           <TabsTrigger value="portfolio">Active jobs</TabsTrigger>
           <TabsTrigger value="machines">Machine shop</TabsTrigger>
         </TabsList>
-        <TabsContent value="portfolio" className="mt-4 space-y-4">
+        <TabsContent value="portfolio" className="mt-4 space-y-4 w-full min-w-0 max-w-none">
           <ActiveJobsPanel rangeStart={rangeStart} rangeEnd={rangeEnd} pixelsPerDay={pixelsPerDay} rangePreset={rangePreset} density={density} />
         </TabsContent>
-        <TabsContent value="machines" className="mt-4 space-y-4">
+        <TabsContent value="machines" className="mt-4 space-y-4 w-full min-w-0 max-w-none">
           <MachineShopPanel
             rangeStart={rangeStart}
             rangeEnd={rangeEnd}

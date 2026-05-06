@@ -18,10 +18,23 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
+import { matchesScheduleYearVisibleRange } from '@/lib/schedule-year-strip'
 import { roundToNearest15Minutes } from '@/lib/utils/time-rounding'
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
+
+const YEAR_GRID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+
+function gridStyle(cols: number) {
+  return {
+    display: 'grid',
+    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    width: '100%',
+    minWidth: 0,
+  } as const
+}
 
 type PhaseOpt = { id: string; code: string; name: string }
 
@@ -81,6 +94,14 @@ function startOfLocalDay(d: Date) {
 function addLocalDays(d: Date, days: number) {
   const x = new Date(d)
   x.setDate(x.getDate() + days)
+  return x
+}
+
+function startOfLocalWeekSunday(d: Date) {
+  const x = new Date(d)
+  const day = x.getDay()
+  x.setDate(x.getDate() - day)
+  x.setHours(0, 0, 0, 0)
   return x
 }
 
@@ -263,35 +284,51 @@ export function MachineShopPanel({
   const totalMs = Math.max(viewEnd.getTime() - viewStart.getTime(), HOUR_MS)
   const rangeDays = totalMs / DAY_MS
   const { ref: timelineRef, width: timelineW } = useElementWidth<HTMLDivElement>()
-  // Prevent “everything at x=0” during first paint / resize glitches.
-  const timelineWidth = Math.max(1, timelineW || 1200)
-  const dateToX = useCallback(
+  // For calendar grid modes (Year/Quarter) we compress time to fit width (no horizontal scroll).
+  const contentWidth = Math.max(1, timelineW || 1200)
+  const dateToFrac = useCallback(
     (d: Date) => {
       const frac = (d.getTime() - viewStart.getTime()) / totalMs
-      return Math.max(0, Math.min(timelineWidth, frac * timelineWidth))
+      return Math.max(0, Math.min(1, frac))
     },
-    [viewStart, totalMs, timelineWidth]
+    [viewStart, totalMs]
+  )
+
+  const dateToX = useCallback(
+    (d: Date) => dateToFrac(d) * contentWidth,
+    [dateToFrac, contentWidth]
   )
 
   const rowHeight = density === 'comfortable' ? 44 : 34
   const headerH = 40
 
-  const isYearLike = rangePreset === 'year' || rangeDays >= 300 || pixelsPerDay <= 7
-
-  const yearCols = useMemo(() => {
-    if (rangePreset !== 'year') return []
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    const w = timelineWidth / 12
-    return months.map((label, i) => ({
-      left: i * w,
-      width: w,
-      mid: (i + 0.5) * w,
-      label,
-      alt: i % 2 === 1,
-    }))
-  }, [rangePreset, timelineWidth])
+  const calendarLabels = useMemo(() => {
+    if (rangePreset === 'year') return YEAR_GRID_MONTHS
+    if (rangePreset === 'quarter') {
+      const q = Math.floor(viewStart.getMonth() / 3)
+      return YEAR_GRID_MONTHS.slice(q * 3, q * 3 + 3)
+    }
+    if (rangePreset === 'month') {
+      const w0 = startOfLocalWeekSunday(viewStart)
+      return Array.from({ length: 4 }, (_, i) => {
+        const ws = addLocalDays(w0, i * 7)
+        return ws.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      })
+    }
+    if (rangePreset === 'week') {
+      const d0 = new Date(viewStart)
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = addLocalDays(d0, i)
+        return d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' })
+      })
+    }
+    if (matchesScheduleYearVisibleRange(rangeStart, rangeEnd)) return YEAR_GRID_MONTHS
+    return null
+  }, [rangePreset, viewStart, rangeStart, rangeEnd])
+  const useCalendarGrid = !!calendarLabels
 
   const dayTicks = useMemo(() => {
+    if (useCalendarGrid) return []
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
     const first = startOfLocalDay(viewStart)
@@ -307,10 +344,10 @@ export function MachineShopPanel({
       arr.push({ x: dateToX(d), label, isMajor })
     }
     return arr
-  }, [viewStart, viewEnd, dateToX, rangeDays])
+  }, [useCalendarGrid, viewStart, viewEnd, dateToX, rangeDays])
 
   const monthLines = useMemo(() => {
-    if (isYearLike) return []
+    if (useCalendarGrid) return []
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
     const first = startOfLocalMonth(viewStart)
@@ -323,10 +360,10 @@ export function MachineShopPanel({
       arr.push({ x: dateToX(m), label: m.toLocaleDateString(undefined, { month: 'short' }) })
     }
     return arr
-  }, [isYearLike, viewStart, viewEnd, dateToX])
+  }, [useCalendarGrid, viewStart, viewEnd, dateToX])
 
   const majorTickLabels = useMemo(() => {
-    if (isYearLike) return []
+    if (useCalendarGrid) return []
     const majors = dayTicks.filter((t) => t.isMajor && t.label)
     const minPx = pixelsPerDay >= 18 ? 72 : pixelsPerDay >= 14 ? 88 : 110
     const kept: typeof majors = []
@@ -338,10 +375,10 @@ export function MachineShopPanel({
       }
     }
     return kept
-  }, [dayTicks, isYearLike, pixelsPerDay])
+  }, [dayTicks, useCalendarGrid, pixelsPerDay])
 
   const weekendBands = useMemo(() => {
-    if (isYearLike) return []
+    if (useCalendarGrid) return []
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
     const first = startOfLocalDay(viewStart)
@@ -365,44 +402,7 @@ export function MachineShopPanel({
       bands.push({ left, width })
     }
     return bands
-  }, [isYearLike, viewStart, viewEnd, rangeDays, dateToX])
-
-  const monthBands = useMemo(() => {
-    if (!isYearLike) return []
-    if (rangePreset === 'year') return yearCols
-    const rs = viewStart.getTime()
-    const re = viewEnd.getTime()
-    const year = mid.getFullYear()
-    const first = rangePreset === 'year' ? new Date(year, 0, 1, 0, 0, 0, 0) : startOfLocalMonth(viewStart)
-    const arr: Array<{ left: number; width: number; mid: number; label: string; alt: boolean }> = []
-    const maxMonths = rangePreset === 'year' ? 12 : 24
-    for (let i = 0; i < maxMonths; i++) {
-      const m0 = addLocalMonths(first, i)
-      const m1 = addLocalMonths(first, i + 1)
-      const a = m0.getTime()
-      const b = m1.getTime()
-      if (b < rs) continue
-      if (a > re) break
-      const lo = Math.max(a, rs)
-      const hi = Math.min(b, re)
-      if (hi <= lo) continue
-      const left = dateToX(new Date(lo))
-      const right = dateToX(new Date(hi))
-      const width = Math.max(right - left, 1)
-      const label = m0.toLocaleDateString(undefined, { month: 'short' })
-      arr.push({ left, width, mid: left + width / 2, label, alt: i % 2 === 1 })
-    }
-    return arr
-  }, [isYearLike, viewStart, viewEnd, dateToX, rangePreset, mid, yearCols])
-
-  const monthLabelPositions = useMemo(() => {
-    if (!isYearLike) return []
-    const pad = 18
-    return monthBands.map((m) => ({
-      ...m,
-      x: Math.max(pad, Math.min(timelineWidth - pad, m.mid)),
-    }))
-  }, [isYearLike, monthBands, timelineWidth])
+  }, [useCalendarGrid, viewStart, viewEnd, rangeDays, dateToX])
 
   const createMachine = async () => {
     if (!newMachineName.trim()) return
@@ -741,7 +741,7 @@ export function MachineShopPanel({
               No machines yet. Admins add and edit machines under Admin → Machine shop; then book time here on Schedule.
             </div>
           ) : (
-            <div className="flex rounded-lg border bg-card overflow-hidden">
+            <div className="flex rounded-lg border bg-card">
               <div className="shrink-0 w-48 min-w-[12rem] border-r bg-muted/40">
                 <div className="h-10 border-b flex items-center px-2 text-xs font-semibold uppercase text-muted-foreground">Machine</div>
                 {machines.map((m) => (
@@ -753,18 +753,30 @@ export function MachineShopPanel({
                   </div>
                 ))}
               </div>
-              <div className="flex-1 overflow-x-hidden">
-                <div ref={timelineRef} className="relative w-full">
-                  <div className="relative h-10 border-b bg-muted/20 text-[10px] text-muted-foreground">
-                    {isYearLike
-                      ? monthBands.map((m, i) => (
-                          <div key={`mmb-h-${i}`} className="absolute top-0 bottom-0 pointer-events-none" style={{ left: m.left, width: m.width }}>
-                            <div className={`absolute inset-0 ${m.alt ? 'bg-muted/30' : 'bg-transparent'}`} />
-                            <div className="absolute top-0 bottom-0 left-0 w-[2px] bg-foreground/35" />
-                            <div className="absolute top-0 bottom-0 right-0 w-[2px] bg-foreground/20" />
+              <div className="flex-1 min-w-0 overflow-x-hidden">
+                <div ref={timelineRef} className="relative w-full min-w-0">
+                  <div
+                    className={
+                      useCalendarGrid
+                        ? 'min-h-10 min-w-0 border-b bg-muted/20 text-[10px] text-muted-foreground [&>*]:min-w-0'
+                        : 'relative h-10 border-b bg-muted/20 text-[10px] text-muted-foreground w-full min-w-0'
+                    }
+                    style={useCalendarGrid && calendarLabels ? gridStyle(calendarLabels.length) : undefined}
+                  >
+                    {useCalendarGrid && calendarLabels
+                      ? calendarLabels.map((label, i) => (
+                          <div
+                            key={label}
+                            className={cn(
+                              'relative flex items-start justify-center pt-1 border-r border-foreground/20',
+                              i % 2 === 1 ? 'bg-muted/30' : ''
+                            )}
+                          >
+                            <span className="font-medium whitespace-nowrap">{label}</span>
                           </div>
                         ))
-                      : dayTicks.map((t, i) => (
+                      : null}
+                    {dayTicks.map((t, i) => (
                           <div
                             key={`mtick-${i}`}
                             className={`absolute top-0 bottom-0 w-px pointer-events-none ${
@@ -773,28 +785,14 @@ export function MachineShopPanel({
                             style={{ left: t.x }}
                           />
                         ))}
-                    {!isYearLike
-                      ? monthLines.map((m, i) => (
+                    {monthLines.map((m, i) => (
                           <div
                             key={`mmline-h-${i}`}
                             className="absolute top-0 bottom-0 w-[2px] bg-foreground/30 pointer-events-none z-[4]"
                             style={{ left: m.x }}
                           />
-                        ))
-                      : null}
-                    {isYearLike
-                      ? monthLabelPositions.map((m, i) => (
-                          <div
-                            key={`mmb-lbl-${i}`}
-                            className="absolute top-1 text-[10px] font-medium text-muted-foreground whitespace-nowrap pointer-events-none"
-                            style={{ left: m.x, transform: 'translateX(-50%)' }}
-                          >
-                            {m.label}
-                          </div>
-                        ))
-                      : null}
-                    {!isYearLike
-                      ? majorTickLabels.map((t, i) => (
+                        ))}
+                    {majorTickLabels.map((t, i) => (
                           <div
                             key={`mticklbl-${i}`}
                             className="absolute top-1 text-[10px] text-muted-foreground whitespace-nowrap pointer-events-none"
@@ -802,61 +800,63 @@ export function MachineShopPanel({
                           >
                             {t.label}
                           </div>
-                        ))
-                      : null}
+                        ))}
                   </div>
                   {machines.map((m) => (
                     <div key={m.id} className="relative border-b bg-background" style={{ height: rowHeight, width: '100%' }}>
-                      {!isYearLike
-                        ? weekendBands.map((w, i) => (
+                      {weekendBands.map((w, i) => (
                             <div
                               key={`${m.id}-wknd-${i}`}
                               className="absolute top-0 bottom-0 bg-muted/20 pointer-events-none"
                               style={{ left: w.left, width: w.width }}
                             />
-                          ))
-                        : null}
-                      {!isYearLike
-                        ? monthLines.map((ml, i) => (
+                          ))}
+                      {monthLines.map((ml, i) => (
                             <div
                               key={`${m.id}-mline-${i}`}
                               className="absolute top-0 bottom-0 w-[2px] bg-foreground/30 pointer-events-none z-[4]"
                               style={{ left: ml.x }}
                             />
-                          ))
-                        : null}
-                      {isYearLike
-                        ? monthBands.map((mb, i) => (
-                            <div key={`${m.id}-mb-${i}`} className="absolute top-0 bottom-0 pointer-events-none" style={{ left: mb.left, width: mb.width }}>
-                              <div className={`absolute inset-0 ${mb.alt ? 'bg-muted/10' : 'bg-transparent'}`} />
-                              <div className="absolute top-0 bottom-0 left-0 w-[2px] bg-foreground/20" />
-                              <div className="absolute top-0 bottom-0 right-0 w-[2px] bg-foreground/10" />
-                            </div>
-                          ))
-                        : dayTicks.map((t, i) => (
-                            <div
-                              key={`${m.id}-grid-${i}`}
-                              className={`absolute top-0 bottom-0 pointer-events-none ${
-                                t.isMajor ? 'w-[2px] bg-foreground/25 z-[3]' : 'w-px bg-foreground/10'
-                              }`}
-                              style={{ left: t.x }}
-                            />
                           ))}
+                      {useCalendarGrid && calendarLabels ? (
+                        <div className="absolute inset-0 z-0 pointer-events-none [&>*]:min-w-0" style={gridStyle(calendarLabels.length)}>
+                          {calendarLabels.map((label, i) => (
+                            <div key={`${m.id}-cg-${label}`} className={cn('border-r border-foreground/10', i % 2 === 1 ? 'bg-muted/10' : '')} />
+                          ))}
+                        </div>
+                      ) : null}
+                      {dayTicks.map((t, i) => (
+                        <div
+                          key={`${m.id}-grid-${i}`}
+                          className={`absolute top-0 bottom-0 pointer-events-none ${
+                            t.isMajor ? 'w-[2px] bg-foreground/25 z-[3]' : 'w-px bg-foreground/10'
+                          }`}
+                          style={{ left: t.x }}
+                        />
+                      ))}
                       {m.assignments
                         .filter((a) => (filterUserId ? a.userId === filterUserId : true))
                         .map((a) => {
                         const lo = Math.max(new Date(a.plannedStart).getTime(), rangeStart.getTime())
                         const hi = Math.min(new Date(a.plannedEnd).getTime(), rangeEnd.getTime())
                         if (hi <= lo) return null
-                        const left = dateToX(new Date(lo))
-                        const right = dateToX(new Date(hi))
-                        const w = Math.max(right - left, 3)
+                        const vs = viewStart.getTime()
+                        const lf = Math.max(0, Math.min(1, (lo - vs) / totalMs))
+                        const rf = Math.max(0, Math.min(1, (hi - vs) / totalMs))
+                        const posStyle = useCalendarGrid
+                          ? { left: `${lf * 100}%`, width: `${Math.max(rf - lf, 0.003) * 100}%` }
+                          : (() => {
+                              const left = dateToX(new Date(lo))
+                              const right = dateToX(new Date(hi))
+                              const w = Math.max(right - left, 3)
+                              return { left, width: w }
+                            })()
                         const who = a.user?.name || a.user?.email || 'Unassigned'
                         return (
                           <div
                             key={a.id}
                             className="group absolute top-1 bottom-1 rounded border bg-amber-600/90 border-amber-900 text-white text-[10px] px-1 flex items-center justify-between gap-1 overflow-hidden shadow-sm"
-                            style={{ left, width: w }}
+                            style={posStyle}
                             title={`${a.job.jobNumber} · ${who}`}
                             role="button"
                             tabIndex={0}

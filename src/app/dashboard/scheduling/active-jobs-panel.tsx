@@ -15,9 +15,22 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
+import { cn } from '@/lib/utils'
+import { matchesScheduleYearVisibleRange } from '@/lib/schedule-year-strip'
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 86_400_000
+
+const YEAR_GRID_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
+
+function gridStyle(cols: number) {
+  return {
+    display: 'grid',
+    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    width: '100%',
+    minWidth: 0,
+  } as const
+}
 
 type DeliverableM = { id: string; name: string; dueDate: string; status: string }
 
@@ -56,6 +69,14 @@ function startOfLocalDay(d: Date) {
 function addLocalDays(d: Date, days: number) {
   const x = new Date(d)
   x.setDate(x.getDate() + days)
+  return x
+}
+
+function startOfLocalWeekSunday(d: Date) {
+  const x = new Date(d)
+  const day = x.getDay()
+  x.setDate(x.getDate() - day)
+  x.setHours(0, 0, 0, 0)
   return x
 }
 
@@ -150,37 +171,50 @@ export function ActiveJobsPanel({
   const totalMs = Math.max(viewEnd.getTime() - viewStart.getTime(), HOUR_MS)
   const rangeDays = totalMs / DAY_MS
   const { ref: timelineRef, width: timelineW } = useElementWidth<HTMLDivElement>()
-  // Prevent “everything at x=0” during first paint / resize glitches.
-  const timelineWidth = Math.max(1, timelineW || 1200)
+  // For calendar grid modes (Year/Quarter) we compress time to fit width (no horizontal scroll).
+  const contentWidth = Math.max(1, timelineW || 1200)
 
-  const dateToX = useCallback(
+  const dateToFrac = useCallback(
     (d: Date) => {
-      const t = d.getTime()
-      const frac = (t - viewStart.getTime()) / totalMs
-      return Math.max(0, Math.min(timelineWidth, frac * timelineWidth))
+      const frac = (d.getTime() - viewStart.getTime()) / totalMs
+      return Math.max(0, Math.min(1, frac))
     },
-    [viewStart, totalMs, timelineWidth]
+    [viewStart, totalMs]
   )
+
+  const dateToX = useCallback((d: Date) => dateToFrac(d) * contentWidth, [dateToFrac, contentWidth])
 
   const rowHeight = density === 'comfortable' ? 56 : 40
   const headerH = 44
 
-  const isYearLike = rangePreset === 'year' || rangeDays >= 300 || pixelsPerDay <= 7
-
-  const yearCols = useMemo(() => {
-    if (rangePreset !== 'year') return []
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    const w = timelineWidth / 12
-    return months.map((label, i) => ({
-      left: i * w,
-      width: w,
-      mid: (i + 0.5) * w,
-      label,
-      alt: i % 2 === 1,
-    }))
-  }, [rangePreset, timelineWidth])
+  const calendarLabels = useMemo(() => {
+    if (rangePreset === 'year') return YEAR_GRID_MONTHS
+    if (rangePreset === 'quarter') {
+      const q = Math.floor(viewStart.getMonth() / 3)
+      return YEAR_GRID_MONTHS.slice(q * 3, q * 3 + 3)
+    }
+    if (rangePreset === 'month') {
+      const w0 = startOfLocalWeekSunday(viewStart)
+      return Array.from({ length: 4 }, (_, i) => {
+        const ws = addLocalDays(w0, i * 7)
+        return ws.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      })
+    }
+    if (rangePreset === 'week') {
+      const d0 = new Date(viewStart)
+      return Array.from({ length: 7 }, (_, i) => {
+        const d = addLocalDays(d0, i)
+        return d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' })
+      })
+    }
+    // If user edits From/To but still equals calendar-year bounds, keep the year strip.
+    if (matchesScheduleYearVisibleRange(rangeStart, rangeEnd)) return YEAR_GRID_MONTHS
+    return null
+  }, [rangePreset, viewStart, rangeStart, rangeEnd])
+  const useCalendarGrid = !!calendarLabels
 
   const dayTicks = useMemo(() => {
+    if (useCalendarGrid) return []
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
     const first = startOfLocalDay(viewStart)
@@ -196,10 +230,10 @@ export function ActiveJobsPanel({
       arr.push({ x: dateToX(d), label, isMajor })
     }
     return arr
-  }, [viewStart, viewEnd, dateToX, rangeDays])
+  }, [useCalendarGrid, viewStart, viewEnd, dateToX, rangeDays])
 
   const monthLines = useMemo(() => {
-    if (isYearLike) return []
+    if (useCalendarGrid) return []
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
     const first = startOfLocalMonth(viewStart)
@@ -212,10 +246,10 @@ export function ActiveJobsPanel({
       arr.push({ x: dateToX(m), label: m.toLocaleDateString(undefined, { month: 'short' }) })
     }
     return arr
-  }, [isYearLike, viewStart, viewEnd, dateToX])
+  }, [useCalendarGrid, viewStart, viewEnd, dateToX])
 
   const majorTickLabels = useMemo(() => {
-    if (isYearLike) return []
+    if (useCalendarGrid) return []
     const majors = dayTicks.filter((t) => t.isMajor && t.label)
     const minPx = pixelsPerDay >= 18 ? 72 : pixelsPerDay >= 14 ? 88 : 110
     const kept: typeof majors = []
@@ -227,10 +261,10 @@ export function ActiveJobsPanel({
       }
     }
     return kept
-  }, [dayTicks, isYearLike, pixelsPerDay])
+  }, [dayTicks, useCalendarGrid, pixelsPerDay])
 
   const weekendBands = useMemo(() => {
-    if (isYearLike) return []
+    if (useCalendarGrid) return []
     // Only draw weekend shading for ranges where it helps (week/month/quarter).
     const rs = viewStart.getTime()
     const re = viewEnd.getTime()
@@ -255,44 +289,7 @@ export function ActiveJobsPanel({
       bands.push({ left, width })
     }
     return bands
-  }, [isYearLike, viewStart, viewEnd, rangeDays, dateToX])
-
-  const monthBands = useMemo(() => {
-    if (!isYearLike) return []
-    if (rangePreset === 'year') return yearCols
-    const rs = viewStart.getTime()
-    const re = viewEnd.getTime()
-    const year = mid.getFullYear()
-    const first = rangePreset === 'year' ? new Date(year, 0, 1, 0, 0, 0, 0) : startOfLocalMonth(viewStart)
-    const arr: Array<{ left: number; width: number; mid: number; label: string; alt: boolean }> = []
-    const maxMonths = rangePreset === 'year' ? 12 : 24
-    for (let i = 0; i < maxMonths; i++) {
-      const m0 = addLocalMonths(first, i)
-      const m1 = addLocalMonths(first, i + 1)
-      const a = m0.getTime()
-      const b = m1.getTime()
-      if (b < rs) continue
-      if (a > re) break
-      const lo = Math.max(a, rs)
-      const hi = Math.min(b, re)
-      if (hi <= lo) continue
-      const left = dateToX(new Date(lo))
-      const right = dateToX(new Date(hi))
-      const width = Math.max(right - left, 1)
-      const label = m0.toLocaleDateString(undefined, { month: 'short' })
-      arr.push({ left, width, mid: left + width / 2, label, alt: i % 2 === 1 })
-    }
-    return arr
-  }, [isYearLike, viewStart, viewEnd, dateToX, rangePreset, mid, yearCols])
-
-  const monthLabelPositions = useMemo(() => {
-    if (!isYearLike) return []
-    const pad = 18
-    return monthBands.map((m) => ({
-      ...m,
-      x: Math.max(pad, Math.min(timelineWidth - pad, m.mid)),
-    }))
-  }, [isYearLike, monthBands, timelineWidth])
+  }, [useCalendarGrid, viewStart, viewEnd, rangeDays, dateToX])
 
   const bars = useMemo(() => {
     return jobs.map((j) => {
@@ -302,20 +299,48 @@ export function ActiveJobsPanel({
       const re = rangeEnd.getTime()
       const lo = Math.max(a, rs)
       const hi = Math.min(b, re)
-      if (hi <= lo) return { job: j, left: 0, width: 0, markers: [] as { x: number; label: string }[] }
-      const left = dateToX(new Date(lo))
-      const right = dateToX(new Date(hi))
-      const width = Math.max(right - left, 4)
+      if (hi <= lo) {
+        return {
+          job: j,
+          visible: false as const,
+          left: 0,
+          width: 0,
+          markers: [] as { left: number | string; label: string }[],
+        }
+      }
+
+      const vs = viewStart.getTime()
+      const lf = Math.max(0, Math.min(1, (lo - vs) / totalMs))
+      const rf = Math.max(0, Math.min(1, (hi - vs) / totalMs))
+
       const markers = j.deliverables
         .map((d) => {
           const dt = new Date(d.dueDate).getTime()
           if (dt < rs || dt > re) return null
-          return { x: dateToX(new Date(d.dueDate)), label: d.name }
+          if (useCalendarGrid) {
+            const mf = Math.max(0, Math.min(1, (dt - vs) / totalMs))
+            return { left: `${mf * 100}%`, label: d.name }
+          }
+          return { left: dateToX(new Date(d.dueDate)), label: d.name }
         })
-        .filter(Boolean) as { x: number; label: string }[]
-      return { job: j, left, width, markers }
+        .filter(Boolean) as { left: number | string; label: string }[]
+
+      if (useCalendarGrid) {
+        return {
+          job: j,
+          visible: true as const,
+          left: `${lf * 100}%`,
+          width: `${Math.max(rf - lf, 0.003) * 100}%`,
+          markers,
+        }
+      }
+
+      const left = dateToX(new Date(lo))
+      const right = dateToX(new Date(hi))
+      const width = Math.max(right - left, 4)
+      return { job: j, visible: true as const, left, width, markers }
     })
-  }, [jobs, rangeStart, rangeEnd, dateToX])
+  }, [jobs, rangeStart, rangeEnd, viewStart, totalMs, dateToX, useCalendarGrid])
 
   const saveDates = async () => {
     if (!editJob) return
@@ -374,7 +399,7 @@ export function ActiveJobsPanel({
           ) : jobs.length === 0 ? (
             <div className="text-sm text-muted-foreground py-10 text-center">No active jobs found.</div>
           ) : (
-            <div className="flex rounded-lg border bg-card overflow-hidden">
+            <div className="flex rounded-lg border bg-card">
               <div className={`shrink-0 border-r bg-muted/40 ${density === 'comfortable' ? 'w-[26rem] min-w-[26rem]' : 'w-80 min-w-[20rem]'}`}>
                 <div className="h-11 min-h-[44px] border-b flex items-center px-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                   Job
@@ -404,21 +429,30 @@ export function ActiveJobsPanel({
                   </div>
                 ))}
               </div>
-              <div className="flex-1 overflow-x-hidden">
-                <div ref={timelineRef} className="relative w-full">
+              <div className="flex-1 min-w-0 overflow-x-hidden">
+                <div ref={timelineRef} className="relative w-full min-w-0">
                   <div
-                    className="relative border-b bg-muted/20 h-11 text-[10px] text-muted-foreground"
-                    style={{ width: '100%' }}
+                    className={
+                      useCalendarGrid
+                        ? 'border-b bg-muted/20 h-11 text-[10px] text-muted-foreground [&>*]:min-w-0'
+                        : 'relative border-b bg-muted/20 h-11 text-[10px] text-muted-foreground w-full min-w-0'
+                    }
+                    style={useCalendarGrid && calendarLabels ? gridStyle(calendarLabels.length) : { width: '100%' }}
                   >
-                    {isYearLike
-                      ? monthBands.map((m, i) => (
-                          <div key={`mb-h-${i}`} className="absolute top-0 bottom-0 pointer-events-none" style={{ left: m.left, width: m.width }}>
-                            <div className={`absolute inset-0 ${m.alt ? 'bg-muted/30' : 'bg-transparent'}`} />
-                            <div className="absolute top-0 bottom-0 left-0 w-[2px] bg-foreground/35" />
-                            <div className="absolute top-0 bottom-0 right-0 w-[2px] bg-foreground/20" />
+                    {useCalendarGrid && calendarLabels
+                      ? calendarLabels.map((label, i) => (
+                          <div
+                            key={label}
+                            className={cn(
+                              'relative flex items-start justify-center pt-1 border-r border-foreground/20',
+                              i % 2 === 1 ? 'bg-muted/30' : ''
+                            )}
+                          >
+                            <span className="font-medium whitespace-nowrap">{label}</span>
                           </div>
                         ))
-                      : dayTicks.map((t, i) => (
+                      : null}
+                    {dayTicks.map((t, i) => (
                           <div
                             key={`tick-${i}`}
                             className={`absolute top-0 bottom-0 w-px pointer-events-none ${
@@ -427,28 +461,14 @@ export function ActiveJobsPanel({
                             style={{ left: t.x }}
                           />
                         ))}
-                    {!isYearLike
-                      ? monthLines.map((m, i) => (
+                    {monthLines.map((m, i) => (
                           <div
                             key={`mline-h-${i}`}
                             className="absolute top-0 bottom-0 w-[2px] bg-foreground/30 pointer-events-none z-[4]"
                             style={{ left: m.x }}
                           />
-                        ))
-                      : null}
-                    {isYearLike
-                      ? monthLabelPositions.map((m, i) => (
-                          <div
-                            key={`mb-lbl-${i}`}
-                            className="absolute top-1 text-[10px] font-medium text-muted-foreground whitespace-nowrap pointer-events-none"
-                            style={{ left: m.x, transform: 'translateX(-50%)' }}
-                          >
-                            {m.label}
-                          </div>
-                        ))
-                      : null}
-                    {!isYearLike
-                      ? majorTickLabels.map((t, i) => (
+                        ))}
+                    {majorTickLabels.map((t, i) => (
                           <div
                             key={`ticklbl-${i}`}
                             className="absolute top-1 text-[10px] text-muted-foreground whitespace-nowrap pointer-events-none"
@@ -456,8 +476,7 @@ export function ActiveJobsPanel({
                           >
                             {t.label}
                           </div>
-                        ))
-                      : null}
+                        ))}
                   </div>
                   {bars.map((b) => (
                     <div
@@ -465,33 +484,28 @@ export function ActiveJobsPanel({
                       className="relative border-b bg-background"
                       style={{ height: rowHeight, width: '100%' }}
                     >
-                      {!isYearLike
-                        ? weekendBands.map((w, i) => (
+                      {weekendBands.map((w, i) => (
                             <div
                               key={`${b.job.id}-wknd-${i}`}
                               className="absolute top-0 bottom-0 bg-muted/20 pointer-events-none"
                               style={{ left: w.left, width: w.width }}
                             />
-                          ))
-                        : null}
-                      {!isYearLike
-                        ? monthLines.map((m, i) => (
+                          ))}
+                      {monthLines.map((m, i) => (
                             <div
                               key={`${b.job.id}-mline-${i}`}
                               className="absolute top-0 bottom-0 w-[2px] bg-foreground/30 pointer-events-none z-[4]"
                               style={{ left: m.x }}
                             />
-                          ))
-                        : null}
-                      {isYearLike
-                        ? monthBands.map((m, i) => (
-                            <div key={`${b.job.id}-mb-${i}`} className="absolute top-0 bottom-0 pointer-events-none" style={{ left: m.left, width: m.width }}>
-                              <div className={`absolute inset-0 ${m.alt ? 'bg-muted/10' : 'bg-transparent'}`} />
-                              <div className="absolute top-0 bottom-0 left-0 w-[2px] bg-foreground/20" />
-                              <div className="absolute top-0 bottom-0 right-0 w-[2px] bg-foreground/10" />
-                            </div>
-                          ))
-                        : dayTicks.map((t, i) => (
+                          ))}
+                      {useCalendarGrid && calendarLabels ? (
+                        <div className="absolute inset-0 z-0 pointer-events-none [&>*]:min-w-0" style={gridStyle(calendarLabels.length)}>
+                          {calendarLabels.map((label, i) => (
+                            <div key={`${b.job.id}-cg-${label}`} className={cn('border-r border-foreground/10', i % 2 === 1 ? 'bg-muted/10' : '')} />
+                          ))}
+                        </div>
+                      ) : null}
+                      {dayTicks.map((t, i) => (
                             <div
                               key={`${b.job.id}-grid-${i}`}
                               className={`absolute top-0 bottom-0 pointer-events-none ${
@@ -504,11 +518,11 @@ export function ActiveJobsPanel({
                         <div
                           key={`${b.job.id}-m-${i}`}
                           className="absolute top-0 bottom-0 z-[2] w-px bg-violet-500 pointer-events-none"
-                          style={{ left: m.x }}
+                          style={{ left: m.left }}
                           title={`${m.label} (due)`}
                         />
                       ))}
-                      {b.width > 0 ? (
+                      {b.visible ? (
                         <Link
                           href={`/dashboard/jobs/${b.job.id}`}
                           className="absolute top-1.5 bottom-1.5 rounded-md bg-sky-600/90 border border-sky-800 text-left text-white px-2 text-[11px] shadow-sm hover:bg-sky-600 z-[1] min-w-[4px] flex items-center"
